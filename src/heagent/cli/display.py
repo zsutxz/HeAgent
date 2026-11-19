@@ -254,13 +254,6 @@ def _emit(text: str, line_state: _LineState) -> None:
 def _print_stream_event(event: StreamEvent, line_state: _LineState) -> None:
     if event.type == "text":
         _emit(event.text, line_state)
-    elif event.type == "tool_call":
-        # 自成一行：紧跟其后的可能是模型继续输出的文本，行尾不留悬挂内容。
-        # 标签拼接走 activity_label，与状态行 / GUI / 活动台账同一口径；排版按列宽裁成单行
-        # （全文已在日志 ``tool_call_started target=`` 里，终端折行只会留下重复残片）。
-        label = activity_label(event.tool_name, event.tool_target)
-        line = format_activity_line(label, columns=stream_columns(sys.stdout))
-        _emit(f"{_line_prefix(line_state)}{line}\n", line_state)
     elif event.type == "tool_result" and event.tool_error:
         # 成功不逐条回显：批次是并发执行的，N 个结果会在同一刻到达，逐条 [done]
         # 只会挤成一串无主语的标记；失败必须归因到具体调用，故单独提示。

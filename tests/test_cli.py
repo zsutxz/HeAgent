@@ -495,9 +495,10 @@ class TestModelCommandOutput:
 
 
 class TestToolActivityDisplay:
-    """``_print_stream_event``：流式工具提示行（调用行带目标，失败结果单独归因）。"""
+    """``_print_stream_event``：流式工具提示（开始行已取消，仅失败归因单独提示）。"""
 
-    def test_renders_target(self, capsys) -> None:
+    def test_tool_call_is_silent(self, capsys) -> None:
+        """tool_call 事件静默：进度可见性由完成行（``cli/progress.py``）独占。"""
         from heagent.cli.display import _LineState, _print_stream_event
         from heagent.pub.types import StreamEvent
 
@@ -507,81 +508,15 @@ class TestToolActivityDisplay:
             state,
         )
 
-        assert capsys.readouterr().out == "[calling file_read → docs/frame.md]\n"
+        assert capsys.readouterr().out == ""
         assert state.at_line_start is True
 
-    def test_long_shell_command_is_rendered_in_full(self, capsys) -> None:
-        """宽度够时 shell 命令在提示行显示全文——截断会让「跑了什么」不可判断。"""
-        from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.tools.call_summary import summarize_tool_call
+    def test_progress_label_degrades_without_target(self) -> None:
+        """无目标摘要（无参工具）时进度标签退化为纯工具名，不出现悬空箭头。"""
+        from heagent.cli.display import tool_progress_label
         from heagent.pub.types import StreamEvent
 
-        command = "cd /d E:\\AI\\HeAgent && git diff src/heagent/agent/loop.py"
-        _print_stream_event(
-            StreamEvent(
-                type="tool_call",
-                tool_name="shell",
-                tool_target=summarize_tool_call("shell", {"command": command}),
-            ),
-            _LineState(),
-        )
-
-        assert capsys.readouterr().out == f"[calling shell → {command}]\n"
-
-    def test_overlong_shell_command_is_clipped_to_one_row(self, capsys, monkeypatch) -> None:
-        """终端装不下时裁成**单行**：折行会在粘贴 / 回看时堆出多份同样的残片。"""
-        from heagent.cli import display
-        from heagent.tools.call_summary import summarize_tool_call
-        from heagent.pub.types import StreamEvent
-
-        monkeypatch.setattr(display, "stream_columns", lambda stream=None: 60)
-        command = "cd /workspace && pytest " + "x" * 300
-        display._print_stream_event(
-            StreamEvent(
-                type="tool_call",
-                tool_name="shell",
-                tool_target=summarize_tool_call("shell", {"command": command}),
-            ),
-            display._LineState(),
-        )
-
-        out = capsys.readouterr().out
-        assert out.count("\n") == 1
-        line = out.rstrip("\n")
-        assert display.display_width(line) <= 60
-        assert line.startswith("[calling shell → cd /workspace && pytest ")
-        assert line.endswith("…]")
-
-    def test_cjk_command_is_clipped_by_display_columns(self, capsys, monkeypatch) -> None:
-        """中文命令按**显示列**裁：按码位裁会少算一倍宽度，超宽后照样折行。"""
-        from heagent.cli import display
-        from heagent.tools.call_summary import summarize_tool_call
-        from heagent.pub.types import StreamEvent
-
-        monkeypatch.setattr(display, "stream_columns", lambda stream=None: 40)
-        command = "echo " + "重复显示" * 20
-        display._print_stream_event(
-            StreamEvent(
-                type="tool_call",
-                tool_name="shell",
-                tool_target=summarize_tool_call("shell", {"command": command}),
-            ),
-            display._LineState(),
-        )
-
-        line = capsys.readouterr().out.rstrip("\n")
-        assert display.display_width(line) <= 40
-        assert len(line) < display.display_width(line)  # 含宽字符
-        assert line.endswith("…]")
-
-    def test_degrades_without_target(self, capsys) -> None:
-        """无摘要（无参工具）时保持旧形态，不出现悬空箭头。"""
-        from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.pub.types import StreamEvent
-
-        _print_stream_event(StreamEvent(type="tool_call", tool_name="task_status"), _LineState())
-
-        assert capsys.readouterr().out == "[calling task_status]\n"
+        assert tool_progress_label(StreamEvent(type="tool_call", tool_name="task_status")) == "task_status"
 
     def test_successful_result_stays_silent(self, capsys) -> None:
         """成功结果不逐条回显（并发批次会挤成一串无主语标记）。"""
@@ -606,6 +541,49 @@ class TestToolActivityDisplay:
         )
 
         assert capsys.readouterr().out == "[failed shell]\n"
+
+
+class TestActivityLineFormat:
+    """``format_activity_line``：进度行唯一排版实现，开始行取消后排版契约不变。"""
+
+    def test_long_shell_command_is_rendered_in_full(self) -> None:
+        """宽度够时 shell 命令在进度行显示全文——截断会让「跑了什么」不可判断。"""
+        from heagent.cli import display
+        from heagent.tools.call_summary import activity_label, summarize_tool_call
+
+        command = "cd /d E:\\AI\\HeAgent && git diff src/heagent/agent/loop.py"
+        label = activity_label("shell", summarize_tool_call("shell", {"command": command}))
+        line = display.format_activity_line(label, columns=200)
+
+        assert command in line
+        assert line.startswith("[calling shell → ")
+        assert line.endswith("]")
+
+    def test_overlong_shell_command_is_clipped_to_one_row(self) -> None:
+        """终端装不下时裁成**单行**：折行会在粘贴 / 回看时堆出多份同样的残片。"""
+        from heagent.cli import display
+        from heagent.tools.call_summary import activity_label, summarize_tool_call
+
+        command = "cd /workspace && pytest " + "x" * 300
+        label = activity_label("shell", summarize_tool_call("shell", {"command": command}))
+        line = display.format_activity_line(label, columns=60)
+
+        assert display.display_width(line) <= 60
+        assert line.endswith("…]")
+        assert line.count("\n") == 0
+
+    def test_cjk_command_is_clipped_by_display_columns(self) -> None:
+        """中文命令按**显示列**裁：按码位裁会少算一倍宽度，超宽后照样折行。"""
+        from heagent.cli import display
+        from heagent.tools.call_summary import activity_label, summarize_tool_call
+
+        command = "echo " + "重复显示" * 20
+        label = activity_label("shell", summarize_tool_call("shell", {"command": command}))
+        line = display.format_activity_line(label, columns=40)
+
+        assert display.display_width(line) <= 40
+        assert len(line) < display.display_width(line)  # 含宽字符
+        assert line.endswith("…]")
 
 
 class TestToolActivityStatusLine:
