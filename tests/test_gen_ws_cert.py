@@ -147,7 +147,16 @@ def test_apply_issues_a_chain_that_verifies_and_honours_days(tmp_path: Path) -> 
         ["--out-dir", str(out_dir), "--openssl", binary, "--no-lan", "--san", "192.168.1.23", "--days", "30", "--apply"]
     )
     assert rc == 0
-    for name in ("ca.pem", "ca.key", "ca.srl", "cert.pem", "key.pem", "cert-chain.pem", "openssl-leaf.cnf"):
+    for name in (
+        "ca.pem",
+        "ca.key",
+        "ca.srl",
+        "identity.key",
+        "cert.pem",
+        "key.pem",
+        "cert-chain.pem",
+        "openssl-leaf.cnf",
+    ):
         assert (out_dir / name).is_file(), name
 
     assert _run(binary, ["verify", "-CAfile", "ca.pem", "cert.pem"], out_dir).returncode == 0
@@ -218,3 +227,46 @@ def test_ca_key_is_not_world_readable(tmp_path: Path) -> None:
     assert gen.main(["--out-dir", str(out_dir), "--openssl", binary, "--no-lan", "--apply"]) == 0
     for name in ("ca.key", "key.pem"):
         assert (out_dir / name).stat().st_mode & 0o077 == 0, name
+
+
+# ---------------------------------------------------------------- 身份密钥（安装期信任的地基）
+
+
+def test_reissue_reuses_the_identity_key_so_the_pin_survives(tmp_path: Path) -> None:
+    """重签只换有效期 / SAN：公钥不变 ⇒ 客户端 pin（SPKI-SHA256）不变。"""
+    from heagent.network.tls_identity import cert_key_matches, key_spki_der, spki_sha256, spki_sha256_of_der
+
+    binary = _openssl()
+    out_dir = tmp_path / "tls"
+    args = ["--out-dir", str(out_dir), "--openssl", binary, "--no-lan", "--apply"]
+    assert gen.main(args) == 0
+    identity = (out_dir / "identity.key").read_bytes()
+    first = spki_sha256(out_dir / "cert.pem")
+    assert first == spki_sha256_of_der(key_spki_der(out_dir / "identity.key"))
+
+    assert gen.main([*args, "--days", "45"]) == 0
+    assert spki_sha256(out_dir / "cert.pem") == first, "重签不得换公钥（否则 pin 每 30 天失效）"
+    assert (out_dir / "identity.key").read_bytes() == identity, "身份密钥不得被重签悄悄替换"
+    # .env 指向的 key.pem 保持是同一把钥匙的副本：换密钥不必改配置。
+    assert (out_dir / "key.pem").read_bytes() == identity
+    assert cert_key_matches(out_dir / "cert.pem", out_dir / "key.pem") is True
+
+
+def test_rotate_key_changes_the_pin_and_keeps_the_ca(tmp_path: Path) -> None:
+    """``--rotate-key`` 是唯一会改变 pin 的动作；CA 不动，叶证书仍由同一 CA 签发。"""
+    from heagent.network.tls_identity import cert_key_matches, spki_sha256
+
+    binary = _openssl()
+    out_dir = tmp_path / "tls"
+    args = ["--out-dir", str(out_dir), "--openssl", binary, "--no-lan", "--apply"]
+    assert gen.main(args) == 0
+    first_pin = spki_sha256(out_dir / "cert.pem")
+    first_ca = _read(binary, out_dir, "x509", "-in", "ca.pem", "-noout", "-fingerprint", "-sha256")
+    first_identity = (out_dir / "identity.key").read_bytes()
+
+    assert gen.main([*args, "--rotate-key"]) == 0
+    assert spki_sha256(out_dir / "cert.pem") != first_pin, "轮换身份密钥必须改变 pin"
+    assert (out_dir / "identity.key").read_bytes() != first_identity
+    assert _read(binary, out_dir, "x509", "-in", "ca.pem", "-noout", "-fingerprint", "-sha256") == first_ca
+    assert cert_key_matches(out_dir / "cert.pem", out_dir / "key.pem") is True
+    assert _run(binary, ["verify", "-CAfile", "ca.pem", "cert.pem"], out_dir).returncode == 0

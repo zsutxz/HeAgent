@@ -3,7 +3,7 @@ title: 'Story 73.1 身份密钥与叶证书分离（SPKI 稳定）'
 type: feature
 ticket: 1
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto

@@ -1,0 +1,22 @@
+[ req ]
+default_md = sha256
+distinguished_name = dn
+prompt = no
+req_extensions = v3_req
+
+[ dn ]
+CN = heagent-ws-test
+
+[ v3_req ]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+IP.1 = 127.0.0.1
+IP.2 = ::1
+IP.3 = 192.168.2.226
+DNS.1 = localhost
+DNS.2 = heagent.local
+DNS.3 = *.lab.local

@@ -7,7 +7,11 @@
 产物（默认落在 ``.heagent/tls/``，仓库 .gitignore 已忽略）：
 
   ca.pem / ca.key        本地 CA（默认 10 年）。**只把 ca.pem 分发给客户端**，ca.key 永不外发。
-  cert.pem / key.pem     叶证书与私钥（默认 30 天）。`.env` 的 WS_TLS_CERT_FILE / WS_TLS_KEY_FILE 指向它。
+  identity.key           **长期身份密钥**（首次生成后不再自动变）：重签叶证书复用它，因此证书里的
+                         公钥恒定、SPKI-SHA256 可作客户端长期 pin（ADR-004「安装期信任」）。
+                         只有 ``--rotate-key`` 才换它——换它 = 换 pin，客户端要重发安装包。
+  cert.pem / key.pem     叶证书与私钥（默认 30 天）。`.env` 的 WS_TLS_CERT_FILE / WS_TLS_KEY_FILE 指向它；
+                         ``key.pem`` 是 ``identity.key`` 的副本（路径沿用，换密钥不必改 .env）。
   cert-chain.pem         叶 + CA 拼接（客户端要求发链时用）。
   openssl-leaf.cnf       由本脚本生成的 SAN / 用途声明——改 SAN 请改命令行参数，不要手改此文件。
   ca.srl                 签发序列号。**轮换时不要删**。
@@ -23,6 +27,10 @@
   .venv\\Scripts\\python.exe scripts\\gen_ws_cert.py --apply --san 192.168.1.23
   .venv\\Scripts\\python.exe scripts\\gen_ws_cert.py --apply --days 90 --san heagent.lan
   .venv\\Scripts\\python.exe scripts\\gen_ws_cert.py --apply --new-ca      # 重建 CA（客户端要重新信任）
+  .venv\\Scripts\\python.exe scripts\\gen_ws_cert.py --apply --rotate-key  # 轮换身份密钥（pin 会变）
+
+日常签发与轮换请优先用 ``heagent tls``（``init`` / ``issue`` / ``rotate-key`` / ``fingerprint`` /
+``verify``）：那是同一套材料的唯一入口，并会打印客户端该 pin 的指纹。本脚本保留为迁移期的薄包装。
 
 写完重启 heagent 才生效（证书在 listener 启动时加载一次）。
 """
@@ -241,10 +249,21 @@ def create_ca(binary: str, out_dir: Path, ca_days: int) -> None:
     )
 
 
-def issue_leaf(binary: str, out_dir: Path, days: int, config_name: str) -> None:
-    """重签叶证书。``-CAcreateserial`` 复用已有的 ca.srl，序列号只增不复用。"""
-    run_openssl(binary, ["genrsa", "-out", "key.pem", "2048"], cwd=out_dir)
-    run_openssl(binary, ["req", "-new", "-key", "key.pem", "-config", config_name, "-out", "leaf.csr"], cwd=out_dir)
+def issue_leaf(binary: str, out_dir: Path, days: int, config_name: str, *, rotate_key: bool = False) -> None:
+    """重签叶证书，**复用长期身份密钥**。``-CAcreateserial`` 复用已有的 ca.srl，序列号只增不复用。
+
+    复用是「安装期信任」的全部地基：``identity.key`` 不变 ⇒ 证书里的 SubjectPublicKeyInfo 不变 ⇒
+    客户端 pin 的 SPKI-SHA256 不变，30 天轮换只换有效期与 SAN。``rotate_key=True`` 是唯一会改变
+    pin 的动作（调用方必须显式要求）。
+    """
+    identity = out_dir / "identity.key"
+    if rotate_key or not identity.is_file():
+        run_openssl(binary, ["genrsa", "-out", "identity.key", "2048"], cwd=out_dir)
+    # .env 的 WS_TLS_KEY_FILE 指向 key.pem：保持这个路径有效，等于「换密钥不必改配置」。
+    shutil.copy2(identity, out_dir / "key.pem")
+    run_openssl(
+        binary, ["req", "-new", "-key", "identity.key", "-config", config_name, "-out", "leaf.csr"], cwd=out_dir
+    )
     run_openssl(
         binary,
         [
@@ -300,7 +319,16 @@ def tighten_key_permissions(path: Path) -> None:
 
 def backup_materials(out_dir: Path) -> Path | None:
     """把已有材料整体拷到 ``backup-<stamp>/``；没有可备份的返回 None。"""
-    names = ("ca.pem", "ca.key", "cert.pem", "key.pem", "cert-chain.pem", "openssl-leaf.cnf", "ca.srl")
+    names = (
+        "ca.pem",
+        "ca.key",
+        "identity.key",
+        "cert.pem",
+        "key.pem",
+        "cert-chain.pem",
+        "openssl-leaf.cnf",
+        "ca.srl",
+    )
     existing = [name for name in names if (out_dir / name).is_file()]
     if not existing:
         return None
@@ -356,6 +384,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--san", action="append", default=[], help="追加 SAN 项（可重复；IP 或主机名）")
     parser.add_argument("--no-lan", action="store_true", help="不自动探测本机局域网 IP")
     parser.add_argument("--new-ca", action="store_true", help="重建 CA（客户端必须重新信任新 CA）")
+    parser.add_argument(
+        "--rotate-key",
+        action="store_true",
+        help="轮换长期身份密钥（**会改变客户端 pin**，需要重发安装包；日常重签不要加）",
+    )
     parser.add_argument("--openssl", default=None, help="openssl 可执行文件路径（缺省查 PATH 与常见安装位置）")
     parser.add_argument("--apply", action="store_true", help="真正写入（缺省只打印计划，不动文件）")
     args = parser.parse_args(argv)
@@ -379,6 +412,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"落点     : {out_dir.resolve()}")
     print(f"CA       : {'重建（客户端需重新信任）' if make_ca else '沿用现有'}，{args.ca_days} 天")
     print(f"叶证书   : {args.days} 天")
+    if args.rotate_key:
+        print("身份密钥 : **轮换**（客户端 pin 会变，需重发安装包）")
+    else:
+        print("身份密钥 : 沿用（重签只换有效期与 SAN，pin 不变）")
     print("SAN      :")
     for entry in san_entries:
         print(f"  {entry}")
@@ -398,8 +435,9 @@ def main(argv: list[str] | None = None) -> int:
             create_ca(binary, out_dir, args.ca_days)
         config_name = "openssl-leaf.cnf"
         write_text_lf(out_dir / config_name, render_leaf_config(san_entries))
-        issue_leaf(binary, out_dir, args.days, config_name)
+        issue_leaf(binary, out_dir, args.days, config_name, rotate_key=args.rotate_key)
         tighten_key_permissions(out_dir / "key.pem")
+        tighten_key_permissions(out_dir / "identity.key")
         tighten_key_permissions(out_dir / "ca.key")
         verified = verify_chain(binary, out_dir)
         described = describe_materials(binary, out_dir)

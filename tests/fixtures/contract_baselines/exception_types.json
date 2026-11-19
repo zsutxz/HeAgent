@@ -789,6 +789,20 @@
       "name": "ProcessStats"
     },
     {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.tls_identity",
+      "name": "TlsCertificateInfo"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.network.tls_identity",
+      "name": "TlsIdentityError"
+    },
+    {
       "bases": [],
       "module": "heagent.network.ws_auth",
       "name": "AuthThrottle"

@@ -1763,7 +1763,8 @@ src/heagent/
 │   ├── notification_hub.py  # cron 结果通知流（EventStreamHub 薄适配：一次执行一条 + NotificationPayload）
 │   ├── http_console_protocol.py  # 网页控制台协议模型：项目/会话/配置面板与写通道的请求-响应契约（Epic 50）
 │   ├── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
-│   └── proc_stats.py        # 本进程资源采样：Linux /proc、Windows ctypes（零第三方依赖，不可得即 null；Story 71.4）
+│   ├── proc_stats.py        # 本进程资源采样：Linux /proc、Windows ctypes（零第三方依赖，不可得即 null；Story 71.4）
+│   └── tls_identity.py      # TLS 身份解析（纯 stdlib ASN.1 遍历）：SPKI 指纹 / 短指纹 / 有效期 / SAN / 证书与身份密钥配对（Story 73.1）
 │
 ├── goal/                    # /goal 域层（入口层，供 cli/goal 使用，下层不得反向导入）
 │   ├── application.py       # workflow use-case 确定性内核（story 选择/checkpoint 恢复/推进；click-free，Phase 3）
