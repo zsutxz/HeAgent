@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**17 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 13：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73 / A75）。
+当前活动项：**18 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 14：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73 / A75 / A76）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -31,9 +31,11 @@
 | A73 | web_search 边际观察批（装配校验 / 文案 / 钳位协议 / 空结果 / 异常类型张力） | `active` | **origin=新增（2026-11-19 Epic 61 retro deferred 批升台账）**。五条同族、单独立项会造噪声：[C4] 装配点引擎名校验 fail-loud（错名穿越启动、dream 中段才爆）；[C5] `WEB_SEARCH_ENGINE` 组理由文案失真（挂 outbound_redirect「准外泄通道」）；[A11] 双层钳位 `[1,10]`/`[1,20]` 分工无契约文字；[E7] 空白字段条目误报「（无检索结果）」；[A5] 工具面 `RuntimeError` vs 引擎 `ToolError` 张力（用户裁定维持惯例，第二引擎或程序化调用方出现时再议）。触发条件 = 第二引擎出现 / 控制台文案批 / 真实误配案例；闭合动作 = 按括号内条目逐项处置，处置完本行移入 `retrospective-all-cycles.md` §三 |
 
 | A75 | Epic 72 第一步宿主真机对账未实测 | `active` | **origin=新增（2026-11-19 Epic 72 retro）**。本机 `.env` 已落地（`WS_HOST=192.168.2.226` + `WS_LAN_NO_AUTH=true`，TLS 停用），容器内以私网 `172.17.0.3` 出同型证据（`9201` OPEN / `9301` REFUSED / 无 token `ping` → `ack` / 同 listener 坏 `Host` 被拒）；但**宿主真机**两项从未跑过：① `netstat -ano` 过滤 `:9201` 后的本地地址（判据：恰为 `192.168.2.226:9201`，无 `0.0.0.0:9201` / `127.0.0.1:9201` / `9301`）；② 客户端 `ws://192.168.2.226:9201` 的三处对账（界面「已连接 + 服务器版本」、`adb logcat -s AIHome` 的 `WEBSOCKET_OPENED` / `PUSH_CONNECTED`、服务端 `ws [accepted]`）。触发条件 = 用户在宿主执行一次；闭合动作 = 原始 `netstat` 行与探针输出写进 `initiative-heagent/tickets/epic-72-ws-lan-plaintext/tickets/story-72.5-landing-and-e2e-plan.md` 的 Evidence |
+| A76 | Epic 73 第二步：宿主真机与客户端 pin 未实测（`.env` 姿态切换待裁决） | `active` | **origin=新增（2026-11-19 Epic 73）**。容器内已端到端取证 16/16（`ca.pem` 作锚 + 主机名校验、无/错 token 各 403、对 token 101、提交 run + 订阅 + cancel 收终态、`/api/status` 的 `tls` 与 `heagent tls fingerprint` 逐字一致、`wss + WS_LAN_NO_AUTH` 拒绝启动），但三件事本仓做不到：① 宿主真机（Windows，无 openssl）签发与 `netstat` 对账从未跑过；② 客户端 `aihome-client` 的 `X509TrustManager` 只认 pin 属另一仓，本仓只出契约与错误码；③ 生产姿态切换（`.env` 置 `WS_TLS_*` + `WS_LAN_NO_AUTH=false` + `WS_AUTH_TOKEN`）会让尚未支持 pin 的客户端立刻断连 ⇒ 待用户裁决。触发条件 = 客户端就绪或用户决定切换；闭合动作 = 宿主 `heagent tls init --force` → `issue --san 192.168.2.226` → `verify` + 真实握手与客户端三处对账，原始输出写进 `initiative-heagent/tickets/epic-73-ws-tls-install-trust/tickets/story-73.6-e2e-and-posture-sync-plan.md` 的 Evidence |
+
 ### 速读（按行动姿态分组）
 
-- **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）、A75（用户在宿主真机跑一次 `netstat` 与客户端三处对账）
+- **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）、A75（用户在宿主真机跑一次 `netstat` 与客户端三处对账）、A76（客户端 pin 就绪后再切 wss + token 生产姿态）
 - **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A59（缓存配置键 + 命中率出口）、A62（CLI 写盘留痕）、A66（依赖锁口径 + 审计白名单）、A67（devcontainer 实测回填）、A69（池内异模型缓存收益）、A70（技能指纹内容哈希）、A71（框架码只增快照）、A72（入口异常收窄）、A73（web_search 边际观察批）
 - **等用户裁定 / 恢复**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）、A65（用户裁定暂停 Pages 发布，恢复条件已写明）、A68（release 失败推送是否引入 secret）
 

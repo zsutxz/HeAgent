@@ -27,9 +27,9 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 17 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 18 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
-- 🔜 **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 立项，未开工）**：6 entry 全 `ready-for-dev`，串行链 73.1 → 73.2 → 73.3/73.4 → 73.5 → 73.6。信任锚 = 服务端身份公钥 **SPKI pin**（ADR-004 / `decisions/adr-ws-tls-install-time-trust.md`）：叶证书重签**复用身份密钥**（pin 不随 30 天轮换失效）、`heagent tls {init,issue,rotate-key,fingerprint,verify}` 收成唯一签发入口、启动与 `doctor` 三条自检（到期 / SAN 漂移 / cert 与 key 不配对）、`/api/status` 暴露短指纹、wss + token 落地与安全口径同步。客户端（`aihome-client`）pin 内置与握手校验不在本 epic，只定契约与稳定错误码。需求真源 `docs/tls-connect-guide.md`「第二步」节（gitignored，决策正文以 ADR-004 为准）。
+- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`（`eeef5d77` / `29461084` / `ff68e476` / `95b16c5b` / `4a82b276` / `2f1e8ff4`），串行链 73.1 → 73.2 → 73.3/73.4（并行）→ 73.5 → 73.6。信任锚 = 服务端身份公钥 **SPKI pin**（ADR-004 / `decisions/adr-ws-tls-install-time-trust.md`）：叶证书重签**复用身份密钥**（pin 不随 30 天轮换失效）、`heagent tls {init,issue,rotate-key,fingerprint,verify}` 收成唯一签发入口、启动与 `doctor` 三条自检（到期 / SAN 漂移 / cert 与 key 不配对）、`/api/status` 暴露短指纹、wss + token 落地与安全口径同步。客户端（`aihome-client`）pin 内置与握手校验不在本 epic，只定契约与稳定错误码。门禁：全量 `pytest` 5610 passed / 0 failed、ruff/format/mypy/bandit/mkdocs strict 全绿。残差两项挂 A76（宿主真机与 `.env` 姿态切换待裁决；客户端 pin 实现在另一仓）。需求真源 `docs/tls-connect-guide.md`「第二步」节（gitignored，决策正文以 ADR-004 为准）。
 - ✅ **Epic 72 WS 内网明文接入（第一步，2026-11-19 交付）**：5/5 `done`——72.1 `lan` 监听身份（非回环 + 显式 `WS_LAN_NO_AUTH` 免 token，三条准入 fail-loud、Host/Origin 防线保留、每次启动一条 WARNING）、72.2 第二 listener 退役（`WS_EXTERNAL_*` 五键 + `--ws-external-*` 三选项 + `9301` + `setup_ws_external.py` 全删，残留键由 `doctor.retired_key` 提示）、72.3 自检与排障面（doctor 三条 `ws_lan_*` findings + 启动公告三档 + faq/errors 改写）、72.4 安全口径同步（§4.19 要素 3/4/5 双档化，AGENTS/CLAUDE/deploy/.env.example/CHANGELOG 同批，守卫短语集加 `WS_LAN_NO_AUTH`）、72.5 `.env` 落地（`WS_HOST=192.168.2.226` + 免认证、TLS 停用）与容器内端到端取证。门禁：全量 `pytest` 5470 passed / 0 failed、ruff/format/mypy/bandit/mkdocs strict 全绿。未覆盖：客户端（`aihome-client`）6 处改动与第二步（`wss://` + token）不在本 epic。**retro `accepted-with-open-items`** 落 `initiative-heagent/tickets/epic-72-ws-lan-plaintext/epic-72-ws-lan-plaintext-retrospective.md`（2026-11-19 补做，复跑门禁全绿）。残差两项：宿主真机 `netstat` 对账待用户执行；需求真源 `docs/tls-connect-guide.md` 系 gitignored 本地资料，其状态行仍写「第一步未实施」且不在 mkdocs nav（strict 只给 INFO），建议就地改状态行、nav 维持不登记。
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release 路径（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仅 `ci.yml` + `codeql.yml`，release 是 `ci.yml` 内的 job 而非独立 workflow —— **2026-11-18 Epic 65 勘差确认该 job 已具备 build / twine check / OIDC 发布 / 多架构推送 / 审批门 + 失败摘要**，本条收敛为「首次真实 tag 发布待触发」）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
@@ -52,7 +52,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（17 条——A34/A41/A54/A55/A56/A59/A62/A65–A73、A75，**索引**）
+#### A. 活动台账未闭合条目（18 条——A34/A41/A54/A55/A56/A59/A62/A65–A73、A75/A76，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。
