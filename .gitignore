@@ -60,6 +60,8 @@ docs/news.md
 /docs/test.md
 docs/worldcup_prediction.md
 docs/claude-updater/
+# 客户端接入指南（Epic 72 需求来源）：本地资料，随客户端侧改动更新，不作为仓库当前事实文档
+docs/tls-connect-guide.md
 
 # BMad (bmad-method installer artifacts)
 uv.lock
