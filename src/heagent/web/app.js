@@ -41,6 +41,9 @@
   // 「忙」状态：这些状态下禁止重复提交（服务端也会回 run_conflict）。
   const BUSY_STATES = new Set(["starting", "running", "cancelling", "reconnecting"]);
 
+  // 运行终态：进入这些状态后进程会话快照会变（run_id / 消息数），因此补拉一次 #session-snapshot。
+  const TERMINAL_RUN_STATES = new Set(["done", "failed", "disconnected"]);
+
   // 来源徽标（与 network.http_console_protocol.ConfigSourceValue 的取值一一对应）。
   const SOURCE_TEXT = {
     default: "默认值",
@@ -103,6 +106,8 @@
 
   const el = {
     service: document.getElementById("service-status"),
+    serviceMeta: document.getElementById("service-meta"),
+    sessionSnapshot: document.getElementById("session-snapshot"),
     sidebarToggle: document.getElementById("sidebar-toggle"),
     settingsButton: document.getElementById("settings-button"),
     console: document.getElementById("console"),
@@ -247,6 +252,8 @@
     el.run.dataset.state = code;
     el.run.textContent = text || RUN_TEXT[code] || code;
     refreshComposer();
+    // 运行进入终态：进程会话快照此刻才反映结果，补拉一次（绝不进 5 秒 health 轮询）。
+    if (TERMINAL_RUN_STATES.has(code)) void loadSessionSnapshot();
   }
 
   /** 提交/取消按钮的可用性：**忙**（有在途运行）或**被挡住**（项目失效 / 会话不可读）都禁用并给原因。 */
@@ -1641,17 +1648,92 @@
     el.sidebarToggle.textContent = state.sidebarCollapsed ? "展开侧栏" : "收起侧栏";
   }
 
+  /**
+   * 服务身份徽标（#service-meta）：service / version / schema_version **只来自 /api/health 响应体**。
+   * 版本真源是服务端 `heagent.__version__`，本文件刻意不持有任何版本常量。
+   */
+  function renderServiceMeta(payload) {
+    const service = asText(payload && payload.service);
+    const version = asText(payload && payload.version);
+    const schema = asText(payload && payload.schema_version);
+    const parts = [];
+    if (service) parts.push(service);
+    if (version) parts.push(version.charAt(0) === "v" ? version : `v${version}`);
+    if (schema) parts.push(`schema ${schema}`);
+    if (!parts.length) return; // 响应里没有字段：保留上次的值（不写空串、不改离线标记）
+    el.serviceMeta.textContent = parts.join(" · ");
+    el.serviceMeta.dataset.state = "ready";
+    el.serviceMeta.hidden = false;
+  }
+
+  /** 服务不可达：**保留**上次的服务身份文本（不清空、不隐藏），只标成 offline。 */
+  function markServiceMetaOffline() {
+    el.serviceMeta.dataset.state = "offline";
+  }
+
+  /**
+   * 进程会话快照（#session-snapshot）：`GET /api/session` 的 session_id / run_id / status / 消息数。
+   * 只在启动后与每次运行进入终态时取——刻意不进 5 秒 health 轮询（那里只问服务是否活着）。
+   */
+  async function loadSessionSnapshot() {
+    let response;
+    try {
+      response = await fetch("/api/session", { headers: { accept: "application/json" } });
+    } catch (error) {
+      markSessionSnapshotStale();
+      return;
+    }
+    if (!response.ok) {
+      markSessionSnapshotStale();
+      return;
+    }
+    let snapshot;
+    try {
+      snapshot = await response.json();
+    } catch (error) {
+      markSessionSnapshotStale();
+      return;
+    }
+    renderSessionSnapshot(snapshot);
+  }
+
+  /** 取不到快照时**不清空**徽标：保留上次内容，只把原因挂在 title 上（下次成功再换回来）。 */
+  function markSessionSnapshotStale() {
+    el.sessionSnapshot.title = "无法连接到服务";
+  }
+
+  function renderSessionSnapshot(snapshot) {
+    const sessionId = asText(snapshot && snapshot.session_id);
+    const runId = asText(snapshot && snapshot.run_id);
+    const status = asText(snapshot && snapshot.status);
+    const count = snapshot && Array.isArray(snapshot.messages) ? snapshot.messages.length : 0;
+    const parts = [];
+    if (sessionId) parts.push(`会话 ${sessionId}`);
+    if (!runId) parts.push("暂无运行");
+    else if (status) parts.push(`运行 ${runId}（${status}）`);
+    else parts.push(`运行 ${runId}`);
+    parts.push(`消息 ${count}`);
+    el.sessionSnapshot.textContent = parts.join(" · ");
+    el.sessionSnapshot.title = "进程内会话快照";
+    el.sessionSnapshot.hidden = false;
+  }
+
   async function checkHealth() {
     try {
       const response = await fetch("/api/health", { headers: { accept: "application/json" } });
       if (!response.ok) {
         setServiceState("offline");
+        markServiceMetaOffline();
         return;
       }
       const payload = await response.json();
-      setServiceState(payload && payload.status === "ok" ? "ready" : "offline");
+      const healthy = payload && payload.status === "ok";
+      setServiceState(healthy ? "ready" : "offline");
+      if (healthy) renderServiceMeta(payload);
+      else markServiceMetaOffline();
     } catch (error) {
       setServiceState("offline");
+      markServiceMetaOffline();
     }
   }
 
@@ -1666,6 +1748,7 @@
     const preferred = saved && projects.some((item) => item.id === saved) ? saved : null;
     const fallback = projects.find((item) => item.is_default) || projects[0];
     await selectProject(preferred || fallback.id, { force: true });
+    void loadSessionSnapshot();
   }
 
   el.form.addEventListener("submit", (event) => {
@@ -1715,6 +1798,14 @@
   });
   el.projectForm.addEventListener("submit", (event) => void registerProject(event));
   el.projectPick.addEventListener("click", () => void pickProjectDirectory());
+
+  // 面板桥（Epic 70）：其它面板脚本（tasks.js / api-console.js）按需读取当前选择；
+  // 只读快照，不提供反向操作本页状态的入口（选择仍是本页状态，见文件头约束）。
+  window.HeConsole = {
+    currentSelection() {
+      return { projectId: state.activeProjectId || "", sessionId: state.activeSessionId || "" };
+    },
+  };
 
   setServiceState("connecting");
   setRunState("idle");

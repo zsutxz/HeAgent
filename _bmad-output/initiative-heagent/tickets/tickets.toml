@@ -62,3 +62,10 @@ title = "异常体系完善"
 description = "统一异常层次与错误码体系覆盖全部核心模块，错误可程序化处理。"
 covers = ["R2"]
 
+[[epic]]
+id = 70
+slug = "epic-70-web-console-api-panels"
+title = "Web 控制台 API 面板"
+description = "把 9101 已提供但网页端未消费的能力搬上界面（任务进度、服务状态与进程会话快照），补同源 API 探索器，并用契约测试钉住「后端路由 ↔ 前端消费」覆盖关系。"
+covers = ["R10"]
+

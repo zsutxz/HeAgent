@@ -761,3 +761,72 @@ input:disabled {
     max-width: 100%;
   }
 }
+
+/* ── Epic 70：后台任务面板 / 服务身份徽标 / API 探索器 ── */
+
+/* 服务身份与进程会话快照：与既有徽标同形，超长省略而不是撑破顶栏。 */
+#service-meta,
+#session-snapshot {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 任务条目：一行主信息 + 一行灰字元信息（状态与百分比在灰字里，避免抢对话视线）。 */
+.task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-row .task-title {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.task-row .task-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.task-row[data-state="running"] .task-title,
+.task-row[data-state="pending"] .task-title {
+  color: var(--warn);
+}
+
+.task-row[data-state="failed"] .task-title {
+  color: var(--error);
+}
+
+/* API 探索器：宽弹层 + 只读输出区（等宽字体，长 JSON 换行而不是横向溢出）。 */
+.api-dialog {
+  max-width: 56rem;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.api-dialog textarea {
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: vertical;
+}
+
+.api-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.api-output {
+  margin: 0;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

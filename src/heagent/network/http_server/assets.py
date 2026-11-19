@@ -19,6 +19,9 @@ _INDEX_ASSET = "index.html"
 _WEB_ASSETS: dict[str, str] = {
     "index.html": "text/html; charset=utf-8",
     "app.js": "text/javascript; charset=utf-8",
+    "panels.js": "text/javascript; charset=utf-8",
+    "tasks.js": "text/javascript; charset=utf-8",
+    "api-console.js": "text/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
 }
 

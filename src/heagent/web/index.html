@@ -12,8 +12,12 @@
       <h1>HeAgent 控制台</h1>
       <div class="bar-actions">
         <span id="service-status" class="badge badge-unknown" data-state="unknown">连接中…</span>
+        <!-- Epic 70：服务身份（service / version / schema_version）与进程会话快照，均来自服务端下发。 -->
+        <span id="service-meta" class="badge badge-unknown" data-state="unknown" hidden></span>
+        <span id="session-snapshot" class="badge badge-project" hidden></span>
         <button id="sidebar-toggle" type="button" aria-expanded="true" aria-controls="sidebar">收起侧栏</button>
         <button id="settings-button" type="button" aria-expanded="false" aria-controls="settings-panel">设置</button>
+        <button id="api-button" type="button" aria-expanded="false" aria-controls="api-console">API</button>
       </div>
     </header>
 
@@ -60,6 +64,15 @@
           <ul id="session-list" class="list"></ul>
           <p id="session-empty" class="empty" hidden>该项目还没有会话。</p>
           <p id="session-status" class="status" data-state="idle"></p>
+        </section>
+
+        <!-- Epic 70：后台任务（GET /api/tasks）。只读视图，运行中按需轮询、全终态即停。 -->
+        <section class="panel" aria-labelledby="tasks-heading">
+          <h2 id="tasks-heading">后台任务</h2>
+          <ul id="task-list" class="list"></ul>
+          <p id="task-empty" class="empty" hidden>当前没有后台任务。</p>
+          <div id="task-detail" class="result panel" hidden></div>
+          <p id="task-status" class="status" data-state="idle"></p>
         </section>
       </aside>
 
@@ -121,6 +134,38 @@
       </section>
     </main>
 
+    <!-- Epic 70：同源 API 探索器（默认收起，不进首屏动线）。只发同源请求，写方法需二次确认。 -->
+    <div id="api-console" class="overlay" hidden>
+      <div class="dialog api-dialog" role="dialog" aria-modal="true" aria-labelledby="api-console-heading">
+        <div class="settings-head">
+          <h2 id="api-console-heading">API 探索器</h2>
+          <span class="badge badge-project">同源</span>
+          <button id="api-close" type="button">关闭</button>
+        </div>
+        <form id="api-form" class="stack" autocomplete="off">
+          <div class="row">
+            <label class="visually-hidden" for="api-method">方法</label>
+            <select id="api-method">
+              <option selected>GET</option>
+              <option>POST</option>
+              <option>PATCH</option>
+              <option>PUT</option>
+              <option>DELETE</option>
+            </select>
+            <label class="visually-hidden" for="api-path">请求路径</label>
+            <input id="api-path" type="text" maxlength="2048" placeholder="/api/projects" />
+            <button id="api-send" type="submit">发送</button>
+          </div>
+          <label class="visually-hidden" for="api-body">请求体（JSON，可选）</label>
+          <textarea id="api-body" rows="3" maxlength="32768" placeholder='请求体（JSON，可选）：{"title":"演示"}'></textarea>
+        </form>
+        <h3 class="section-title">预置端点</h3>
+        <div id="api-presets" class="api-presets"></div>
+        <p id="api-status" class="status" data-state="idle"></p>
+        <pre id="api-output" class="api-output" aria-live="polite"></pre>
+      </div>
+    </div>
+
     <!-- 二次确认（UX-DR3）：危险操作与配置写入都经这里，文案必须说明影响范围。 -->
     <div id="confirm-overlay" class="overlay" hidden>
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
@@ -135,6 +180,9 @@
       </div>
     </div>
 
+    <script src="/panels.js"></script>
+    <script src="/tasks.js"></script>
+    <script src="/api-console.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

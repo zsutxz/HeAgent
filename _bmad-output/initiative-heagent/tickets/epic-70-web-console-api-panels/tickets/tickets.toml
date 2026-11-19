@@ -1,0 +1,44 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。epic 70 为新能力 epic（非 v6 迁移），无 v6_key。
+[[entry]]
+id = 1
+type = "story"
+title = "网页端任务进度面板"
+description = "网页控制台新增「任务」视图，消费 GET /api/tasks 与 GET /api/tasks/{task_id}：列表按 updated_at 降序显示 task_id / kind / status / percent / message / 时间，选中看单条详情；存在 pending 或 running 时按固定间隔轮询、全终态时停轮询；空列表与请求失败各有显性文案；渲染只用 textContent，不碰 innerHTML。"
+verify = "tests/test_http_web_ui.py 静态契约 + node probe 驱动真实 app.js，断言列表渲染、轮询启停、404/500 错误映射；后端零 diff；手动冒烟：一次上下文压缩期间任务列表出现 running 条目并在结束后转 completed。"
+covers = ["R10"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "服务状态条与进程会话快照"
+description = "顶部服务状态由 ready/offline 二值升级：展示 GET /api/health 的 service / version / schema_version，以及 GET /api/session 的 session_id / run_id / status / 消息条数；版本号只来自后端下发（前端不写死）；断连时保留上次值并标注离线，恢复后自动回到 ready。"
+verify = "改后端版本号后前端展示随之变化（断言前端无硬编码版本串）；/api/session 字段齐全且为空态时有占位文案；离线→恢复的转换有行为回归断言。"
+covers = []
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "同源 API 探索器"
+description = "网页端新增开发者面板（设置区入口 + #api 直达）：方法 + 路径 + 可选 JSON body → 同源 fetch → 展示状态码、耗时与响应 JSON（textContent）；预置端点清单与后端路由表对齐；写方法（POST/PATCH/PUT/DELETE）需二次确认，`?confirm=true` 类闸门在提示中说明；不引入第三方库、不发跨源请求、不放宽 CSP。"
+verify = "node probe 断言 GET 渲染状态码与耗时、非 2xx 显示稳定错误码、写方法未确认时不发请求；预置清单每条路径都能在后端路由表命中；无第三方资源与内联脚本新增。"
+covers = []
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "前端消费覆盖守卫"
+description = "新增契约测试：静态提取 web/*.js 中的 `/api/...` 字面量，与 http_server/app.py 的 HTTP 路由常量、ws_host.py 的 WS 路径对齐；正向断言每条 HTTP 路由要么被前端消费、要么在不带理由即失败的显式白名单里（如 POST /api/runs 属非项目作用域裸提交口，网页端刻意不用）；反向断言前端不引用不存在的路径。"
+verify = "删掉一条前端调用 → 测试红并点名该端点；新增一条路由未接入 → 红并提示「接入网页端或加白名单」；白名单每条带理由字符串；tests/test_architecture_contracts.py 与全量测试全绿。"
+covers = []
+after = [1, 2, 3]
+hitl = false
+risk = "low"

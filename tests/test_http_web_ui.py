@@ -32,7 +32,10 @@ _PROBE = Path(__file__).parent / "fixtures" / "js" / "app_probe.js"
 _HTML = read_web_asset("index.html").decode("utf-8")
 _JS = read_web_asset("app.js").decode("utf-8")
 _CSS = read_web_asset("styles.css").decode("utf-8")
-_ASSETS = {"index.html": _HTML, "app.js": _JS, "styles.css": _CSS}
+# 全部白名单资源（Epic 70 起不止三份）：远程 URL 与「不可信内容渲染」两类断言按这张表遍历，
+# 新增 JS 文件因此自动进入扫描面，不需要在测试里再补一份名单。
+_ASSETS = {name: read_web_asset(name).decode("utf-8") for name in _WEB_ASSETS}
+_JS_ASSETS = {name: text for name, text in _ASSETS.items() if name.endswith(".js")}
 
 # 第三方资源的排除性模式：协议 URL、协议相对 URL、常见 CDN 主机名。
 _REMOTE_PATTERNS = ("http://", "https://", "//cdn", "cdn.", "unpkg", "jsdelivr", "googleapis")
@@ -79,7 +82,7 @@ class TestPageStructure:
         """只引用同源绝对路径的样式与脚本，且不写死端口/域名。"""
         refs = re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', _HTML)
 
-        assert refs == ["/styles.css", "/app.js"]
+        assert refs == ["/styles.css", "/panels.js", "/tasks.js", "/api-console.js", "/app.js"]
         assert "http://" not in _HTML and "https://" not in _HTML
 
     def test_every_referenced_asset_is_whitelisted(self) -> None:
@@ -87,6 +90,13 @@ class TestPageStructure:
         for ref in re.findall(r'(?:src|href)\s*=\s*"/([^"]+)"', _HTML):
             assert ref in _WEB_ASSETS, f"{ref} 不在资源白名单里"
             assert read_web_asset(ref)
+
+    def test_every_whitelisted_asset_is_referenced(self) -> None:
+        """反向：白名单里有、页面却不引用的资源是死文件（改了也没人加载，最容易腐化）。"""
+        referenced = set(re.findall(r'(?:src|href)\s*=\s*"/([^"]+)"', _HTML))
+        # `index.html` 是入口本身，不需要被自己引用。
+        unreferenced = set(_WEB_ASSETS) - referenced - {"index.html"}
+        assert unreferenced == set(), f"白名单里存在页面未引用的资源：{sorted(unreferenced)}"
 
 
 class TestConsoleLayout:
@@ -343,9 +353,11 @@ class TestPlainTextRendering:
         assert "textContent" in _JS
 
     def test_no_html_injection_path(self) -> None:
-        assert ".innerHTML" not in _JS
-        assert ".outerHTML" not in _JS
-        assert "insertAdjacentHTML" not in _JS
+        # 全部白名单 JS 一律不得有 HTML 注入路径（Epic 70 起不止 app.js 一个脚本）。
+        for name, text in _JS_ASSETS.items():
+            assert ".innerHTML" not in text, f"{name} 使用了 innerHTML"
+            assert ".outerHTML" not in text, f"{name} 使用了 outerHTML"
+            assert "insertAdjacentHTML" not in text, f"{name} 使用了 insertAdjacentHTML"
 
     def test_confirm_dialog_renders_its_text_as_plain_text(self) -> None:
         """确认框文案里含项目路径与会话标题（都来自服务端/磁盘）⇒ 必须走 textContent。"""
