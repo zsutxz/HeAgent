@@ -92,8 +92,9 @@ risk: medium
 - **网页进程不启动 cron 调度器**：`cli/http_console.py::new_loop` 在有会话时会顺带构造
   `CronScheduler` 但**直接丢弃**（`enable_cron=True` 只为拿到 cron 工具面）。因此本 epic **只能**报
   `jobs.json` 里的作业定义与 `last_run`，**不得**报「下次触发时刻」——那是 scheduler 运行态，本进程没有。
-- **多项目 `jobs.json` 分散**：cron 存储按项目落盘（`WorkspacePaths.cron_file`），面板只报**当前选中项目**，
-  不跨项目扫盘；跨项目汇总需另立项。
+- **多项目 `jobs.json` 分散**：cron 存储按项目落盘（`WorkspacePaths.cron_file`）。实测修正：服务端**不知道**
+  前端当前选中哪个项目（选择只是本页状态），因此 71.3 报的是**进程工作区**那一份，并在文档与面板文案里如实
+  标注；要按项目报需先有「状态请求带项目参数」的协议约定，另立项。
 - **node 探针仍无执行者**：`tests/test_http_web_ui.py` 的 `app_probe.js` 以 `shutil.which("node")` 为前置，
   本机与 CI 均无 node ⇒ 71.6 的行为回归实际由静态契约 + 真实 HTTP 冒烟兜底（与 Epic 70 同一残差）。
 - **资源采样只覆盖 `/proc` 与 `ctypes` 两条通路**：macOS 走 `ctypes` 分支之外的平台（如 BSD）返回

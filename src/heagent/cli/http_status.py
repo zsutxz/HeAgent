@@ -17,9 +17,15 @@
 
 from __future__ import annotations
 
+import logging
+import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from heagent.cron.jobs import JobStore
+from heagent.memory.facts import FactStore
 from heagent.network.http_protocol import (
+    CronJobInfo,
     ListenerInfo,
     ListenerMode,
     RoutingPoolInfo,
@@ -27,6 +33,28 @@ from heagent.network.http_protocol import (
     StatusResponse,
     WsConnectionCounts,
 )
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.workspace import WorkspacePaths
+from heagent.skills.skill_store import SkillStore, default_skill_roots
+
+logger = logging.getLogger("heagent.cli.http_status")
+
+
+def _parse_iso(value: object) -> datetime | None:
+    """把落盘的 ISO 时间戳解析成**带时区**的 ``datetime``；缺失或非法一律 ``None``（不猜时间）。
+
+    ``cron/jobs.py`` 落盘的 ``last_run`` 是 ``strftime("%Y-%m-%dT%H:%M:%S")``——**naive 的 UTC**。
+    直接原样下发会让客户端按本地时解释（CST 下差 8 小时），所以这里按仓库既有约定
+    （``cron/status.py``：naive 时间戳即 UTC）补上 UTC 时区。
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,6 +74,13 @@ _MAX_PROVIDER_CHARS = 64
 _MAX_POOL_NAME_CHARS = 64
 _MAX_TIER_CHARS = 64
 _MAX_TIERS = 64
+_MAX_CRON_JOBS = 32
+_MAX_CRON_TEXT = 128
+_MAX_JOB_ID = 64
+_MAX_STATUS_CHARS = 32
+# 依赖态（cron 作业表 / 技能数 / 记忆条数）读的是**盘上文件**：状态面每被轮询一次就读一次盘是
+# 不可接受的，故在来源侧缓存 ``_DEPENDENCY_CACHE_SECONDS``；端点本身仍然只读内存。
+_DEPENDENCY_CACHE_SECONDS = 5.0
 
 
 def _clip(value: object, limit: int) -> str:
@@ -155,6 +190,7 @@ class HttpStatusSource:
         settings: Settings | None = None,
         sandbox_backend: str | None = None,
         provider: Any | None = None,
+        workspace_root: str | None = None,
     ) -> None:
         self._version = version
         self._max_inflight_runs = max_inflight_runs
@@ -164,6 +200,13 @@ class HttpStatusSource:
         self._notification_hub: Any | None = None
         self._http_server: Any | None = None
         self._ws_servers: tuple[Any, ...] = ()
+        self._workspace_root = workspace_root
+        # 存储实例**只建一次**：``SkillStore`` 的「同名遮蔽」告警按实例去重，每次刷新新建一个
+        # 会让全局根/项目根同名技能每 5 秒刷一批 WARNING。
+        self._skills: Any | None = None
+        self._facts: Any | None = None
+        # 依赖态的 5 秒缓存：(取数时刻, 载荷)。``None`` = 还没读过。
+        self._dependency_cache: tuple[float, tuple[list[CronJobInfo], int, int]] | None = None
         deployment = (
             _deployment(settings, sandbox_backend=sandbox_backend, provider=provider)
             if settings is not None
@@ -192,8 +235,9 @@ class HttpStatusSource:
         self._http_server = http_server
 
     def status(self) -> StatusResponse:
-        """进程状态的只读快照（同步：只读内存计数，不扫盘、不采样）。"""
+        """进程状态的只读快照（同步：只读内存计数；依赖态走 5 秒缓存，不在每次请求里读盘）。"""
         service = self._run_service
+        dependency = self._dependency()
         return StatusResponse(
             version=self._version,
             active_runs=service.active_runs if service is not None else 0,
@@ -212,7 +256,84 @@ class HttpStatusSource:
             config_write_enabled=self._config_write_enabled,
             active_provider=self._active_provider,
             routing_pools=list(self._routing_pools),
+            started_at=self._started_at(),
+            uptime_seconds=self._uptime_seconds(),
+            cron_jobs=dependency[0],
+            skill_count=dependency[1],
+            memory_facts=dependency[2],
         )
+
+    def _started_at(self) -> datetime | None:
+        """启动时刻（未启动 / 未绑定 listener 时为 ``None``）。"""
+        return getattr(self._http_server, "started_at", None)
+
+    def _uptime_seconds(self) -> float | None:
+        """已运行秒数（未启动时为 ``None``——0 会被读成「刚启动」）。"""
+        value = getattr(self._http_server, "uptime_seconds", None)
+        return None if value is None else float(value)
+
+    def _dependency(self) -> tuple[list[CronJobInfo], int, int]:
+        """cron 作业 / 技能数 / 记忆条数（``_DEPENDENCY_CACHE_SECONDS`` 内复用同一份读数）。"""
+        if self._workspace_root is None:
+            return ([], 0, 0)
+        now = time.monotonic()
+        if self._dependency_cache is not None and now - self._dependency_cache[0] < _DEPENDENCY_CACHE_SECONDS:
+            return self._dependency_cache[1]
+        payload = self._read_dependency()
+        self._dependency_cache = (now, payload)
+        return payload
+
+    def _read_dependency(self) -> tuple[list[CronJobInfo], int, int]:
+        """读一次盘上的依赖态；任一项读失败只降级该项（状态面不该因为资产文件坏掉而 500）。"""
+        root = self._workspace_root
+        if root is None:  # pragma: no cover - _dependency 已提前返回
+            return ([], 0, 0)
+        paths = WorkspacePaths.from_root(root)
+        return (self._cron_jobs(paths), self._skill_count(paths), self._memory_facts(paths))
+
+    def _cron_jobs(self, paths: Any) -> list[CronJobInfo]:
+        """服务进程工作区的 cron 作业定义与最近一次执行。
+
+        只报**进程工作区**那一份 ``jobs.json``：网页入口不启动调度器，作业由交互模式 / GUI 的调度器
+        执行，跨项目汇总属另一件事（见 epic 残差）。
+        """
+        try:
+            jobs = JobStore(str(paths.cron_file)).list_jobs()
+            # 投影也在隔离内：``jobs.json`` 里的畸形条目（空 id / 空 cron）能被 ``JobStore`` 正常加载，
+            # 但过不了协议模型的最小长度校验——那种输入只该丢掉那一条，不该让整条状态变成 500。
+            return [
+                CronJobInfo(
+                    job_id=_clip(job.id, _MAX_JOB_ID),
+                    cron=_clip(job.cron, _MAX_CRON_TEXT),
+                    last_run=_parse_iso(job.last_run),
+                    last_status=_clip(job.last_status, _MAX_STATUS_CHARS),
+                )
+                for job in jobs[:_MAX_CRON_JOBS]
+                if str(job.id or "").strip() and str(job.cron or "").strip()
+            ]
+        except Exception:  # noqa: BLE001 - 辅助信息：读失败降级为空列表并留 WARNING
+            safe_log(logger, logging.WARNING, "status event=cron_read_failed root=%s", paths.root, exc_info=True)
+            return []
+
+    def _skill_count(self, paths: Any) -> int:
+        """技能库条目数（同名技能按全局优先去重后计数）。"""
+        try:
+            if self._skills is None:
+                self._skills = SkillStore(default_skill_roots(paths.root))
+            return len(self._skills.list_skills())
+        except Exception:  # noqa: BLE001 - 辅助信息：读失败降级为 0
+            safe_log(logger, logging.WARNING, "status event=skill_count_failed root=%s", paths.root, exc_info=True)
+            return 0
+
+    def _memory_facts(self, paths: Any) -> int:
+        """长期记忆条目数（``MEMORY.md`` 的 ``- `` 行数）。"""
+        try:
+            if self._facts is None:
+                self._facts = FactStore(str(paths.memory_file))
+            return len(self._facts.load())
+        except Exception:  # noqa: BLE001 - 辅助信息：读失败降级为 0
+            safe_log(logger, logging.WARNING, "status event=memory_count_failed root=%s", paths.root, exc_info=True)
+            return 0
 
     def _background_tasks(self) -> int:
         """后台任务注册表里当前可见的条目数（注册表未注入即 0）。"""
@@ -230,6 +351,7 @@ def build_status_source(
     settings: Settings | None,
     sandbox_backend: str | None = None,
     provider: Any | None = None,
+    workspace_root: str | None = None,
     enabled: bool,
 ) -> HttpStatusSource | None:
     """按「HTTP listener 是否启用」构造状态来源；未启用即 ``None``（路由随之不注册）。
@@ -247,6 +369,7 @@ def build_status_source(
         settings=settings,
         sandbox_backend=sandbox_backend,
         provider=provider,
+        workspace_root=workspace_root,
     )
 
 

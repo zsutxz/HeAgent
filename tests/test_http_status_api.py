@@ -18,6 +18,8 @@ import pytest
 pytest.importorskip("starlette")
 
 import httpx
+from datetime import UTC, datetime
+
 from pydantic import SecretStr, ValidationError
 
 from heagent.cli.http_status import HttpStatusSource, bind_status_source
@@ -26,6 +28,7 @@ from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import (
     HTTP_SCHEMA_VERSION,
     HTTP_SERVICE_NAME,
+    CronJobInfo,
     HttpErrorCode,
     RunOutcome,
     RunStatus,
@@ -363,6 +366,157 @@ class TestDeployment:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 依赖态：uptime / cron 作业 / 技能与记忆计数（Story 71.3）
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _workspace(tmp_path: Any, *, jobs: str | None = None, skills: tuple[str, ...] = (), facts: int = 0) -> Any:
+    """造一个最小工作区：cron jobs.json / 技能目录 / MEMORY.md。"""
+    heagent = tmp_path / ".heagent"
+    (heagent / "cron").mkdir(parents=True, exist_ok=True)
+    (heagent / "memory").mkdir(parents=True, exist_ok=True)
+    if jobs is not None:
+        (heagent / "cron" / "jobs.json").write_text(jobs, encoding="utf-8")
+    if facts:
+        (heagent / "memory" / "MEMORY.md").write_text(
+            "".join(f"- fact {index}\n" for index in range(facts)), encoding="utf-8"
+        )
+    for name in skills:
+        skill_dir = heagent / "skills" / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\n---\n\nbody\n", encoding="utf-8")
+    return tmp_path
+
+
+_JOBS = """[
+  {
+    "id": "job-1",
+    "prompt": "say hi",
+    "cron": "0 20 * * *",
+    "recurring": true,
+    "created": "2026-11-17T12:00:00+00:00",
+    "last_run": "2026-11-17T12:02:59+00:00",
+    "last_status": "success"
+  }
+]"""
+
+
+class TestDependencyState:
+    def _source(self, root: Any, **kwargs: Any) -> HttpStatusSource:
+        return HttpStatusSource(version=_VERSION, max_inflight_runs=1, workspace_root=str(root), **kwargs)
+
+    async def test_uptime_and_started_at_come_from_the_bound_listener(self) -> None:
+        started = datetime(2026, 11, 19, 5, 0, tzinfo=UTC)
+        server = SimpleNamespace(
+            config=HttpServerConfig(port=9101), port=9101, started_at=started, uptime_seconds=125.5
+        )
+        source = HttpStatusSource(version=_VERSION, max_inflight_runs=1)
+        bind_status_source(source, (), http_server=server)
+        async with _client(source) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["uptime_seconds"] == 125.5
+        assert payload["started_at"].startswith("2026-11-19T05:00:00")
+
+    async def test_uptime_is_null_before_the_listener_started(self) -> None:
+        """未启动报 ``null`` 而不是 0：0 会被读成「刚启动」。"""
+        server = SimpleNamespace(config=HttpServerConfig(port=9101), port=9101, started_at=None, uptime_seconds=None)
+        source = HttpStatusSource(version=_VERSION, max_inflight_runs=1)
+        bind_status_source(source, (), http_server=server)
+
+        snapshot = source.status()
+
+        assert snapshot.uptime_seconds is None
+        assert snapshot.started_at is None
+
+    async def test_real_listener_records_its_own_start_time(self) -> None:
+        """真实 ``HttpServer.start()`` 必须记下启动时刻（否则 uptime 永远是 null）。"""
+        from heagent.network.http_server import HttpServer
+
+        server = HttpServer(HttpServerConfig(port=0), version=_VERSION)
+        await server.start()
+        try:
+            first = server.uptime_seconds
+            await asyncio.sleep(0.02)
+            second = server.uptime_seconds
+            assert first is not None and second is not None
+            # 只断言「非 None 且 >= 0」的话，恒返回 0.0 的实现也能过。
+            assert 0 <= first < second
+            assert server.started_at is not None
+            assert server.started_at.tzinfo is not None
+        finally:
+            await server.close()
+
+    async def test_cron_jobs_come_from_the_workspace_jobs_file(self, tmp_path: Any) -> None:
+        root = _workspace(tmp_path, jobs=_JOBS)
+        async with _client(self._source(root)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["cron_jobs"] == [
+            {
+                "job_id": "job-1",
+                "cron": "0 20 * * *",
+                "last_run": "2026-11-17T12:02:59Z",
+                "last_status": "success",
+            }
+        ]
+
+    async def test_missing_jobs_file_is_an_empty_list_not_an_error(self, tmp_path: Any) -> None:
+        root = _workspace(tmp_path)
+        async with _client(self._source(root)) as client:
+            response = await client.get("/api/status")
+
+        assert response.status_code == 200
+        assert response.json()["cron_jobs"] == []
+
+    async def test_naive_utc_last_run_is_reported_as_utc(self, tmp_path: Any) -> None:
+        """``cron/jobs.py`` 落盘的时间戳是 naive UTC：原样下发会被客户端按本地时解释（差 8 小时）。"""
+        root = _workspace(tmp_path, jobs=_JOBS.replace("2026-11-17T12:02:59+00:00", "2026-11-18T01:00:00"))
+        async with _client(self._source(root)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["cron_jobs"][0]["last_run"] == "2026-11-18T01:00:00Z"
+
+    async def test_a_malformed_entry_is_dropped_instead_of_failing_the_whole_status(self, tmp_path: Any) -> None:
+        """空 id 的条目能被 ``JobStore`` 加载：只该丢那一条，好条目必须照常出现（整条状态不许 500）。"""
+        jobs = (
+            '[{"id": "", "prompt": "p", "cron": "* * * * *", "created": "2026-11-17T12:00:00"},'
+            ' {"id": "good", "prompt": "p2", "cron": "0 3 * * *", "created": "2026-11-17T12:00:00"}]'
+        )
+        root = _workspace(tmp_path, jobs=jobs)
+        async with _client(self._source(root)) as client:
+            response = await client.get("/api/status")
+
+        assert response.status_code == 200
+        assert [job["job_id"] for job in response.json()["cron_jobs"]] == ["good"]
+
+    async def test_no_next_run_field_is_ever_reported(self) -> None:
+        """网页进程不启动调度器 ⇒ 没有「下次触发」这回事，模型里也不许有该字段。"""
+        assert "next_run" not in CronJobInfo.model_fields
+
+    async def test_skill_and_memory_counts_come_from_the_workspace(self, tmp_path: Any) -> None:
+        root = _workspace(tmp_path, skills=("alpha", "beta"), facts=3)
+        async with _client(self._source(root)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["skill_count"] == 2
+        assert payload["memory_facts"] == 3
+
+    async def test_dependency_reads_are_cached_for_a_short_window(self, tmp_path: Any) -> None:
+        """轮询不该每次都读盘：缓存窗口内盘上变化不反映，窗口过后才重新读。"""
+        root = _workspace(tmp_path, facts=1)
+        source = self._source(root)
+        first = source.status().memory_facts
+
+        (root / ".heagent" / "memory" / "MEMORY.md").write_text("- a\n- b\n- c\n", encoding="utf-8")
+        cached = source.status().memory_facts
+        source._dependency_cache = None  # 手动过期（窗口是 5 秒，测试里不 sleep）
+        refreshed = source.status().memory_facts
+
+        assert (first, cached, refreshed) == (1, 1, 3)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 装配级：listener 透传与入口层接线（漏了就静默 404 / 计数恒 0）
 # ═══════════════════════════════════════════════════════════════════
 
@@ -390,6 +544,7 @@ class TestAssembly:
         """
         from heagent.cli.http import build_http_service
 
+        _workspace(tmp_path, jobs=_JOBS, facts=2)
         monkeypatch.chdir(tmp_path)
         settings = Settings(_env_file=None, http_enabled=True, ws_enabled=True, ws_cli_bypass_enabled=True)
 
@@ -414,6 +569,9 @@ class TestAssembly:
             assert [item["kind"] for item in deployed["listeners"]] == ["http", "ws"]
             assert deployed["sandbox_backend"] == settings.sandbox_backend
             assert deployed["routing_pools"] == []
+            # 依赖态同样要经装配送达：漏传 workspace_root ⇒ 三项恒为 0/空，而响应仍 200。
+            assert deployed["memory_facts"] == 2
+            assert [job["job_id"] for job in deployed["cron_jobs"]] == ["job-1"]
 
             cli_hub.register_ws("c1", "run-1", object())
             try:

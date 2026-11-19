@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime  # noqa: TC003 - pydantic 需要在运行期解析该注解
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, overload
 
@@ -414,6 +415,22 @@ class RoutingPoolInfo(BaseModel):
     tiers: list[str] = Field(default_factory=list, max_length=64)
 
 
+class CronJobInfo(BaseModel):
+    """一条 cron 作业的**定义与最近一次执行**（不报「下次触发」）。
+
+    网页入口进程**不启动调度器**（``cli/http_console`` 构造后即丢弃），所以「下次触发时刻」在本
+    进程里不存在——把它写进模型就是在编造。这里只报落盘事实：作业定义、``last_run`` 与
+    ``last_status``。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str = Field(min_length=1, max_length=64)
+    cron: str = Field(min_length=1, max_length=128)
+    last_run: datetime | None = None
+    last_status: str = Field(default="", max_length=32)
+
+
 class StatusResponse(BaseModel):
     """``GET /api/status`` 的稳定响应：进程自身状态的只读聚合投影。
 
@@ -442,6 +459,12 @@ class StatusResponse(BaseModel):
     config_write_enabled: bool = False
     active_provider: str = Field(default="", max_length=64)
     routing_pools: list[RoutingPoolInfo] = Field(default_factory=list, max_length=16)
+    # ---- 依赖态（71.3）：启动时刻 / 作业定义 / 资产计数 ----
+    started_at: datetime | None = None
+    uptime_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cron_jobs: list[CronJobInfo] = Field(default_factory=list, max_length=32)
+    skill_count: int = Field(default=0, ge=0)
+    memory_facts: int = Field(default=0, ge=0)
 
 
 def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
@@ -577,6 +600,7 @@ __all__ = [
     "HttpErrorDetail",
     "HttpErrorEnvelope",
     "HttpRunConflictError",
+    "CronJobInfo",
     "CronResultStatus",
     "HttpUsage",
     "ListenerInfo",

@@ -13,6 +13,7 @@ import contextlib
 import logging
 import math
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from heagent.network.exposure import exposure_warning
@@ -84,6 +85,10 @@ class HttpServer:
         # （生命周期锁 + 布尔标记是本项目入口服务的既有形态）。
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
+        # 启动时刻：``uptime`` 用单调钟（抗系统时钟回拨），``started_at`` 用墙钟（供人读）。
+        # 两者都在 ``start()`` **成功之后**才写入——绑定失败 / 就绪探测失败不算启动过。
+        self._started_monotonic: float | None = None
+        self._started_at_wall: datetime | None = None
 
     @property
     def app(self) -> ASGIApp:
@@ -99,6 +104,18 @@ class HttpServer:
                 status=self.status,
             )
         return self._app
+
+    @property
+    def started_at(self) -> datetime | None:
+        """本次启动的墙钟时刻（UTC）；尚未成功启动为 ``None``。"""
+        return self._started_at_wall
+
+    @property
+    def uptime_seconds(self) -> float | None:
+        """已运行秒数（单调钟差值）；尚未成功启动为 ``None``。"""
+        if self._started_monotonic is None:
+            return None
+        return max(time.monotonic() - self._started_monotonic, 0.0)
 
     @property
     def port(self) -> int:
@@ -169,6 +186,8 @@ class HttpServer:
             self._server = None
             await self._stop_listener(server)
             raise HttpStartupError(f"HTTP server started but {_HEALTH_PATH} is not servable")
+        self._started_monotonic = time.monotonic()
+        self._started_at_wall = datetime.now(UTC)
         if self.run_service is not None:
             # 重新武装运行入口：``close()`` 会把「停止接收」标记置上且不可逆，于是
             # ``close()`` → ``start()`` 之后健康检查照常 200，而每次 ``POST /api/runs`` 都被

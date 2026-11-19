@@ -488,6 +488,7 @@
         "HttpErrorDetail",
         "HttpErrorEnvelope",
         "HttpRunConflictError",
+        "CronJobInfo",
         "CronResultStatus",
         "HttpUsage",
         "ListenerInfo",
@@ -513,6 +514,7 @@
         "sanitize_message"
       ],
       "defined": [
+        "CronJobInfo",
         "CronResultStatus",
         "GENERIC_ERROR_MESSAGE",
         "HTTP_SCHEMA_VERSION",
@@ -565,6 +567,7 @@
         "StrEnum",
         "TYPE_CHECKING",
         "annotations",
+        "datetime",
         "field_validator",
         "overload"
       ]

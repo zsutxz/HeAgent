@@ -363,6 +363,7 @@ def build_http_service(
         settings=settings,
         sandbox_backend=getattr(executor, "sandbox_backend", None),
         provider=getattr(executor, "provider", None),
+        workspace_root=str(workspace.root),
         enabled=http_on,
     )
     http_server: HttpServer | None = None
@@ -696,6 +697,7 @@ def http_server_cmd(
         # 沙箱档位与 provider 都取**本次进程实际用的**：`--sandbox` 是命令行覆盖，配置里可能是 auto。
         sandbox_backend=sandbox or settings.sandbox_backend,
         provider=handler.provider,
+        workspace_root=str(workspace.root),
         enabled=http_on,
     )
     server: HttpServer | None = None

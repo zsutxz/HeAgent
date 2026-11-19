@@ -503,6 +503,13 @@
     },
     {
       "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "CronJobInfo"
+    },
+    {
+      "bases": [
         "StrEnum"
       ],
       "module": "heagent.network.http_protocol",
