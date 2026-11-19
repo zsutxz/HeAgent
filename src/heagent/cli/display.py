@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import sys
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -20,6 +23,7 @@ _MILLION = 1_000_000
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import TextIO
 
     from heagent.agent.loop import AgentLoop
     from heagent.config import Settings
@@ -27,6 +31,12 @@ if TYPE_CHECKING:
 
 #: cron 结果终端回显的正文上限：单行展示，超出截断加省略号。
 CRON_ECHO_MAX_CHARS = 500
+
+#: ``[calling …]`` 活动行前缀：静态提示行（本模块）与进度行（``progress.py``）同一口径。
+ACTIVITY_PREFIX = "[calling "
+
+#: 活动行可用的最小宽度（**列**）：终端再窄也按此宽度排版，宁可折行也要保住标签可读。
+MIN_ACTIVITY_WIDTH: int = 24
 
 
 def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: bool = False) -> None:
@@ -43,8 +53,6 @@ def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: 
     （见 ``engine/container.py`` 的可用性闸），故本函数只做 CLI 存在性检查；实际生效档以
     ``SandboxDecision.effective_backend`` / 启动日志为准。
     """
-    import shutil
-
     name = (backend or "").strip().lower()
     if name == "firejail":
         if shutil.which(settings.sandbox_firejail_path) is None:
@@ -160,6 +168,72 @@ def _icon(icon: str, fallback: str, *, encoding: str | None = None) -> str:
     return icon
 
 
+def char_width(char: str) -> int:
+    """单个字符占用的终端列数：CJK 宽字符（W/F）2 列、组合符 0 列、其余 1 列。
+
+    ``len()`` 数的是码位而不是列宽——中文命令按码位裁到 80 列仍可能真占 160 列，终端照样
+    折行。活动行的宽度判定一律走本函数（:func:`display_width`）。
+    """
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def display_width(text: str) -> int:
+    """``text`` 在等宽终端上占用的列数（口径见 :func:`char_width`）。"""
+    return sum(char_width(char) for char in text)
+
+
+def clip_display(text: str, width: int, *, ellipsis: str = "…") -> str:
+    """把 ``text`` 裁到 ``width`` 列内，超宽时以 ``ellipsis`` 收尾（绝不切断宽字符）。
+
+    ``width <= 0`` 返回空串；``width`` 放不下省略号时退化为无标记截断。
+    """
+    if width <= 0:
+        return ""
+    if display_width(text) <= width:
+        return text
+    mark = ellipsis if display_width(ellipsis) <= width else ""
+    budget = width - display_width(mark)
+    kept: list[str] = []
+    used = 0
+    for char in text:
+        size = char_width(char)
+        if used + size > budget:
+            break
+        kept.append(char)
+        used += size
+    return "".join(kept) + mark
+
+
+def stream_columns(stream: TextIO | None = None) -> int:
+    """``stream``（默认 stdout）所在终端的列数；不可得时回退 ``shutil`` 的 80×24。
+
+    **每次调用都重读**：窗口 resize 后下一次重绘即按新宽度排版，不冻结启动时的宽度。
+    测试可经 ``columns=`` 注入固定值，不依赖真实终端。
+    """
+    target = sys.stdout if stream is None else stream
+    try:
+        return os.get_terminal_size(target.fileno()).columns
+    except (AttributeError, OSError, ValueError):
+        return shutil.get_terminal_size(fallback=(80, 24)).columns
+
+
+def format_activity_line(label: str, suffix: str = "]", *, columns: int) -> str:
+    """把 ``[calling <label><suffix>`` 排成**单行**：只裁标签，后缀（秒表 / 文件进度）保完整。
+
+    终端装不下就折行，而 ``\\r`` 只能回到最后一个折行的行首 ⇒ 前几行成了抹不掉的残影，
+    屏幕上表现为同一条命令重复显示。故输出前先按列宽裁断，末尾再兜底裁一次。
+    """
+    width = max(columns, MIN_ACTIVITY_WIDTH)
+    budget = width - display_width(ACTIVITY_PREFIX) - display_width(suffix)
+    line = f"{ACTIVITY_PREFIX}{clip_display(label, budget)}{suffix}"
+    if display_width(line) <= width:
+        return line
+    # 后缀自身超宽（标签已无剩余预算）：兜底截断整行，但保住结尾的 ``]`` 让行有闭合感。
+    return clip_display(line, width - 1) + "]"
+
+
 def _line_prefix(line_state: _LineState) -> str:
     """行首前缀：流式文本停在半行时先换行，避免提示与正文粘连。"""
     return "" if line_state.at_line_start else "\n"
@@ -182,9 +256,11 @@ def _print_stream_event(event: StreamEvent, line_state: _LineState) -> None:
         _emit(event.text, line_state)
     elif event.type == "tool_call":
         # 自成一行：紧跟其后的可能是模型继续输出的文本，行尾不留悬挂内容。
-        # 标签拼接走 activity_label，与状态行 / GUI / 活动台账同一口径。
+        # 标签拼接走 activity_label，与状态行 / GUI / 活动台账同一口径；排版按列宽裁成单行
+        # （全文已在日志 ``tool_call_started target=`` 里，终端折行只会留下重复残片）。
         label = activity_label(event.tool_name, event.tool_target)
-        _emit(f"{_line_prefix(line_state)}[calling {label}]\n", line_state)
+        line = format_activity_line(label, columns=stream_columns(sys.stdout))
+        _emit(f"{_line_prefix(line_state)}{line}\n", line_state)
     elif event.type == "tool_result" and event.tool_error:
         # 成功不逐条回显：批次是并发执行的，N 个结果会在同一刻到达，逐条 [done]
         # 只会挤成一串无主语的标记；失败必须归因到具体调用，故单独提示。

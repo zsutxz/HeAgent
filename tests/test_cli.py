@@ -511,7 +511,7 @@ class TestToolActivityDisplay:
         assert state.at_line_start is True
 
     def test_long_shell_command_is_rendered_in_full(self, capsys) -> None:
-        """shell 命令在提示行显示全文——截断会让「跑了什么」不可判断。"""
+        """宽度够时 shell 命令在提示行显示全文——截断会让「跑了什么」不可判断。"""
         from heagent.cli.display import _LineState, _print_stream_event
         from heagent.tools.call_summary import summarize_tool_call
         from heagent.pub.types import StreamEvent
@@ -527,6 +527,52 @@ class TestToolActivityDisplay:
         )
 
         assert capsys.readouterr().out == f"[calling shell → {command}]\n"
+
+    def test_overlong_shell_command_is_clipped_to_one_row(self, capsys, monkeypatch) -> None:
+        """终端装不下时裁成**单行**：折行会在粘贴 / 回看时堆出多份同样的残片。"""
+        from heagent.cli import display
+        from heagent.tools.call_summary import summarize_tool_call
+        from heagent.pub.types import StreamEvent
+
+        monkeypatch.setattr(display, "stream_columns", lambda stream=None: 60)
+        command = "cd /workspace && pytest " + "x" * 300
+        display._print_stream_event(
+            StreamEvent(
+                type="tool_call",
+                tool_name="shell",
+                tool_target=summarize_tool_call("shell", {"command": command}),
+            ),
+            display._LineState(),
+        )
+
+        out = capsys.readouterr().out
+        assert out.count("\n") == 1
+        line = out.rstrip("\n")
+        assert display.display_width(line) <= 60
+        assert line.startswith("[calling shell → cd /workspace && pytest ")
+        assert line.endswith("…]")
+
+    def test_cjk_command_is_clipped_by_display_columns(self, capsys, monkeypatch) -> None:
+        """中文命令按**显示列**裁：按码位裁会少算一倍宽度，超宽后照样折行。"""
+        from heagent.cli import display
+        from heagent.tools.call_summary import summarize_tool_call
+        from heagent.pub.types import StreamEvent
+
+        monkeypatch.setattr(display, "stream_columns", lambda stream=None: 40)
+        command = "echo " + "重复显示" * 20
+        display._print_stream_event(
+            StreamEvent(
+                type="tool_call",
+                tool_name="shell",
+                tool_target=summarize_tool_call("shell", {"command": command}),
+            ),
+            display._LineState(),
+        )
+
+        line = capsys.readouterr().out.rstrip("\n")
+        assert display.display_width(line) <= 40
+        assert len(line) < display.display_width(line)  # 含宽字符
+        assert line.endswith("…]")
 
     def test_degrades_without_target(self, capsys) -> None:
         """无摘要（无参工具）时保持旧形态，不出现悬空箭头。"""

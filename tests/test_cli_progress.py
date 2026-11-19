@@ -10,7 +10,7 @@ import asyncio
 import inspect
 import io
 
-from heagent.cli.display import tool_progress_label
+from heagent.cli.display import display_width, tool_progress_label
 from heagent.cli.progress import (
     PROGRESS_REFRESH_SECONDS,
     TOOL_PROGRESS_MIN_SECONDS,
@@ -218,18 +218,71 @@ def test_line_fits_terminal_width_and_keeps_elapsed_suffix() -> None:
     """裁剪只能吃掉标签：毫秒/秒表等后缀必须完整保留（否则进度行失去意义）。"""
     tracker = ToolProgress(enabled=False, stream=io.StringIO(), columns=40)
     line = tracker._line("shell → " + "y" * 100, " 3.2s]")
-    assert len(line) == 40
+    assert len(line) == display_width(line) == 40
     assert line.startswith("[calling shell → y")
     assert line.endswith(" 3.2s]")
     assert "…" in line
+
+
+def test_line_clips_cjk_labels_by_display_columns() -> None:
+    """中文命令按**显示列**裁：``len()`` 少算一倍宽度，裁到 40 码位仍占 80 列、照样折行留残影。"""
+    tracker = ToolProgress(enabled=False, stream=io.StringIO(), columns=40)
+    line = tracker._line("shell → " + "重复显示" * 10, " 0.0s]")
+
+    assert display_width(line) <= 40
+    assert len(line) < display_width(line)  # 确实含宽字符，不是纯 ASCII 退化路径
+    assert line.startswith("[calling shell → 重复")
+    assert line.endswith(" 0.0s]")
+    assert "…" in line
+
+
+def test_write_line_pads_by_display_columns() -> None:
+    """宽字符行按**列**补齐：按码位补会少补一半，``\\r`` 覆盖后留下上一行的残字。"""
+    stream = _FakeStream(tty=True)
+    tracker = ToolProgress(enabled=False, stream=stream, columns=80)
+    wide_line = "[calling shell → 中文 0.0s]"
+
+    tracker._write_line(wide_line)
+    tracker._write_line("[calling shell → x 0.0s]")
+
+    first = stream.getvalue().split("\r")[1]
+    second = stream.getvalue().rsplit("\r", 1)[-1]
+    assert display_width(first) == display_width(wide_line)
+    assert display_width(second) == display_width(wide_line)  # 补齐到同一显示宽度
+    assert len(second) == display_width(second)  # 纯 ASCII 行：码位 == 列数
+    assert tracker._width == display_width(wide_line)
+
+
+async def test_line_width_is_reread_each_frame(monkeypatch) -> None:
+    """终端 resize 后按新宽度重排：宽度不冻结在构造时刻（否则缩窄窗口又折行留残影）。"""
+    from heagent.cli import progress as progress_module
+
+    current = {"columns": 30}
+    monkeypatch.setattr(progress_module, "stream_columns", lambda stream=None: current["columns"])
+    stream = _FakeStream(tty=True)
+    tracker = ToolProgress(enabled=True, stream=stream, min_seconds=0.01, refresh_seconds=0.01, clock=_Clock())
+
+    tracker.on_event(_call("shell", "y" * 200))
+    await asyncio.sleep(0.06)
+    narrow = stream.getvalue()
+    frames = [frame for frame in narrow.split("\r") if frame]
+    assert frames and all(display_width(frame) <= 30 for frame in frames)
+
+    current["columns"] = 80
+    await asyncio.sleep(0.06)
+    frames_after = [frame for frame in stream.getvalue()[len(narrow) :].split("\r") if frame]
+    assert frames_after
+    assert max(display_width(frame) for frame in frames_after) > 30  # 重读生效，换成了新宽度
+    assert all(display_width(frame) <= 80 for frame in frames_after)
+    await tracker.aclose()
 
 
 def test_line_stays_bounded_even_when_suffix_alone_overflows() -> None:
     """后缀本身比终端还宽时仍不超宽（宁可只留省略号，也不留下会折行的残影）。"""
     tracker = ToolProgress(enabled=False, stream=io.StringIO(), columns=10)
     line = tracker._line("shell → " + "z" * 50, " done in 3.2s · " + "9" * 60 + "]")
-    assert len(line) <= max(10, 24)
-    assert line.endswith("…")
+    assert display_width(line) <= max(10, 24)
+    assert line.endswith("…]")  # 兜底截断仍保住结尾的 ``]``，行有闭合感
 
 
 async def test_long_command_progress_is_single_row_per_frame() -> None:

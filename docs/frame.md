@@ -492,7 +492,9 @@ SafetyGuard
 执行哪条命令、抓哪个 URL、委派给哪个角色的子 Agent（如 `docs/frame.md`、
 `src — *.py`、`0 9 * * * — 生成 AI 新闻摘要`、`coder — 实现登录模块`）。
 该摘要出现在四个展示面：CLI 提示行 `[calling <tool> → <target>]`
-（`cli.display._print_stream_event`，在执行**前**发出）、TUI 聊天日志、工具事件的
+（`cli.display._print_stream_event`，在执行**前**发出；整行由
+`cli.display.format_activity_line` 按**显示列**裁成单行——CJK 宽字符计 2 列，超宽折行会与
+进度行的 `\r` 重绘叠加成「同一条命令重复显示」的残影）、TUI 聊天日志、工具事件的
 `target` 字段（`EngineEvent.target`——独立成段而非埋进 `details`，见 4.12）、以及状态栏的
 `🔧 <tool> → <target>` 段（`loop.active_tool`，暂停/恢复时据此判断卡在哪个工具）、
 GUI 状态栏与 TUI 聊天日志（`gui/bridge.py` 流式路径与 `gui/observers.py` 引擎事件路径同口径）。

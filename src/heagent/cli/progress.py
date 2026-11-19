@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 import time
 from contextlib import suppress
@@ -29,7 +28,7 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from pydantic import BaseModel
 
-from heagent.cli.display import tool_progress_label
+from heagent.cli.display import display_width, format_activity_line, stream_columns, tool_progress_label
 from heagent.config import get_settings
 from heagent.pub.types import StreamEvent
 
@@ -42,12 +41,6 @@ if TYPE_CHECKING:
 TOOL_PROGRESS_MIN_SECONDS: float = 3.0
 #: 进度行刷新间隔（**秒**）：限频即性能上界，一行最多每 0.5 秒重写一次。
 PROGRESS_REFRESH_SECONDS: float = 0.5
-
-#: 进度行可用的最小宽度（**字符**）：终端再窄也按此宽度排版，宁可折行也要保住标签可读。
-_MIN_RENDER_WIDTH: int = 24
-
-#: 进度行的固定前缀（标签裁剪时按它扣预算）。
-_PREFIX = "[calling "
 
 _MB = 1024 * 1024
 
@@ -159,7 +152,7 @@ class ToolProgress:
         self._min = min_seconds
         self._refresh = refresh_seconds
         self._clock = clock
-        self._columns = columns if columns is not None else shutil.get_terminal_size(fallback=(80, 24)).columns
+        self._columns = columns
         self._interactive = _is_tty(self._stream)
         self._enabled = (get_settings().announce_progress and self._interactive) if enabled is None else enabled
         self._active: list[_ActiveTool] = []
@@ -253,22 +246,18 @@ class ToolProgress:
         self.reported_lines += 1
 
     def _line(self, label: str, suffix: str) -> str:
-        """按终端宽度裁出**单行**进度行。
+        """按终端宽度裁出**单行**进度行（排版口径唯一实现在 :func:`display.format_activity_line`）。
 
-        进度行靠 ``\\r`` 原地覆盖，只能覆盖一行；超宽后终端折行，``\\r`` 回到最后一个折行的
-        行首，前几行成了抹不掉的残影——屏幕上就是同一条命令被重复显示。故先裁标签保单行。
+        ``columns`` 未注入时每帧重读终端宽度：窗口 resize 后不会按旧宽度折行留残影。
         """
-        width = max(self._columns, _MIN_RENDER_WIDTH)
-        budget = width - len(_PREFIX) - len(suffix)
-        if len(label) > budget:
-            label = "…" if budget <= 1 else label[: budget - 1] + "…"
-        line = f"{_PREFIX}{label}{suffix}"
-        return line if len(line) <= width else f"{line[: width - 1]}…"
+        columns = self._columns if self._columns is not None else stream_columns(self._stream)
+        return format_activity_line(label, suffix, columns=columns)
 
     def _write_line(self, text: str) -> None:
-        """``\\r`` 原地重写；用空格补齐到上次宽度，避免残字（不用 ANSI 清行序列）。"""
-        padded = text.ljust(self._width)
-        self._width = max(self._width, len(text))
+        """``\\r`` 原地重写；按**显示列**补齐到上次宽度，避免宽字符行留下残字。"""
+        used = display_width(text)
+        padded = text + " " * max(0, self._width - used)
+        self._width = max(self._width, used)
         self._safe_write("\r" + padded)
 
     def _clear_line(self) -> None:
