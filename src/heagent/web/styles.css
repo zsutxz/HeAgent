@@ -615,6 +615,77 @@ pre {
   font-weight: 600;
 }
 
+/* Epic 71：服务器状态面板——五组事实做成横向 tab 条，一次只显示一组；窄侧栏（280px）里纵向堆
+   40+ 行会把对话区推出屏幕。行表沿用 `dt`/`dd` 两列：值右对齐且可断行，窄侧栏不溢出。 */
+.status-groups {
+  display: flex;
+  flex-direction: column;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* tab 是按钮（键盘可达），但外观要像标签页：去掉全局 `button` 的底色与内边距当量。 */
+.status-tab {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.status-tab:hover {
+  color: var(--text);
+}
+
+.status-tab[aria-selected="true"] {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.status-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.status-tabpanel {
+  margin-top: 0.4rem;
+}
+
+.status-tabpanel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.status-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.15rem 0.6rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.status-rows dt {
+  color: var(--muted);
+}
+
+.status-rows dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 /* 逐项说明由长段文案压成短徽标（完整文案在 `title` 上；信息仍可达，只是不占版面）。 */
 .badge-note {
   border-color: var(--warn);

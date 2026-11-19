@@ -82,7 +82,7 @@ class TestPageStructure:
         """只引用同源绝对路径的样式与脚本，且不写死端口/域名。"""
         refs = re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', _HTML)
 
-        assert refs == ["/styles.css", "/panels.js", "/tasks.js", "/api-console.js", "/app.js"]
+        assert refs == ["/styles.css", "/panels.js", "/tasks.js", "/api-console.js", "/status-panel.js", "/app.js"]
         assert "http://" not in _HTML and "https://" not in _HTML
 
     def test_every_referenced_asset_is_whitelisted(self) -> None:

@@ -22,6 +22,7 @@ _WEB_ASSETS: dict[str, str] = {
     "panels.js": "text/javascript; charset=utf-8",
     "tasks.js": "text/javascript; charset=utf-8",
     "api-console.js": "text/javascript; charset=utf-8",
+    "status-panel.js": "text/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
 }
 

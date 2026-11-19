@@ -14,6 +14,8 @@
         <span id="service-status" class="badge badge-unknown" data-state="unknown">连接中…</span>
         <!-- Epic 70：服务身份（service / version / schema_version）与进程会话快照，均来自服务端下发。 -->
         <span id="service-meta" class="badge badge-unknown" data-state="unknown" hidden></span>
+        <!-- Epic 71：进程状态徽标（模式 · uptime · 在途 run · WS 连接数），来自 GET /api/status。 -->
+        <span id="server-status" class="badge badge-unknown" data-state="unknown" hidden></span>
         <span id="session-snapshot" class="badge badge-project" hidden></span>
         <button id="sidebar-toggle" type="button" aria-expanded="true" aria-controls="sidebar">收起侧栏</button>
         <button id="settings-button" type="button" aria-expanded="false" aria-controls="settings-panel">设置</button>
@@ -73,6 +75,16 @@
           <p id="task-empty" class="empty" hidden>当前没有后台任务。</p>
           <div id="task-detail" class="result panel" hidden></div>
           <p id="task-status" class="status" data-state="idle"></p>
+        </section>
+
+        <!-- Epic 71：服务器状态（GET /api/status）。默认收起 = 懒加载：展开才取数并每 5 秒刷新，收起即停。 -->
+        <section class="panel" aria-labelledby="server-heading">
+          <h2 id="server-heading">服务器状态</h2>
+          <details id="server-details" class="settings-details">
+            <summary>展开查看（五组页签 · 展开期间每 5 秒刷新）</summary>
+            <div id="server-groups" class="status-groups"></div>
+            <p id="server-panel-status" class="status" data-state="idle"></p>
+          </details>
         </section>
       </aside>
 
@@ -183,6 +195,7 @@
     <script src="/panels.js"></script>
     <script src="/tasks.js"></script>
     <script src="/api-console.js"></script>
+    <script src="/status-panel.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
