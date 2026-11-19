@@ -520,6 +520,13 @@
         "BaseModel"
       ],
       "module": "heagent.network.http_protocol",
+      "name": "ErrorCodeCount"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
       "name": "HealthResponse"
     },
     {
@@ -584,6 +591,13 @@
       ],
       "module": "heagent.network.http_protocol",
       "name": "NotificationPayload"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RequestMetricsSummary"
     },
     {
       "bases": [
@@ -727,6 +741,11 @@
       "bases": [],
       "module": "heagent.network.http_server.listener",
       "name": "HttpServer"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server.metrics",
+      "name": "RequestMetrics"
     },
     {
       "bases": [

@@ -30,7 +30,9 @@ from heagent.network.http_protocol import (
     HTTP_SCHEMA_VERSION,
     HTTP_SERVICE_NAME,
     CronJobInfo,
+    ErrorCodeCount,
     HttpErrorCode,
+    RequestMetricsSummary,
     RunOutcome,
     RunStatus,
     RunStatusCounts,
@@ -77,6 +79,31 @@ class _CountingTaskRegistry:
 
     def snapshot(self, *, limit: int) -> list[Any]:
         return [object()] * min(self.count, limit)
+
+
+class _CountingStatusSource:
+    """真实来源的最小替身：只实现计数挂载与空状态（供请求计数用例使用）。"""
+
+    def __init__(self) -> None:
+        self._metrics: Any | None = None
+
+    def attach_metrics(self, metrics: Any) -> None:
+        self._metrics = metrics
+
+    def status(self) -> StatusResponse:
+        summary = RequestMetricsSummary()
+        if self._metrics is not None:
+            summary = RequestMetricsSummary(
+                total=self._metrics.total,
+                status_2xx=self._metrics.status_class("2xx"),
+                status_3xx=self._metrics.status_class("3xx"),
+                status_4xx=self._metrics.status_class("4xx"),
+                status_5xx=self._metrics.status_class("5xx"),
+                latency_p50_ms=self._metrics.latency_p50_ms(),
+                latency_max_ms=self._metrics.latency_max_ms(),
+                error_codes=[ErrorCodeCount(code=code, count=count) for code, count in self._metrics.error_codes()],
+            )
+        return StatusResponse(version=_VERSION, requests=summary)
 
 
 class _BrokenSource:
@@ -563,6 +590,76 @@ class TestProcessResources:
         elapsed = time.perf_counter() - start
 
         assert elapsed < 0.5, f"1000 次采样耗时 {elapsed:.3f}s，超出可轮询的量级"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 请求计数与延迟（Story 71.5）
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestRequestMetrics:
+    def test_counters_bucket_by_status_class(self) -> None:
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        metrics = RequestMetrics()
+        for status in (200, 200, 200, 404):
+            metrics.record(status=status, elapsed_ms=1.0)
+
+        assert metrics.total == 4
+        assert metrics.status_class("2xx") == 3
+        assert metrics.status_class("4xx") == 1
+        assert metrics.status_class("5xx") == 0
+
+    def test_latency_window_is_bounded_and_percentile_computable(self) -> None:
+        from heagent.network.http_server.metrics import LATENCY_WINDOW, RequestMetrics
+
+        metrics = RequestMetrics()
+        for index in range(LATENCY_WINDOW * 10):
+            metrics.record(status=200, elapsed_ms=float(index))
+
+        assert len(metrics._latencies) == LATENCY_WINDOW
+        assert metrics.latency_max_ms() > metrics.latency_p50_ms() > 0
+
+    def test_error_code_is_read_only_from_small_json_envelopes(self) -> None:
+        from heagent.network.http_server.metrics import error_code_from_body
+
+        headers = [(b"content-type", b"application/json")]
+        assert error_code_from_body(b'{"error": {"code": "run_conflict", "message": "x"}}', headers) == "run_conflict"
+        # 非 JSON / 过大 / 无 error 信封一律不认（正常响应不进这条路径）
+        assert error_code_from_body(b"plain text", headers) is None
+        assert error_code_from_body(b"{" + b'"a": 1,' * 500 + b"}", headers) is None
+        assert error_code_from_body(b'{"ok": true}', headers) is None
+
+    async def test_endpoint_counts_its_own_requests_and_error_codes(self) -> None:
+        console = _CountingStatusSource()
+        app = build_http_app(_config(), version=_VERSION, status=console)
+        transport = httpx.ASGITransport(app=app)
+        base_url = f"http://127.0.0.1:{_config().port}"
+        async with httpx.AsyncClient(transport=transport, base_url=base_url) as client:
+            await client.get("/api/status")
+            await client.get("/api/status")
+            await client.post("/api/status")  # 405 → method_not_allowed
+            payload = (await client.get("/api/status")).json()
+
+        requests = payload["requests"]
+        # 本次请求在响应发出**之后**才计入（finally 里记账）⇒ 快照看到的是此前 3 条。
+        assert requests["total"] >= 3
+        assert requests["status_2xx"] >= 2
+        assert requests["status_4xx"] >= 1
+        assert {"code": "method_not_allowed", "count": 1} in requests["error_codes"]
+        assert requests["latency_max_ms"] >= requests["latency_p50_ms"] > 0
+
+    async def test_reading_status_does_not_change_the_counters(self) -> None:
+        console = _CountingStatusSource()
+        app = build_http_app(_config(), version=_VERSION, status=console)
+        transport = httpx.ASGITransport(app=app)
+        base_url = f"http://127.0.0.1:{_config().port}"
+        async with httpx.AsyncClient(transport=transport, base_url=base_url) as client:
+            first = (await client.get("/api/status")).json()["requests"]
+            # 再读一次：计数只增本次请求这一条，不会因为「读快照」而重复计量
+            second = (await client.get("/api/status")).json()["requests"]
+
+        assert second["total"] == first["total"] + 1
 
 
 # ═══════════════════════════════════════════════════════════════════

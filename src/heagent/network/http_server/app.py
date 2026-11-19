@@ -31,6 +31,7 @@ from .endpoints_console import (
 from .endpoints_run import _build_run_endpoints
 from .endpoints_status import _build_status_endpoint
 from .endpoints_tasks import _build_task_endpoints
+from .metrics import RequestMetrics
 from .middleware import (
     _SECURITY_HEADERS,
     _AccessLogMiddleware,
@@ -75,6 +76,15 @@ _TASKS_PATH = "/api/tasks"
 _TASK_DETAIL_PATH = "/api/tasks/{task_id}"
 # 进程状态聚合：运行态 / 连接数 / 后台任务条数的只读投影，数据由入口层注入。
 _STATUS_PATH = "/api/status"
+
+
+def _attach_metrics(source: Any | None) -> RequestMetrics:
+    """新建本 app 的请求计数载体，并在来源支持时挂上去（鸭子契约，不加必填 Protocol 方法）。"""
+    metrics = RequestMetrics()
+    attach = getattr(source, "attach_metrics", None)
+    if attach is not None:
+        attach(metrics)
+    return metrics
 
 
 def build_http_app(
@@ -235,5 +245,5 @@ def build_http_app(
     )
     # 包装顺序（由外到内）：安全头（保证连被拒的响应也带）→ 请求观测 → 同源防线 → 应用路由。
     guarded = _OriginGuardMiddleware(app, hosts=allowed_hosts(config), ports=allowed_ports(config))
-    logged = _AccessLogMiddleware(guarded)
+    logged = _AccessLogMiddleware(guarded, _attach_metrics(status))
     return _SecurityHeadersMiddleware(logged, _SECURITY_HEADERS)

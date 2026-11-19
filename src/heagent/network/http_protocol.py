@@ -431,6 +431,33 @@ class CronJobInfo(BaseModel):
     last_status: str = Field(default="", max_length=32)
 
 
+class ErrorCodeCount(BaseModel):
+    """一个稳定错误码及其出现次数（状态面的请求计数分组用）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=64)
+    count: int = Field(default=0, ge=0)
+
+
+class RequestMetricsSummary(BaseModel):
+    """请求计数与延迟（本进程自启动以来；延迟是**有界窗口**内的中位数/最大值）。
+
+    计数在响应发出**之后**记账，因此读状态的那一次请求本身不在本次快照里（差一，不是漏计）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int = Field(default=0, ge=0)
+    status_2xx: int = Field(default=0, ge=0)
+    status_3xx: int = Field(default=0, ge=0)
+    status_4xx: int = Field(default=0, ge=0)
+    status_5xx: int = Field(default=0, ge=0)
+    latency_p50_ms: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    latency_max_ms: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    error_codes: list[ErrorCodeCount] = Field(default_factory=list, max_length=16)
+
+
 class StatusResponse(BaseModel):
     """``GET /api/status`` 的稳定响应：进程自身状态的只读聚合投影。
 
@@ -470,6 +497,8 @@ class StatusResponse(BaseModel):
     threads: int | None = Field(default=None, ge=0)
     cpu_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     resource_source: str = Field(default="unavailable", max_length=32)
+    # ---- 请求计数与延迟（71.5）：有界窗口内的观测值 ----
+    requests: RequestMetricsSummary = Field(default_factory=RequestMetricsSummary)
 
 
 def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
@@ -606,6 +635,7 @@ __all__ = [
     "HttpErrorEnvelope",
     "HttpRunConflictError",
     "CronJobInfo",
+    "ErrorCodeCount",
     "CronResultStatus",
     "HttpUsage",
     "ListenerInfo",
@@ -618,6 +648,7 @@ __all__ = [
     "RunOutcome",
     "RunRequest",
     "RunStatus",
+    "RequestMetricsSummary",
     "RunStatusCounts",
     "RunStatusResponse",
     "SessionMessage",

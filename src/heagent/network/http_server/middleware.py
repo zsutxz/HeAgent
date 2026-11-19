@@ -17,6 +17,8 @@ from heagent.network.http_protocol import HttpErrorCode, error_envelope
 from heagent.network.origin import request_origin_violation
 from heagent.pub.safe_logging import safe_log
 
+from .metrics import _ERROR_BODY_LIMIT_BYTES, error_code_from_body
+
 # 4xx/5xx 起算错误面：此后访问日志抬到 WARNING。
 _ERROR_STATUS_MIN = 400
 
@@ -108,8 +110,10 @@ class _AccessLogMiddleware:
     提示词、回答或工具输出——内容字段一律排除，而不是靠脱敏去打补丁。
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, metrics: Any | None = None) -> None:
         self.app = app
+        # 计数载体由 app 注入（``None`` 时只打日志，行为与引入计数前逐字一致）。
+        self._metrics = metrics
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
@@ -118,19 +122,27 @@ class _AccessLogMiddleware:
         request_id = uuid.uuid4().hex[:12]
         started = time.perf_counter()
         status = 0
+        error_body = b""
+        headers_seen: Any = ()
 
         async def send_with_headers(message: MutableMapping[str, Any]) -> None:
-            nonlocal status
+            nonlocal status, error_body, headers_seen
             if message.get("type") == "http.response.start":
                 status = int(message.get("status", 0))
-                raw = list(message.get("headers") or [])
+                headers_seen = message.get("headers") or []
+                raw = list(headers_seen)
                 raw.append((b"x-request-id", request_id.encode("ascii")))
                 message = {**message, "headers": raw}
+            elif message.get("type") == "http.response.body" and self._metrics is not None:
+                # 只对**非 2xx** 攒一小段 body（错误信封要读 error.code）；正常响应一律不看。
+                if status >= _ERROR_STATUS_MIN and len(error_body) < _ERROR_BODY_LIMIT_BYTES:
+                    error_body += message.get("body") or b""
             await send(message)
 
         try:
             await self.app(scope, receive, send_with_headers)
         finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
             safe_log(
                 logger,
                 logging.INFO if status < _ERROR_STATUS_MIN else logging.WARNING,
@@ -139,8 +151,14 @@ class _AccessLogMiddleware:
                 scope.get("method"),
                 scope.get("path"),
                 status,
-                int((time.perf_counter() - started) * 1000),
+                int(elapsed_ms),
             )
+            if self._metrics is not None:
+                self._metrics.record(
+                    status=status,
+                    elapsed_ms=elapsed_ms,
+                    error_code=error_code_from_body(error_body, headers_seen),
+                )
 
 
 class _SecurityHeadersMiddleware:

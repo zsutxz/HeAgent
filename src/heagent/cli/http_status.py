@@ -26,8 +26,10 @@ from heagent.cron.jobs import JobStore
 from heagent.memory.facts import FactStore
 from heagent.network.http_protocol import (
     CronJobInfo,
+    ErrorCodeCount,
     ListenerInfo,
     ListenerMode,
+    RequestMetricsSummary,
     RoutingPoolInfo,
     RunStatusCounts,
     StatusResponse,
@@ -208,6 +210,7 @@ class HttpStatusSource:
         self._facts: Any | None = None
         # 依赖态的 5 秒缓存：(取数时刻, 载荷)。``None`` = 还没读过。
         self._dependency_cache: tuple[float, tuple[list[CronJobInfo], int, int]] | None = None
+        self._metrics: Any | None = None
         deployment = (
             _deployment(settings, sandbox_backend=sandbox_backend, provider=provider)
             if settings is not None
@@ -264,6 +267,27 @@ class HttpStatusSource:
             skill_count=dependency[1],
             memory_facts=dependency[2],
             **resources,
+            requests=self._request_metrics(),
+        )
+
+    def attach_metrics(self, metrics: Any) -> None:
+        """挂上 app 持有的请求计数载体（app 装配期调用；未挂上时计数全 0）。"""
+        self._metrics = metrics
+
+    def _request_metrics(self) -> RequestMetricsSummary:
+        """本进程的请求计数与延迟快照（未挂载载体时全 0）。"""
+        metrics = self._metrics
+        if metrics is None:
+            return RequestMetricsSummary()
+        return RequestMetricsSummary(
+            total=metrics.total,
+            status_2xx=metrics.status_class("2xx"),
+            status_3xx=metrics.status_class("3xx"),
+            status_4xx=metrics.status_class("4xx"),
+            status_5xx=metrics.status_class("5xx"),
+            latency_p50_ms=metrics.latency_p50_ms(),
+            latency_max_ms=metrics.latency_max_ms(),
+            error_codes=[ErrorCodeCount(code=code, count=count) for code, count in metrics.error_codes()[:16]],
         )
 
     @staticmethod
