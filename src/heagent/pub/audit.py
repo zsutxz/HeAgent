@@ -17,6 +17,14 @@ JSON 的 sha256）。:func:`verify_chain` 返回**首个**断链行号（1 起�
 `digest` 不符 = 该行内容被改过；`prev` 不符 = 该行之前有删行/换序。写入是
 ``O_APPEND`` 单次写，进程内用线程锁把「读尾 → 算链 → 追加」串成一件事。
 
+保留与轮转（A61）：单文件达 :func:`segment_bytes`（``HEAGENT_AUDIT_SEGMENT_BYTES``，默认 8 MiB，
+``0`` = 关闭）时，写路径把当前文件改名为 ``tool-audit.seg-NNN.jsonl``，新主文件首行写一条
+**段头**（``kind="segment"``，``prev`` == ``continues_from`` == 上一段末行 ``digest``）⇒
+:func:`verify_chain` 不看前段文本也能自证，:func:`verify_chain_segments` 再核段边界；
+查询面用 ``read_entries(include_segments=True)`` / ``heagent audit list|export|verify`` 跨段。
+:func:`rotate_audit` 供运维主动切段（按天归档一类）。**已知留存缺口**：整个归档段被删时
+没有外部锚点可判定（链只能证明「留下的部分连续」），故轮转不替代异地备份。
+
 fail-soft：任何读写异常只 WARNING，绝不改变业务结果（与 :mod:`heagent.pub.safe_logging` 同一立场）；
 :func:`record_tool_execution` / :func:`record_operation` 返回 ``False`` 表示本次没落盘。
 
@@ -51,6 +59,13 @@ AUDIT_FILENAME = "tool-audit.jsonl"
 #: 操作者标识的环境变量覆盖：服务化 / 容器部署可显式指定（缺省 ``<user>@pid<pid>``）。
 OPERATOR_ENV = "HEAGENT_AUDIT_OPERATOR"
 
+#: 单段字节上限的进程环境变量覆盖（``0`` = 关闭轮转）；与 :data:`OPERATOR_ENV` 同族——
+#: 都是部署期开关而非配置面设置，故不进 ``Settings``（``pub/`` 不得依赖 ``config/``）。
+SEGMENT_BYTES_ENV = "HEAGENT_AUDIT_SEGMENT_BYTES"
+
+#: 单段默认上限：8 MiB（约 3 万条记录，达此量再轮转；``audit verify`` 仍是线性一次读）。
+DEFAULT_SEGMENT_BYTES = 8 * 1024 * 1024
+
 #: 单个字符串参数 / 整份 ``args`` 的字符上限（超限即截断并标 ``_truncated``）。
 MAX_FIELD_CHARS = 200
 MAX_ARGS_CHARS = 2_000
@@ -59,7 +74,8 @@ MAX_ARGS_CHARS = 2_000
 _TAIL_WINDOW_BYTES = 64 * 1024
 
 #: 进程内串行化「读尾 → 算链 → 追加」；跨进程见模块 docstring 的已知局限。
-_APPEND_LOCK = threading.Lock()
+#: 可重入：轮转在持锁状态下再调一次 :func:`_append` 写段头。
+_APPEND_LOCK = threading.RLock()
 
 
 # ── 路径与操作者 ────────────────────────────────────────────────
@@ -171,6 +187,17 @@ class OperationAuditEntry(AuditEntry):
     after: dict[str, Any] | None = None
 
 
+class SegmentAuditEntry(AuditEntry):
+    """段头记录：轮转后新文件的首行，用 ``continues_from`` 承接上一段末行 ``digest``。
+
+    ``prev`` 与 ``continues_from`` 同值（段头自身也参与链），因此 :func:`verify_chain` 可以在
+    **不含前段文本**的情况下从任意段继续校验——归档段被删掉时「接不上」是可检出的。
+    """
+
+    kind: Literal["segment"] = "segment"
+    continues_from: str = ""
+
+
 class ChainVerdict(BaseModel):
     """链校验结论：``first_broken_line`` 为 ``None`` 即完整（``lines`` 为参与校验的非空行数）。"""
 
@@ -256,14 +283,22 @@ def _append_line(path: Path, line: str) -> None:
         handle.write(f"{line}\n")
 
 
-def _append(entry: AuditEntry, path: Path) -> bool:
-    """算链并追加一行；任何异常只 WARNING 并返回 ``False``（不改变调用方结果）。"""
+def _append(entry: AuditEntry, path: Path, *, prev_hint: str | None = None, allow_rotate: bool = True) -> bool:
+    """算链并追加一行；任何异常只 WARNING 并返回 ``False``（不改变调用方结果）。
+
+    ``prev_hint``：文件还没有尾行时用的 ``prev``（段头用它承接上一段末 ``digest``）。
+    ``allow_rotate``：写前是否检查段大小（段头自身写入时必须关掉，否则会无限轮转）。
+    """
     try:
         with _APPEND_LOCK:
+            if allow_rotate:
+                _maybe_rotate_locked(path)
             prev = ""
             tail = _read_tail_line(path)
             if tail:
                 prev = str(json.loads(tail).get("digest", ""))
+            elif prev_hint is not None:
+                prev = prev_hint
             payload = dict(entry.model_dump(mode="json"))
             payload["prev"] = prev
             payload["digest"] = _digest_of(payload)
@@ -272,6 +307,88 @@ def _append(entry: AuditEntry, path: Path) -> bool:
     except Exception:  # noqa: BLE001 - 审计是旁路：写失败只降级为「少一条记录」
         safe_log(logger, logging.WARNING, "audit record dropped (write failed): %s", path, exc_info=True)
         return False
+
+
+def segment_bytes() -> int:
+    """当前段大小上限：环境变量优先，非法/未设取 :data:`DEFAULT_SEGMENT_BYTES`；``0`` = 关闭轮转。"""
+    raw = os.environ.get(SEGMENT_BYTES_ENV, "").strip()
+    if not raw:
+        return DEFAULT_SEGMENT_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        safe_log(
+            logger,
+            logging.WARNING,
+            "%s=%r is not an integer; using default %d bytes",
+            SEGMENT_BYTES_ENV,
+            raw,
+            DEFAULT_SEGMENT_BYTES,
+        )
+        return DEFAULT_SEGMENT_BYTES
+    return value if value >= 0 else DEFAULT_SEGMENT_BYTES
+
+
+def segment_files(path: str | Path) -> list[Path]:
+    """已归档段文件（按段号升序）；主文件名形如 ``tool-audit.seg-001.jsonl``。"""
+    target = Path(path)
+    return sorted(target.parent.glob(f"{target.stem}.seg-*{target.suffix}"))
+
+
+def _rotate_locked(path: Path) -> Path | None:
+    """把当前段改名为下一段归档文件，并在新主文件写一条段头（持锁调用）。"""
+    tail = _read_tail_line(path)
+    previous = str(json.loads(tail).get("digest", "")) if tail else ""
+    index = len(segment_files(path)) + 1
+    archived = path.with_name(f"{path.stem}.seg-{index:03d}{path.suffix}")
+    try:
+        path.rename(archived)
+    except OSError:
+        safe_log(logger, logging.WARNING, "audit segment rotation failed: %s", path, exc_info=True)
+        return None
+    head = SegmentAuditEntry(
+        ts=_utc_now(),
+        operator=current_operator(),
+        continues_from=previous,
+    )
+    _append(head, path, prev_hint=previous, allow_rotate=False)
+    logger.info("audit segment rotated: %s -> %s", path.name, archived.name)
+    return archived
+
+
+def _maybe_rotate_locked(path: Path) -> None:
+    """段大小达上限即轮转（未达/关闭/文件不存在都静默返回，写路径上不做额外 I/O 之外的判断）。"""
+    limit = segment_bytes()
+    if limit <= 0:
+        return
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size >= limit:
+        _rotate_locked(path)
+
+
+def rotate_audit(path: str | Path, *, threshold: int | None = None, force: bool = False) -> Path | None:
+    """手动轮转：达 ``threshold``（缺省取 :func:`segment_bytes`）才动，``force=True`` 无条件轮转。
+
+    返回归档段路径；未达阈值 / 文件不存在 / 改名失败返回 ``None``（轮转失败不影响写入面，
+    下一次 append 会重试）。运维面用它做「按天归档」一类的主动切段。
+    """
+    target = Path(path)
+    if not target.exists():
+        return None
+    if not force:
+        limit = segment_bytes() if threshold is None else threshold
+        if limit <= 0:
+            return None
+        try:
+            if target.stat().st_size < limit:
+                return None
+        except OSError:
+            return None
+    with _APPEND_LOCK:
+        return _rotate_locked(target)
 
 
 def record_tool_execution(
@@ -332,17 +449,23 @@ def _raw_lines(path: str | Path) -> list[str]:
     return [line for line in text.splitlines() if line.strip()]
 
 
-def read_entries(path: str | Path) -> list[dict[str, Any]]:
-    """逐行 ``json.loads`` 的读取面；坏行跳过并 WARNING（不抛——查询面不该被一行坏数据拦住）。"""
+def read_entries(path: str | Path, *, include_segments: bool = False) -> list[dict[str, Any]]:
+    """逐行 ``json.loads`` 的读取面；坏行跳过并 WARNING（不抛——查询面不该被一行坏数据拦住）。
+
+    ``include_segments=True`` 时按段号升序先读归档段、再读主文件（查询面要看到全历史；
+    只读主文件是「只看当前段」）。
+    """
+    targets = [*segment_files(path), Path(path)] if include_segments else [Path(path)]
     entries: list[dict[str, Any]] = []
-    for number, line in enumerate(_raw_lines(path), start=1):
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            safe_log(logger, logging.WARNING, "audit line %d of %s is not JSON; skipped", number, path)
-            continue
-        if isinstance(record, dict):
-            entries.append(record)
+    for target in targets:
+        for number, line in enumerate(_raw_lines(target), start=1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                safe_log(logger, logging.WARNING, "audit line %d of %s is not JSON; skipped", number, target)
+                continue
+            if isinstance(record, dict):
+                entries.append(record)
     return entries
 
 
@@ -410,7 +533,16 @@ def verify_chain(path: str | Path) -> ChainVerdict:
                 first_broken_line=number,
                 reason="digest mismatch (record content was altered)",
             )
-        if record.get("prev") != previous:
+        if number == 1 and record.get("kind") == "segment":
+            # 段头：``prev`` 必须等于它声明的 ``continues_from``（承接上一段末行 digest）。
+            if record.get("prev") != record.get("continues_from"):
+                return ChainVerdict(
+                    path=str(path),
+                    lines=len(lines),
+                    first_broken_line=number,
+                    reason="segment head is not self-consistent",
+                )
+        elif record.get("prev") != previous:
             return ChainVerdict(
                 path=str(path),
                 lines=len(lines),
@@ -421,15 +553,63 @@ def verify_chain(path: str | Path) -> ChainVerdict:
     return ChainVerdict(path=str(path), lines=len(lines))
 
 
+def verify_chain_segments(path: str | Path) -> ChainVerdict:
+    """跨段校验：逐段自查 + 段间续接（段头 ``continues_from`` 必须等于前段末行 ``digest``）。
+
+    段边界不成立（缺段头却接了前段 / 段头接不上前段）与段内断链一样算断链，``first_broken_line``
+    是**跨段累计**行号；没有归档段时与 :func:`verify_chain` 等价。
+    """
+    target = Path(path)
+    files = [*segment_files(target), target]
+    previous = ""
+    total = 0
+    for candidate in files:
+        lines = _raw_lines(candidate)
+        if not lines:
+            continue
+        verdict = verify_chain(candidate)
+        if not verdict.ok:
+            broken = total + (verdict.first_broken_line or 1)
+            return ChainVerdict(
+                path=str(candidate),
+                lines=total + verdict.lines,
+                first_broken_line=broken,
+                reason=f"{candidate.name}: {verdict.reason}",
+            )
+        first = json.loads(lines[0])
+        if isinstance(first, dict) and first.get("kind") == "segment":
+            if first.get("continues_from") != previous:
+                return ChainVerdict(
+                    path=str(candidate),
+                    lines=total + len(lines),
+                    first_broken_line=total + 1,
+                    reason=f"{candidate.name}: segment head does not continue the previous segment",
+                )
+        elif previous:
+            return ChainVerdict(
+                path=str(candidate),
+                lines=total + len(lines),
+                first_broken_line=total + 1,
+                reason=f"{candidate.name}: no segment head but a previous segment exists",
+            )
+        last = json.loads(lines[-1])
+        previous = str(last.get("digest", "")) if isinstance(last, dict) else ""
+        total += len(lines)
+    return ChainVerdict(path=str(target), lines=total)
+
+
 __all__ = [
     "AUDIT_DIRNAME",
     "AUDIT_FILENAME",
     "MAX_ARGS_CHARS",
     "MAX_FIELD_CHARS",
+    "DEFAULT_SEGMENT_BYTES",
     "OPERATOR_ENV",
+    "SEGMENT_BYTES_ENV",
     "AuditEntry",
     "ChainVerdict",
     "OperationAuditEntry",
+    "SegmentAuditEntry",
     "ToolAuditEntry",
     "current_operator",
     "filter_entries",
@@ -441,6 +621,10 @@ __all__ = [
     "record_operation",
     "record_tool_execution",
     "resolve_audit_path",
+    "rotate_audit",
+    "segment_bytes",
+    "segment_files",
     "state_dir_for",
     "verify_chain",
+    "verify_chain_segments",
 ]

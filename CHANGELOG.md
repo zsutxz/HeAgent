@@ -21,6 +21,13 @@
   `mkdocs.yml` 的 nav 增「API 参考」节。构建期依赖不进依赖树，安装口径为
   `pip install mkdocs "mkdocstrings[python]"`（`scripts/build_docs.py` 预检并给提示，CI 的 docs step 与
   `docs.yml` 同步）；判据 `tests/test_api_docs_pages.py`（包页集合 == 非入口层包 + nav 登记 + 索引可达）。
+- **审计面保留与轮转**（台账 A61）：`pub/audit.py` 单文件达 `HEAGENT_AUDIT_SEGMENT_BYTES`（默认 8 MiB，
+  `0` = 关闭）即把当前段改名为 `tool-audit.seg-NNN.jsonl`，新主文件首行写段头（`prev` ==
+  `continues_from` == 上一段末行 `digest`）⇒ 哈希链可跨段续接；新增 `rotate_audit()` /
+  `segment_files()` / `verify_chain_segments()` / `read_entries(include_segments=True)`，
+  `heagent audit list` / `export` / `verify` 全部跨段（轮转不再让历史从查询面消失）。
+- **`keyring` 可选 extra**（台账 A60）：`pip install "heagent[keyring]"`，`KEYRING_ENABLED=true` 时从系统
+  凭据存储读密钥；缺包仍只打一次 WARNING 后回退环境变量 / `.env`。
 
 ## [0.10.0] - 2026-11-18
 

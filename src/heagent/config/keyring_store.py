@@ -6,7 +6,7 @@
 
 **写入 keyring 不属本模块职责**（只做读取，票面边界），手工一次即可::
 
-    pip install keyring
+    pip install "heagent[keyring]"
     keyring set heagent DEEPSEEK_API_KEY      # 提示输入值，交给系统凭据存储
 
 服务名固定 :data:`KEYRING_SERVICE`，账户名 = 设置键的大写形式（``DEEPSEEK_API_KEY``）；查询时
@@ -106,5 +106,5 @@ def _warn_missing_keyring() -> None:
     _MISSING_DEP_WARNED = True
     logger.warning(
         "KEYRING_ENABLED=true but the optional 'keyring' package is not installed; "
-        "falling back to environment variables / .env. Install it with: pip install keyring",
+        'falling back to environment variables / .env. Install it with: pip install "heagent[keyring]"',
     )

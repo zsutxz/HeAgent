@@ -29,7 +29,13 @@ from typing import Any
 
 import click
 
-from heagent.pub.audit import filter_entries, parse_since, read_entries, resolve_audit_path, verify_chain
+from heagent.pub.audit import (
+    filter_entries,
+    parse_since,
+    read_entries,
+    resolve_audit_path,
+    verify_chain_segments,
+)
 
 #: 退出码（见模块 docstring）。
 EXIT_OK = 0
@@ -54,7 +60,7 @@ def _load(path: Path, *, since: str | None, tool: str | None) -> list[dict[str, 
         except ValueError as exc:
             # click 的用法错误退出码同为 2；消息里点名原文，免得住把「相对时间」当 ISO 传。
             raise click.BadParameter(f"--since must be an ISO-8601 timestamp: {since!r} ({exc})") from exc
-    return filter_entries(read_entries(path), since=window, name=tool)
+    return filter_entries(read_entries(path, include_segments=True), since=window, name=tool)
 
 
 def _clip(text: str, width: int = DETAIL_WIDTH) -> str:
@@ -135,9 +141,9 @@ def audit_export_cmd(path: Path | None, since: str | None, tool: str | None) -> 
 @audit_cmd.command("verify")
 @click.option("--path", type=click.Path(dir_okay=False, path_type=Path), default=None, help="audit JSONL file")
 def audit_verify_cmd(path: Path | None) -> None:
-    """Verify the hash chain; report the first broken line number (exit 1 when broken)."""
+    """Verify the hash chain across archived segments; report the first broken line (exit 1 when broken)."""
     target = _audit_path(path)
-    verdict = verify_chain(target)
+    verdict = verify_chain_segments(target)
     if verdict.ok:
         click.echo(f"[audit] chain intact: {verdict.lines} record(s) verified in {target}")
         return

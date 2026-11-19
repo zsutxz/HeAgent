@@ -81,7 +81,8 @@ def _content_search_impl(root: Path, regex: re.Pattern[str], file_pattern: str, 
             continue
         try:
             text = resolved.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        # 单文件读失败（编码/权限）跳过，继续检索其余文件。
+        except Exception:  # nosec B112
             continue
         for i, line in enumerate(text.splitlines(), 1):
             if regex.search(line):

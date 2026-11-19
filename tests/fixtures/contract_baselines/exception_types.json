@@ -863,6 +863,13 @@
         "AuditEntry"
       ],
       "module": "heagent.pub.audit",
+      "name": "SegmentAuditEntry"
+    },
+    {
+      "bases": [
+        "AuditEntry"
+      ],
+      "module": "heagent.pub.audit",
       "name": "ToolAuditEntry"
     },
     {

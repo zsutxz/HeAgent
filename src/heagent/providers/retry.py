@@ -228,7 +228,8 @@ async def retry_with_backoff(
             last_error = e
             # 最后一次不等待，直接进入下一次循环抛出
             if attempt < max_attempts - 1:
-                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
+                # 抖动只用于分散重试时刻，不承担密码学用途。
+                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)  # nosec B311
                 await asyncio.sleep(delay)
 
     raise last_error or ProviderError("Retry exhausted")

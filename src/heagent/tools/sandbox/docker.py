@@ -31,7 +31,9 @@ import asyncio
 import json
 import logging
 import shutil
-import subprocess
+
+# 容器后端只启动固定的 docker 命令行调用，不经 shell 解析。
+import subprocess  # nosec B404
 import sys
 import time
 import uuid

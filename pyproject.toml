@@ -64,6 +64,11 @@ dev = [
 gui = [
     "textual>=1.0,<2.0",
 ]
+# 系统 keyring 属可选能力（Story 67.5 / A60）：KEYRING_ENABLED=true 时才被读取，
+# 缺失只给一次 WARNING 后回退环境变量 / .env，不影响核心安装。
+keyring = [
+    "keyring>=24.0,<27",
+]
 
 # HTTP 网页入口（Epic 49）的可选依赖：**直接声明**，不依赖 mcp 的传递依赖（AD-11）。
 # 缺依赖时 `heagent http-server` 与默认 CLI 的自动启动都会给出安装诊断；

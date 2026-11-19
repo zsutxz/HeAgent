@@ -28,7 +28,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import subprocess
+
+# 只用于启动/清理本进程已知的子进程，不经 shell 解析。
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass
 from pathlib import Path

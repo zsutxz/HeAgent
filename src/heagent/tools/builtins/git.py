@@ -45,7 +45,8 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         try:
             proc.kill()
             await reap_subprocess(proc)
-        except Exception:
+        # 进程可能已退出，终止失败不影响超时/取消语义。
+        except Exception:  # nosec B110
             pass
 
     try:

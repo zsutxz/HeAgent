@@ -126,7 +126,7 @@ class TestEnabledKeyring:
 
         warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert len(warnings) == 1, "未安装 keyring 的告警每次进程只应打一次"
-        assert "pip install keyring" in caplog.text
+        assert 'pip install "heagent[keyring]"' in caplog.text
         assert "falling back" in caplog.text
 
     def test_backend_error_falls_back_without_raising(
