@@ -107,6 +107,7 @@ heagent init --project
 | `heagent init [--project] [--interactive]` | 初始化用户配置（`--interactive` 为逐项向导）；`--project` 额外创建项目上下文模板 |
 | `heagent doctor` | 只读配置诊断（25 个诊断码；有 error 级 finding 时退出码 1） |
 | `heagent cron status` | 定时任务状态：never／running／success／failed + 最后与下次执行 + 失败原因 |
+| `heagent audit list\|export\|verify` | 审计 JSONL（工具执行 + 敏感操作）：列最近条目／导出／校验 prev-digest 哈希链（含归档段） |
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
 | `heagent http-server` | 实验性网页入口（内置聊天页 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
@@ -219,9 +220,13 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 
 经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 对外能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
 
-## Goal 工作流
+## 工作流（`/goal` 与 `/loop`）
 
-`/goal` 的权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
+两条声明式工作流并存，都是「Markdown 定义步骤与门禁、代码只做解析与调度」，互不读写对方的产物目录。
+
+### `/goal`（v6）
+
+权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
 
 ```text
 /goal <目标描述>      创建目标并启动首个步骤
@@ -233,7 +238,18 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 /goal auto [cron]     注册定时推进；off 注销
 ```
 
-运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[「Goal 工作流」专题文档](docs/goal-workflow.md)。历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
+运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[「Goal 工作流」专题文档](docs/goal-workflow.md)。
+
+### `/loop`（v7，当前主力）
+
+命令来自 [`.heagent/commands/loop.md`](.heagent/commands/loop.md)，执行契约是同包 [`SKILL.md`](.heagent/skills/loop/SKILL.md) ＋ [`workflow.md`](.heagent/skills/loop/workflow.md)
+（两者都要读）：8 步——市场调研 → 发散构思 → 需求分析 → 产品范围 → 架构设计 → 故事细化 → 逐故事实现 → 系统集成测试，
+Step 04 / Step 06 是审批门。
+
+- 运行状态：`_he-output/works/<goal-id>/progress.md` ＋ 指针 `_he-output/works/current`（每步一个全新 `task_delegate` 子会话，无 Python 状态机）。
+- 规划与 story 状态：BMAD v7 票树 `_bmad-output/initiative-<slug>/tickets/`（`tickets.py mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
+
+历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
 
 ## 配置与运行时数据
 
@@ -337,6 +353,7 @@ python scripts/quality_gate.py
 | 当前架构、数据流、工具与已知缺口 | [架构参考](docs/frame.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
 | `/goal` 工作流、产物与维护规则 | [「Goal 工作流」专题](docs/goal-workflow.md) |
+| `/loop` 工作流（v7 主力） | [`.heagent/skills/loop/workflow.md`](.heagent/skills/loop/workflow.md)（契约）与 [同包 `SKILL.md`](.heagent/skills/loop/SKILL.md)（执行总则） |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
 | 历史规划与验收证据 | [_bmad-output/README.md](_bmad-output/README.md) |
 

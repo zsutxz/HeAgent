@@ -177,7 +177,7 @@ ship 阶段：
 - [ ] `_bmad/scripts/render_skill.py` 细读——已确认部署范围：`_bmad/render/` 只渲染了 bmad-build 与 bmad-build-auto 两族（编译时内联只服务无人值守族？待验证动机），其余技能走激活时运行时解析
 - [x] `bmad-build-auto` 与 `bmad-sprint-planning` 的 sprint-status.yaml 联动——sprint-planning 侧已明（见 2026-10-19 追记：它是生产者/修复者，`recommendation` 是给编排层的接口）；build-auto 侧已补（见 2026-10-20 日志：它不读 sprint-status，靠调用方 folder+id 派发）
 - [x] `bmad-build-auto` 消费侧：**不读** sprint-status.yaml——step-01 按调用方给的 `spec_folder` + `story_id` 做 folder+id 派发（2026-10-20 实测，见文末日志）
-- [ ] 现有产物考古：`_bmad-output/` 里 epic 1-50 与 S1-S4 主题是怎么被这套流水线生产出来的（对照 `_bmad-output/consolidated-overview.md`）
+- [ ] 现有产物考古：`_bmad-output/` 里 epic 1-50 与 S1-S4 主题是怎么被这套流水线生产出来的（原 `_bmad-output/consolidated-overview.md` 已于 2026-11-15 重组拆为 `open-items.md` / `epic-overview.md` / `retrospective-all-cycles.md`，按这三份对照）
 
 ## 八、整体架构与设计理念（2026-10-19 学习周期收束）
 

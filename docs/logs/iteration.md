@@ -12,6 +12,12 @@
 | `frame.md` | 架构 | 现在的实现怎么工作 |
 | **`iteration.md`**（本文） | 工程 | 怎么迭代过来的、怎么继续迭代 |
 
+> **路径口径**：下文引用的 `_bmad-output/epics/<周期>/` 是**当前**布局——2026-11-15 起
+> `archive/epics/` 已并入 `epics/`（归档周期与活跃周期同目录混排），故历史句子里也一律写当前路径。
+> 状态真源同样在 2026-11-15 换代：v6 的 `sprint-status.yaml` 归档在
+> `_bmad-output/initiative-heagent/archive-v6/`（只读），v7 的活动票树在
+> `_bmad-output/initiative-heagent/tickets/`。
+
 `_bmad-output/` 是各周期的原始产物（brief/prd/epics/stories），是本文历程章节的事实来源之一；当本文与 `_bmad-output/` 或代码冲突时，以代码为准。
 
 ---
@@ -32,7 +38,7 @@ HeAgent 用 **BMad Method** 驱动迭代，组织单元是「**周期（Cycle）
 ### 1.2 历史规划周期工作流
 
 下面是历史规划产物采用的周期级顺序；它解释 `_bmad-output/` 的目录结构，不等于当前 `/goal` 的运行时步骤。
-当前运行时工作流见[文档索引的「Goal 工作流」章节](../README.md#goal-工作流)。
+当前运行时工作流见[「Goal 工作流」专题](../goal-workflow.md)。
 
 每个历史周期按此顺序推进，每步对应一个 BMad 技能（`bmad-*` 前缀）：
 
@@ -68,7 +74,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 3. **记录**：写入 `_bmad-output/implementation-artifacts/deferred-work-archive.md`（活动台账，append-only），含触发条件、严重度、冻结边界说明、建议修法。
 4. **收尾**：后续开专门 spec 处理，修完写 `Resolution` 段关闭；**闭合后按归属 epic 归档**到 `_bmad-output/epics/<周期>/deferred-work.md`（保留结论、证据与 commit 指针，不保留原始长文历史）。
 
-> **已闭合项归档（2026-09-15 整理）**：原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md`（`epic-01-10-主线规划周期`、`epic-11-18-MCP集成周期`、`epic-S1-S4-沙箱硬化周期`、`epic-40-沙箱会话化周期`、`epic-41-目标驱动开发周期`、`epic-47-声明式BMad敏捷工作流周期`），原台账随之退役并删除。条目索引见 `consolidated-overview.md` 13.1。
+> **已闭合项归档（2026-09-15 整理）**：原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md`（`epic-01-10-主线规划周期`、`epic-11-18-MCP集成周期`、`epic-S1-S4-沙箱硬化周期`、`epic-40-沙箱会话化周期`、`epic-41-目标驱动开发周期`、`epic-47-声明式BMad敏捷工作流周期`），原台账随之退役并删除。条目索引见 `_bmad-output/retrospective-all-cycles.md` §三（deferred 闭合与归档台账；原 `consolidated-overview.md` 已并入 `open-items.md` 与 `retrospective-all-cycles.md`）。
 
 ### 1.5 sprint-status 维护规则
 
@@ -76,7 +82,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 - **story key 须匹配 `epic-N-M` 模式**：`sprint-status` 技能校验 key 格式，不能用自定义前缀（如 `mcp-`）。
 - **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/epics/epic-11-18-MCP集成周期/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
 - **回顾字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
-- **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。
+- **单一权威（2026-07-23，v6 口径）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。**v7 起（2026-11-15）状态真源换成票树** `_bmad-output/initiative-heagent/tickets/`，该 yaml 归档于 `initiative-heagent/archive-v6/`（只读历史）。
 
 ### 1.6 实现会话收尾清单（2026-10-26 落盘，闭环 Epic 53/54 retro 4 条 process item）
 
@@ -84,7 +90,8 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 1. **状态回写**（源：epic-54 retro A3；根因：Epic 54 全部 story 漏回写 sprint-status）——story 实现完成即回写两处：
    story 文件 frontmatter `status` + `_bmad-output/sprint-status.yaml` 对应 story 行；会话收尾前核对该 epic 名下
-   无 `in-progress` / `review` / `ready-for-dev` 残留。
+   无 `in-progress` / `review` / `ready-for-dev` 残留。（v7 起回写目标改为票树：`tickets/…/tickets.toml` 的
+   entry 状态与 story plan frontmatter，`tickets.py mark` 是唯一合法写路径。）
 2. **squash 后真实保留 backup ref**（源：epic-54 retro A4；根因：98ef6d8 提交信息引用了不存在的 `backup/pre-squash-abb406a`）——
    squash/amend 类改写历史操作后立即 `git branch backup/pre-<op>-<short-sha>`，保留至验收期满；
    提交信息**不得引用不存在的 ref**。
@@ -120,7 +127,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.1 主线周期 · Epic 1-10
 
-**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/archive/epics/epic-01-10-主线规划周期/epics.md`：
+**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics.md`：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -130,7 +137,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 4 | 自学习记忆系统 | FR-10~12 |
 | 5 | 多 Agent 并行编排 | FR-16, 17 |
 
-**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/archive/epics/epic-01-10-主线规划周期/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
+**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -165,7 +172,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.4 沙箱硬化周期 · Epic S1-S4
 
-来源 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
+来源 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -196,9 +203,9 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.7 GUI 终端界面周期 · Epic 25-28
 
-来源 `_bmad-output/archive/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性。
+来源 `_bmad-output/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性。
 
-> 下表是 **2026-07-23 规划期快照**（当时尚未动工）；实际状态：**Epic 25-28 全部 `done`**（12 story），以 `_bmad-output/sprint-status.yaml` 为准。
+> 下表是 **2026-07-23 规划期快照**（当时尚未动工）；实际状态：**Epic 25-28 全部 `done`**（12 story），以 `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`（v6，已归档）为准。
 
 | Epic | 主题 | 状态（规划期快照） |
 |------|------|------|
@@ -209,7 +216,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.8 补丁周期 · 技术债收尾
 
-`_bmad-output/patches/`（**2026-09-15 解散**）曾按领域扁平分目录存放计划外补丁 spec，现已**按归属 epic 与它服务的 story 同目录归档**（`epics/<周期>/<epic-NN-主题>/`）；逐文件映射与已交付 spec 清单见 [`_bmad-output/README.md`](../../_bmad-output/README.md)「归档规则」节与 [`consolidated-overview.md`](../../_bmad-output/consolidated-overview.md) §13.2。
+`_bmad-output/patches/`（**2026-09-15 解散**）曾按领域扁平分目录存放计划外补丁 spec，现已**按归属 epic 与它服务的 story 同目录归档**（`epics/<周期>/<epic-NN-主题>/`）；逐文件映射与已交付 spec 清单见 [`_bmad-output/README.md`](../../_bmad-output/README.md)「归档规则」节与 [`retrospective-all-cycles.md`](../../_bmad-output/retrospective-all-cycles.md) §三。
 遗留项活动台账与闭合归档机制见 1.4。
 
 ### 2.9 engine/ 增量 · epic 外 P0-P5
@@ -379,10 +386,10 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。Epic 46.1 完成 TOCTOU assessment，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 与 OS sandbox 仍保留为后续工作。
 
 - 架构权威：[`frame.md`](../frame.md)（engine 模块见 4.12、已知缺口第五章）
-- 当前工作流：[文档索引「Goal 工作流」](../README.md#goal-工作流)（`.heagent/skills/he-goal/workflow.md` 为可执行契约）
+- 当前工作流：[「Goal 工作流」专题](../goal-workflow.md)（`.heagent/skills/he-goal/workflow.md` 为 `/goal` 的可执行契约；v7 的 `/loop` 契约在同级 `loop/`）
 - 产品愿景：[`design.md`](../design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/archive/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/archive/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/archive/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
-- **sprint 状态（单一权威）**：[`_bmad-output/sprint-status.yaml`](../../_bmad-output/sprint-status.yaml)（持续更新，覆盖当前全部周期与 Epic）
+- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
+- **sprint 状态（v6 历史权威）**：[`_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`](../../_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml)（已归档、只读；覆盖 v6 全部周期与 Epic。v7 起状态真源是 `_bmad-output/initiative-heagent/tickets/` 票树）
 - 技术债登记：活动台账 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；已闭合项按归属 epic 归档到 `_bmad-output/epics/<周期>/deferred-work.md`（原 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除）
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`（只覆盖截至 2026-08-19 的周期，**不能**视为 Epic 36-47 的完整回顾；后续交付记录分散在各周期目录）、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/archive/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`（只覆盖截至 2026-08-19 的周期，**不能**视为 Epic 36-47 的完整回顾；后续交付记录分散在各周期目录）、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`

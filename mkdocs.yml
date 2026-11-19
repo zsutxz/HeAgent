@@ -85,8 +85,10 @@ validation:
     # ③ `../` 跨目录链接：指向 `docs_dir` 之外（`../AGENTS.md`、`../src/...`、
     #    `../_bmad-output/...`）。Step 04 裁决：不改文档结构、不动 `../` 链接，只配 validation。
     not_found: ignore
-    # ④ 锚点口径差异：`docs/frame.md` 的页内 TOC 是**手写**锚点，按 GitHub 的 slug 规则拼的
-    #    （如 `#410-配置管理-config`、`#418-网页控制台-pubworkspacepy-…`）；mkdocs 走
-    #    python-markdown 的 slug 算法，对中文标题 + 反引号 + 括号的处理不同 ⇒ 26 条
-    #    「no such anchor」。这些锚点在仓库内（GitHub / 编辑器预览）有效，属渲染器口径差异。
+    # ④ 锚点口径差异：`docs/frame.md` 的页内 TOC 是**手写**锚点，按 GitHub 的 slug 规则拼
+    #    （去 ASCII 与全角标点、空格转 `-`）；mkdocs 走 python-markdown 的 slug 算法，对中文标题
+    #    + 反引号 + 括号的处理不同 ⇒ 绝大多数「no such anchor」属于渲染器口径差异。
+    #    ⚠ 但这层 ignore 会**连带放过真漂移**：标题里补了后缀（如 `(\`config/\`)` → `(\`config/\` 包)`、
+    #    标题追加 `；Epic 56 迁至独立 server`）而 TOC 未同步时，GitHub 上也点不动。
+    #    ⇒ 改标题后必须核 TOC 行；排查手法：按 GitHub slug 重算标题锚点与 TOC 逐条比对。
     anchors: ignore

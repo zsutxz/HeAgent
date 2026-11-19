@@ -38,8 +38,11 @@ _bmad-output/
 - 未闭合 deferred 只写入根目录 `open-items.md` 的「活动（未闭合）条目」节（2026-11-15 起）；闭合后，有明确归属的条目正文移入对应周期的 `deferred-work.md`，其余迁入 `retrospective-all-cycles.md`（§三 台账 / §四 编号索引）。
 - 不要把运行时状态、日志、密钥或 `.env` 写入并提交本目录。
 
-## 当前状态（2026-10-27）
+## 历史状态快照（2026-10-27，仅供存档）
 
-Epic 1–56 与 S1–S4 均已交付（Epic 53 于 2026-10-24 walkthrough 收口；54/55/56 随 `98ef6d8` 入库并随 0.8.2 发布）；**Epic 57 retro 遗留清理在途**（2026-10-26 立项，4 story 已 done）。Epic 48 已于 2026-09-27 从代码删除（`4217b5d`），历史见 `epics/epic-48-TCP网络接口周期/`。完整状态以 [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（已归档）为准；活动台账条数与 ID 以 [`open-items.md`](open-items.md)「活动（未闭合）条目」节为准（活动 5 条：A34/A41/A54/A55/A56）。
+> 当前状态见 [`epic-overview.md`](epic-overview.md)；活动项条数与 ID 的真值见 [`open-items.md`](open-items.md)
+> 「活动（未闭合）条目」节（上表与本节之外，本文不再另行声明计数——旧快照里的数字不作为现值）。
+
+Epic 1–56 与 S1–S4 均已交付（Epic 53 于 2026-10-24 walkthrough 收口；54/55/56 随 `98ef6d8` 入库并随 0.8.2 发布）；**Epic 57 retro 遗留清理在途**（2026-10-26 立项，4 story 已 done）。Epic 48 已于 2026-09-27 从代码删除（`4217b5d`），历史见 `epics/epic-48-TCP网络接口周期/`。当时的完整状态以 [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（v6，已归档）为准。
 
 2026-11-13：立项 Epic 61 Web 检索工具周期（backlog，spec 见 `epics/epic-61-Web检索周期/`）；同批复盘的 ② 多模态图像输入经用户裁定不做，③ 用户可配置 hooks 经核 Epic 32 已交付、撤销立项（残差转台账 A52/A53）。

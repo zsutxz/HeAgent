@@ -19,14 +19,14 @@
   - [4.7 Cron 调度 (`cron/`)](#47-cron-调度-cron)
   - [4.8 共享类型 (`pub/types.py`)](#48-共享类型-pubtypespy)
   - [4.9 异常体系 (`pub/exceptions.py`)](#49-异常体系-pubexceptionspy)
-  - [4.10 配置管理 (`config/`)](#410-配置管理-config)
+  - [4.10 配置管理 (`config/` 包)](#410-配置管理-config-包)
   - [4.11 MCP 集成 (`tools/mcp/`)](#411-mcp-集成-toolsmcp)
   - [4.12 运行时引擎 (`engine/`)](#412-运行时引擎-engine)
   - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
   - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
-  - [4.17.1 WebSocket 入口（Epic 54）](#4171-websocket-入口epic-54)
+  - [4.17.1 WebSocket 入口（Epic 54；Epic 56 迁至独立 server）](#4171-websocket-入口epic-54epic-56-迁至独立-server)
   - [4.17.1.1 CLI 旁路订阅（Epic 55）](#41711-cli-旁路订阅epic-55)
   - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalog--configwritepy--clihttppy--clidialogspy--web)
   - [4.19 安全口径（唯一真源）](#419-安全口径canonical)
@@ -1021,7 +1021,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 （messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
 `_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
-当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
+当前工作流的维护说明见[「Goal 工作流」专题](goal-workflow.md)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
@@ -1571,6 +1571,7 @@ src/heagent/
 │   ├── errors.py            # CLI 错误的统一出口（描述 + Try 选项 + Docs 锚点；Story 64.5）
 │   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
 │   ├── cron_cmd.py          # heagent cron status：定时任务状态查询（只读 jobs.json；Story 64.10）
+│   ├── audit_cmd.py         # heagent audit list|export|verify：审计 JSONL 查询 / 导出 / 跨段哈希链校验（Story 67.2 / 67.3；段轮转 A61）
 │   ├── progress.py          # 工具执行耗时行 + 大文件读写进度（Story 64.8 / 64.9）
 │   ├── run_history.py       # 重启后的读侧事件回放：rollout.jsonl → SSE 负载（A35，2026-11-18）
 │   ├── suggestions.py       # 错误场景 → ≥2 条可执行命令建议（Story 64.13）
@@ -1587,6 +1588,7 @@ src/heagent/
 │   ├── roles.py             # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
 │   ├── frontmatter.py       # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
+│   ├── log_config.py        # 日志行格式单一实现：text（人读，与历史输出逐字一致）/ json（timestamp 带时区偏移；Epic 65）
 │   ├── audit.py             # 追加式审计面（工具执行 + 敏感操作 JSONL，prev/digest 哈希链；段轮转与段头续接 A61）
 │   ├── validation.py        # 统一输入验证框架（Rule 链 + 结构化 issue + InputValidationError；Story 67.1）
 │   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
@@ -2022,7 +2024,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 > Epic/Story 列表存放在工作流自己的 `epics.md`。工作流能力面校验由
 > `goal/workflow_support.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
 
-模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护（BMad 外部工具写入，src 内无路径校验）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
+模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`（v6，已归档）维护（BMad 外部工具写入，src 内无路径校验；v7 的状态真源换成 `initiative-heagent/tickets/` 票树）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
 
 ### 8.3 声明式敏捷流程收口
 
