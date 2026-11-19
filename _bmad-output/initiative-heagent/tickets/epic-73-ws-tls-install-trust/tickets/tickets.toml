@@ -1,0 +1,66 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。epic 73 为新能力 epic（非 v6 迁移），无 v6_key。
+[[entry]]
+id = 1
+type = "story"
+title = "身份密钥与叶证书分离（SPKI 稳定）"
+description = "服务端引入长期「WS 身份密钥」`identity.key`：叶证书签发时**复用**它（只换有效期与 SAN），使证书内 SubjectPublicKeyInfo 恒定、SPKI-SHA256 可作客户端 pin。`network/tls_identity.py`（纯 stdlib，零新增依赖）：PEM→DER 最小 ASN.1 遍历取 SPKI 原始 TLV、`spki_sha256(cert)`、`short_fingerprint()`（base32 前 10 字节按 `XXXX-XXXX-XXXX` 分组）、`cert_key_matches(cert, key)`、`san_covers(cert, host)`。`scripts/gen_ws_cert.py` 的 `issue_leaf` 改为复用 `identity.key`（不再每次 `genrsa`），首次初始化才生成。"
+verify = "① 固定夹具 PEM 的 SPKI-SHA256 与 `openssl pkey -pubin -outform der` 的 sha256 逐字节一致（现有 cert.pem 实测 294 字节 / `b14417f5…`）；② 复用密钥重签两次 ⇒ `spki_sha256` 不变、`notAfter` 变、序列号递增；③ `cert_key_matches` 对配错的 key 返回 False；④ `san_covers` 对 SAN 内 IP 返回 True、外部 IP 返回 False、主机名只匹配 DNS 项；⑤ `mypy src` 绿且文件远低于 1000 行；⑥ 不新增 `cryptography` 依赖（dependencies 仍 6 项）。"
+covers = []
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 2
+type = "story"
+title = "`heagent tls` 命令族"
+description = "新增 CLI 子命令 `heagent tls {init,issue,rotate-key,fingerprint,verify}`：`init` 建 CA + 身份密钥（材料目录默认 `.heagent/tls/`，已有材料不覆盖、需 `--force` 才轮换）；`issue` 重签叶证书（复用身份密钥、`--days` 默认 30、`--san` 追加地址、缺省从当前 `WS_HOST` 推导）；`rotate-key` 显式轮换身份密钥并打印新 pin 与双 pin 过渡提示；`fingerprint` 打印 SPKI-SHA256 / 短指纹 / 有效期 / SAN；`verify` 校验「叶 ↔ 身份密钥 ↔ 打印的 pin」一致与到期余量。旧脚本 `scripts/gen_ws_cert.py` 保留为薄包装（迁移期）并在文件头指向 `heagent tls`。"
+verify = "① 五个子命令各有 `--help` 与至少一条用例；② 全新临时目录 `init` → `issue`：`cert.pem` 由 `ca.pem` 签发且公钥等于 `identity.key`；③ `issue` 两次后 `verify` 仍绿且 pin 不变；④ `rotate-key` 后 pin 变化且 stdout 含 old/new 两个指纹与「双 pin 过渡」字样；⑤ `init` 在已有材料目录不带 `--force` 时报错退出且不改动任何文件；⑥ `ca.key`/`identity.key` 尽力 0600，失败只提示不中断；⑦ `heagent --help` 的子命令列表含 `tls`。"
+covers = []
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "启动自检与 doctor 三项"
+description = "WS listener 起 TLS 前做身份自检：叶证书 `notAfter` 余量 < 7 天 ⇒ WARNING（点名 `heagent tls issue`）；SAN 不含当前绑定地址 ⇒ WARNING（点名重签命令与 `--san`）；`cert.pem` 与 `WS_TLS_KEY_FILE` 不配对 ⇒ fail-loud 拒绝启动（现状会起得来但握手全失败）。`heagent doctor` 增三项：`doctor.ws_tls_fingerprint`（pin 可读并打印短指纹）、`doctor.ws_tls_expiry`（余量与到期日）、`doctor.ws_tls_san`（当前 `WS_HOST` 是否在 SAN）。"
+verify = "① 到期余量 3 天的夹具 ⇒ 启动日志恰一条 WARNING（`caplog` 计数为 1）；余量 20 天 ⇒ 零 WARNING；② SAN 缺当前绑定地址 ⇒ WARNING 点名 `heagent tls issue`；③ cert/key 不配对 ⇒ 退出码 1，消息点名两个配置键；④ doctor 三个 code 各正/负用例，退出码语义与既有 doctor 一致；⑤ 未启用 TLS 时三条自检全部跳过、零告警；⑥ `pytest tests/test_cli_doctor.py tests/network -q` 绿。"
+covers = []
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "`/api/status` 暴露 TLS 身份面"
+description = "`GET /api/status` 的 listeners 条目增 `tls` 子对象：`{enabled, spki_sha256, short_fingerprint, not_after, san}`（未启用 TLS 时 `enabled=false` 且其余为 `null`）。指纹属公开信息，只在 listener 现有可达面内暴露；`StatusResponse` 保持 `extra=\"forbid\"`，前端 `status-panel.js` 部署面同步展示短指纹（长度沿用 `_clip`）。"
+verify = "① 启用 TLS 的夹具 ⇒ `tls.short_fingerprint` 与 `heagent tls fingerprint` 输出逐字相同；② 未启用 ⇒ `enabled=false` 且四字段为 `null`（不是空串）；③ `tls` 内未知字段被 `extra=\"forbid\"` 拒绝；④ 状态面板字段覆盖守卫同步，删掉前端展示即红；⑤ `pytest tests/test_http_status_api.py tests/test_web_server_status_panel.py -q` 绿。"
+covers = []
+after = [2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 5
+type = "story"
+title = "wss listener + 恢复 Bearer token + 明文回收"
+description = "第二步本体：`WS_TLS_CERT_FILE`/`WS_TLS_KEY_FILE` 都配时 listener 起 wss；`requires_auth` 在非 `lan` 档恒为真（token 恢复），`lan` 仅作显式调试档；`wss` + `WS_LAN_NO_AUTH=true` ⇒ 非法组合拒绝启动。启动公告与日志补 `tls=wss auth=token` 事实；`/api/cli/ws` 旁路仍只挂回环。客户端契约（不改客户端代码）：pin 校验三条 + 稳定错误码 `pin_mismatch` / `cert_expired` / `cert_unreadable` 写进 guide 与 `docs/errors.md`。"
+verify = "① 真实 TLS 握手用 `ca.pem` 作信任锚成功、无 token ⇒ `403`、带正确 token ⇒ `101`；② `WS_LAN_NO_AUTH=true` + TLS 配齐 ⇒ 拒绝启动并点名两键；③ 明文 + token 中间态在隔离内网仍可用、跨不可信网络由文档明确禁止；④ 启动日志恰一条 `tls=wss auth=token`；⑤ `/api/status` 的该 listener `tls.enabled=true`；⑥ 旁路 `/api/cli/ws` 在 wss 非回环档不注册（沿用 72 判据）；⑦ 文档与错误码三处同步。"
+covers = []
+after = [3, 4]
+hitl = true
+risk = "high"
+
+[[entry]]
+id = 6
+type = "story"
+title = "端到端验收与安全口径同步"
+description = "把第二步落到本机配置并取证：`.env` 启 TLS、`WS_LAN_NO_AUTH` 归位（生产档 `external` + token，或明确保留 `lan` 调试档并写明风险），回收第一步明文放行（客户端侧记入契约清单）。同步安全口径真源 `docs/frame.md` §4.19 要素 4/5 与派生副本 AGENTS/CLAUDE，守卫短语集同批；`deploy/README.md` 与 `.env.example` 更新；端到端取证含 `netstat`、`heagent tls fingerprint`、真实 `wss` 握手、run 提交与事件订阅、pin 不匹配的反向用例。"
+verify = "① 七项判据各有可复制的命令与原始输出；② 反向用例：临时把本地 pin 改成错误值 ⇒ 握手被拒且错误码为 `pin_mismatch`（证明校验真生效）；③ `pytest` 全量、`ruff check`、`ruff format --check`、`mypy src`、`bandit -r src/ -ll`、`mkdocs build --strict` 全绿；④ `tests/test_security_posture_contract.py` 短语集与新口径一致，删任一关键短语会红（报告留两次运行结果）；⑤ 宿主真机不可达项标 `未实测` 并列命令。"
+covers = []
+after = [5]
+hitl = true
+risk = "medium"

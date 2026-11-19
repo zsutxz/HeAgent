@@ -83,3 +83,10 @@ slug = "epic-72-ws-lan-plaintext"
 title = "WS 内网明文接入（第一步）"
 description = "按 docs/tls-connect-guide.md 的第一步把 WS 入口变成「内网调试入口」：新增 lan 监听身份（绑私有 IPv4 + 显式 WS_LAN_NO_AUTH 免 token + 保留 Host/Origin 防线 + 每次启动告警），退役 9301 双监听与 WS_EXTERNAL_* 配置族，同步安全口径真源（frame §4.19）与派生副本、doctor 自检与端到端取证。"
 covers = []
+
+[[epic]]
+id = 73
+slug = "epic-73-ws-tls-install-trust"
+title = "WS TLS 安装期信任（第二步）"
+description = "让客户端不导证书也能安全连 wss：服务端固定长期身份密钥（叶证书重签复用密钥，SPKI 恒定）、`heagent tls` 命令族（init/issue/rotate-key/fingerprint/verify）、启动与 doctor 自检（到期/SAN/链）、`/api/status` 暴露 SPKI 指纹，最后恢复 Bearer token 并起 wss、回收第一步明文放行。客户端改造属 aihome-client 仓库，本 epic 只定契约。"
+covers = []
