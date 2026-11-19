@@ -1,0 +1,66 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。epic 71 为新能力 epic（非 v6 迁移），无 v6_key。
+[[entry]]
+id = 1
+type = "story"
+title = "状态协议与聚合端点"
+description = "新增只读 `GET /api/status` 骨架：协议层加 `StatusResponse`（`extra=\"forbid\"`、字段全部为枚举/布尔/非负整数/有界文本，绝不含绝对路径与密钥），网络层加 `StatusSource` Protocol 与端点构造闭包（注入方异常收敛 500 + 固定文案，写法照抄 `endpoints_tasks.py`），入口层在 `cli/http.py` 两处装配点实现适配器并注入，`app.py` 注册路由。首版覆盖运行态：`active_runs` 与 `max_inflight_runs`、`run_records`、终态分桶计数（completed/failed/cancelled/timed_out）、三条 WS 流的连接数（runs / notifications / cli 旁路）、后台任务条数（复用 `default_task_registry()`）、服务身份（service / version / schema_version）。"
+verify = "`GET /api/status` 返回 200 且字段集合与 `StatusResponse` 逐字一致（伪造多一条字段即校验失败）；用 `StubProvider` 起一个 run 时 `active_runs` 从 0 变 1、终态后回 0；WS 订阅一条后连接数 +1、断开 -1；响应体不含 `C:\\\\` / `/home/` 等绝对路径（复用 `sanitize_message` 的判据断言）；`pytest tests/test_architecture_contracts.py -q` 绿；`tests/test_web_endpoint_coverage.py` 里该路由进白名单且理由写明「前端接入在 71.6」。"
+covers = []
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "部署面视图"
+description = "把入口层已知的部署期事实投影进 `GET /api/status`：HTTP 与 WS 的绑定地址/端口、listener 模式（`local` / `external`，取自 `network/exposure.py::is_loopback_host` 的既有判定，不在端点里重算）、TLS 是否启用、沙箱后端名、配置写入闸门开关、`ACTIVE_PROVIDER` 与 `ROUTING_POOLS` 的**档位名**清单。硬约束：只报名字与布尔，绝不回显密钥值、base_url、项目或工作区绝对路径；`WS_HOST=0.0.0.0` 必须判为 `external`。"
+verify = "配置夹具设 `WS_HOST=127.0.0.1` 时 `listener` 为 `local`、设 `0.0.0.0` 时为 `external`（不真起 listener，直接构造配置）；把 `OPENAI_API_KEY=<哨兵值>` 注入环境后响应体序列化结果里搜不到该哨兵值；池档位名有序去重，未配置 `ROUTING_POOLS` 时返回空列表而不是 null；响应体过 `sanitize_message` 同款净化后无绝对路径命中。"
+covers = []
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "uptime 与依赖态"
+description = "`HttpServer.start()` 成功点（`listener.py` 绑定并探活通过处）记录启动时刻：uptime 用 `time.monotonic()`（单调、抗时钟回拨），展示用 wall clock ISO，二者进 `/api/status`。依赖态：cron 作业清单与各作业 `last_run` 由**当前选中项目**的 `.heagent/cron/jobs.json` 投影（读 `cron/jobs.py::list_jobs`）；技能数与记忆条目数由入口层持有的 `SkillStore` / `FactStore` 计数。实测约束：网页进程**不启动调度器**（`cli/http_console.py::new_loop` 构造 `CronScheduler` 后即丢弃）⇒ 不报「下次触发时刻」，该字段不存在。"
+verify = "`start()` 后连读两次 `uptime_seconds` 单调不减且第二次大于等于第一次；未 `start()` 的实例读 status 得到 0 或 null 而**不抛错**；jobs.json 放 2 条作业时 `cron_jobs` 长度为 2 且每条带 `last_run` 字段，文件不存在时为空列表且仍 200；技能计数与 `.heagent/skills/` 下带 `SKILL.md` 的目录数一致；断言响应模型里**没有** `cron_next_run` 一类字段（防止实现者编造调度状态）。"
+covers = []
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "进程资源采样（stdlib only）"
+description = "新增 stdlib-only 的进程资源采样（**零新增运行时依赖**，Epic 67 的依赖精简立场）：Linux 读 `/proc/self/stat` 与 `/proc/self/status` 取 RSS、线程数、CPU 时间；Windows 用 `ctypes` 调 `GetProcessMemoryInfo` 与 `GetProcessTimes`；无法采样的平台返回 `null` 并在响应里标 `resource_source: \"unavailable\"`，**绝不填 0 冒充**。采样同步、只读、无副作用，住在不依赖运行栈的层（`network/` 或 `pub/`），单次调用只做一次文件读取或一次 ctypes 调用。"
+verify = "同一进程两次采样 `rss_bytes` 为正整数且量级合理（0 < rss < 物理内存上限）；把 `sys.platform` 替换为未知值后采样返回 `None` 而非抛异常，且响应里 `resource_source` 为 `unavailable`；`pyproject.toml` 依赖段零 diff、`pip check` 通过；采样 1000 次总耗时 < 500ms（可跑的断言，不是注释）；若新增 `pub/` 模块则 `tests/test_architecture_contracts.py::test_shared_layer_layout_is_pinned` 与 `scripts/contract_snapshot.py` 基线同步且重跑幂等。"
+covers = []
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "请求计数与延迟"
+description = "把 `_AccessLogMiddleware`（`http_server/middleware.py`）从「只打日志」升级为「就地计数 + 打日志」：总请求数、状态码分桶（2xx/3xx/4xx/5xx）、稳定错误码频次（`run_conflict` / `rate_limited` / `origin_forbidden` / `unknown_run`）、最近 N 次延迟的 p50 与 max（有界 ring buffer，容量是常量而非配置键）。热路径只做整数自增与一次 `deque.append`：无锁、无 I/O、无格式化、不读时钟以外的共享状态。计数快照经 `/api/status` 只读暴露。"
+verify = "发 3 个 2xx + 1 个 404 后 `requests_total` 为 4 且 `status_classes.4xx` 为 1；触发一次 `origin_forbidden` 后该错误码计数 +1；灌入 10 倍容量的请求后 ring buffer 长度等于容量且 p50/max 可算；连续读两次 `/api/status` 计数不变（读取幂等）；中间件异常路径仍是「记日志不上抛」（既有语义断言保持绿）；`ruff check` 与 `mypy src` 无新增告警。"
+covers = []
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "网页端状态面板与徽标"
+description = "网页端消费 `GET /api/status`：顶栏加 `#server-status` 徽标（形如 `本地 · up 1h23m · run 0/1 · WS 2`），侧栏加懒加载「服务器状态」面板，按运行态 / 部署面 / 依赖态 / 资源 / 请求计数分组，每项 `label: value` 一行；轮询**不进** 5 秒 health 循环（沿 Story 70.2 的纪律），只在面板打开时按固定间隔取、关闭即停；请求失败保留上次值并标注离线；全部 `textContent`，零内联脚本、零第三方资源、不放宽 CSP。"
+verify = "`tests/test_web_endpoint_coverage.py` 双向断言保持绿（`/api/status` 在 71.1 已由 API 探索器预置消费，71.6 之后仍必须至少有一个真实消费点：删掉面板调用后若预置仍在，需另断言面板元素存在）；静态契约断言 `index.html` 有 `#server-status` 与面板容器、`app.js` 真引用它们、无 `innerHTML`、无硬编码端口/版本号；`/api/status` 返回 500 时页面显示失败文案并保留上次值（失败映射断言）；本机无 node ⇒ 至少 `ruff`/`mypy`/静态契约全绿，并在 story 报告里标注 node 探针未执行。"
+covers = []
+after = [1, 2, 3, 4, 5]
+hitl = false
+risk = "low"
