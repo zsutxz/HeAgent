@@ -3,7 +3,7 @@ title: 'Story 71.4 进程资源采样（stdlib only）'
 type: feature
 ticket: 4
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: 'e06be7b'
 route: full
 route_source: auto
@@ -96,3 +96,23 @@ deferred: []
 - **后续评审建议**：`false` —— 本轮无 medium/high，且新增用例已变异验证。
 - **验证**：`pytest`（`tests/network` + 相关套件 **763 passed**）；四份契约快照 `[OK]`；`ruff` / `format` / `mypy` 全绿；变异 2/2 RED（`rss_bytes: 0`、平台写死）。
 - **残差**：Windows 通路未在本机执行（`# pragma: no cover`）；线程数在 Windows 上恒 `None`；macOS/BSD 走 `unavailable`。
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 0 `decision-needed`, 2 `patch`（已修）, 4 `defer`, 5 rejected。
+
+- [x] [Review][Patch] `read_process_stats` 的 docstring 称「任何异常都降级」，实际只捕 `OSError/ValueError/RuntimeError` — `/proc` 被截断会抛 `IndexError`、`SC_CLK_TCK` 取到 0 会抛 `ZeroDivisionError`，两者穿透即 500。已把两者加进捕获元组，判据 `tests/test_http_status_api.py::TestProcessResources`。
+- [x] [Review][Patch] `threads` 从无数值级断言（漏传恒 null 也绿）— 已补 `payload["threads"] is not None and > 0`。
+- [x] [Review][Defer] 端点侧「采样可用 ⇒ 值送达 / 不可用 ⇒ 三 null」缺注入式双向用例（现 4 条用例在映射整体失效时仍绿）— deferred: A74
+- [x] [Review][Defer] `/proc` 失败路径与 Windows 分支无用例（`_read_windows` 带 `# pragma: no cover`）— deferred: A74（Windows 需真机/桩）
+- [x] [Review][Defer] `/proc` 解析只断言量级、未钉已知文本（`1024 → 1000` 或字段下标错位都绿）— deferred: A74
+- [x] [Review][Defer] `_read_windows` 未设 `argtypes` / `restype`，64 位下 HANDLE 可能被截断 — deferred: A74（需 Windows 实机验证）
+
+Rejected:
+- false：`VmRSS:` 行无值 / `stat` 无 `)` / `SC_CLK_TCK<=0` 会抛异常 — 三个分支同属「采不到」且本次已进捕获元组，真实内核格式稳定。
+- rejected(low)：采样失败不打日志 — 降级本身是契约行为，每请求 WARNING 会成为噪声。
+- false：`source=procfs` 但三项为 null — 只有 `/proc` 缺字段才可能，`/proc/self/*` 恒有。
+- rejected(low)：测试用 `monkeypatch.setattr(proc_stats.sys, "platform", ...)` 改了全局 — monkeypatch 自动还原，用例串行。
+- rejected(low)：「单次采样只读一次文件」与实际两次读不符 — 两次均为微秒级 procfs 读，属措辞不精确而非缺陷。

@@ -3,14 +3,14 @@ title: 'Story 71.6 网页端状态面板与徽标'
 type: feature
 ticket: 6
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: 'c0acda0c'
 route: full
 route_source: auto
 risk: low
 review: thorough
 review_source: auto
-lenses_ran: []
+lenses_ran: [edge-case-hunter, verification-gap]
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -108,3 +108,22 @@ deferred: []
 - `python -m pytest -q`（全量）-- 5425 passed / 51 skipped / 30 deselected / 1 xfailed
 - `python -m ruff check src tests` / `ruff format --check` / `mypy src` -- 全绿（475 files formatted / 233 source files）
 - `python -m mkdocs build --strict` -- 0 warning；`python scripts/contract_snapshot.py --check` -- 四份快照全 `[OK]`
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 1 `decision-needed`, 3 `patch`（已修）, 1 `defer`, 5 rejected。
+
+- [ ] [Review][Decision] `status-panel.js` 没有任何**执行级**测试 — 本计划的 AC 与实现说明都称「真实浏览器里的轮询节奏由 node 探针覆盖」，但 `tests/fixtures/js/app_probe.js` 只加载 `app.js`，`tests/test_http_web_ui.py::_run_probe` 只写 `app.js` + `index.html`，本文件从未被执行（本机与 CI 均无 node）。静态契约只能证明「源码里有这些 token」：删掉 `void loadStatus()`（徽标永不出现）、去掉 `shouldPoll` 的 `open` 条件（收起后继续轮询）、把失败分支写反（500 当快照渲染）都能全绿。Options: (a) 新增 `status_panel_probe.js`（照 app_probe 形态：最小 DOM + `HePanels` 桩，node 缺失时 skip），(b) 把「无 node ⇒ 前端行为零回归」升为 epic 级残差并在文档标注，(c) 两项都做。Recommended: (c) — 探针先落地（CI 镜像自带 node），本机 skip 由残差如实登记。
+- [x] [Review][Patch] 取数永不 settle 时面板永久卡死 — 连接半开时 `fetch` 不返回，`loading` 恒 true，后续每次取数提前返回。已加 `REQUEST_TIMEOUT_MS = 4000` 的 `Promise.race`（超时按失败处理，轮询照继续）。
+- [x] [Review][Patch] 「只调 `GET /api/status`」的方法面未断言 — 已补 `panels.request("GET"` 静态断言（改成 POST 会让每次轮询 405、面板永久离线）。
+- [x] [Review][Patch] 依赖态未标注统计范围 — 已加「统计范围: 本进程工作区」行（与 71.3 的面板文案要求对齐）。
+- [x] [Review][Defer] 字段覆盖守卫是全文子串匹配 — 实测 29 行里 12 行删掉后守卫仍绿（`active_runs` / `uptime` / `failed` 等被徽标或 `dataset` 里的同名字符串遮蔽）— deferred: A74
+
+Rejected:
+- false：字段缺失时面板把「未知」渲染成事实值（`WS 0` / `只读` / `未暴露`）— `StatusResponse` 是封闭模型，载荷恒带全字段；该状态只能由非本仓服务端产生。
+- rejected(low)：渲染函数抛错会让轮询停摆 — 只在渲染代码自身有 bug 时发生，归入上面 decision 项同一风险面。
+- rejected(low)：轮询启停 / 切页签不重取 / 失败保留三组语义无执行验证 — 与 decision 项同一根因，不重复立项。
+- rejected(low)：`<details>` 收起时仍渲染明细 — `loadStatus` 已用 `el.details.open` 守卫。
+- rejected(low)：`app.js` 是否含 `/api/status` — 已有静态断言钉住（`TestPollingIsNotInAppJs`）。

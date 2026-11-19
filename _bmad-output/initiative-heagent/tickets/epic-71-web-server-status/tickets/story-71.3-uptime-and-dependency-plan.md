@@ -3,7 +3,7 @@ title: 'Story 71.3 uptime 与依赖态'
 type: feature
 ticket: 3
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '6345abd'
 route: full
 route_source: auto
@@ -105,3 +105,23 @@ deferred: []
 - **后续评审建议**：`true` —— 本轮新增/加强的 4 条用例只经自我变异验证，未经第二双眼睛复核。
 - **验证**：`pytest`（`tests/network` + 相关套件 **807 passed**）；四份契约快照 `[OK]`；`ruff check` / `ruff format --check` / `mypy src` 全绿；变异验证 5/5 RED。
 - **残差**：`skill_count` 只数技能包条目（同名按全局优先去重），不区分来源根；`memory_facts` 是 `MEMORY.md` 的 `- ` 行数，不含归档目录。
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 0 `decision-needed`, 4 `patch`（已修）, 3 `defer`, 4 rejected。
+
+- [x] [Review][Patch] `jobs[:32]` 截断先于畸形条目过滤 — 排在前面的坏条目会吃掉容量、把后面的正常作业挤掉。已改为先过滤再截断（`cli/http_status.py::_cron_jobs`）。
+- [x] [Review][Patch] 依赖态缓存「过期后重读」从未被时间驱动 — 原用例用 `_dependency_cache = None` 手动过期，把常量改成 3600 也不会红。已改用假 `time.monotonic` 推进（窗口内不变 / 过窗刷新）。
+- [x] [Review][Patch] 损坏的 `jobs.json` 没有用例 — 已补 `test_corrupt_jobs_file_is_an_empty_list_not_an_error`（截断 JSON → 200 + 空表）。
+- [x] [Review][Patch] 面板未标注依赖态的统计范围（epic 残差要求「在面板文案里如实标注」）— `web/status-panel.js` 依赖组首行已加「统计范围: 本进程工作区」。
+- [x] [Review][Defer] `heagent http-server` 那条装配点的 `workspace_root` 无用例（删掉该行仍全绿，依赖态会恒 0）— deferred: A74
+- [x] [Review][Defer] `_skill_count` / `_memory_facts` 的 fail-soft 降级分支无用例 — deferred: A74
+- [x] [Review][Defer] `HttpServer.close()` 不清 `_started_monotonic` / `_started_at_wall`，关闭后 `uptime_seconds` 继续增长 — deferred: A74（端点随 listener 下线，观察不到；可观测性 API 自洽性待整）
+
+Rejected:
+- false：legacy `last_run` 是本地时却被标 UTC — `cron/jobs.py` 落盘即 `datetime.now(UTC)` 的 naive 形式，标注正确。
+- false：`status()` 在请求里读盘 — 依赖态 5 秒缓存、资源走 procfs（非盘 I/O）；docstring 已如此声明。
+- rejected(low)：`WorkspacePaths.from_root` 在 try 外 — `expanduser` / `resolve` 只在工作区路径本身非法时抛，装配期已先算过同一路径。
+- rejected(low)：未接装配时依赖态报 0（而非 null）— 两个真实装配点都传 `workspace_root`（见 defer 的证据补齐项）。

@@ -3,7 +3,7 @@ title: 'Story 71.2 部署面视图'
 type: feature
 ticket: 2
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '98928cb'
 route: full
 route_source: auto
@@ -125,3 +125,25 @@ deferred: []
 - `python -m pytest tests/test_http_status_api.py tests/network tests/test_cli_http.py tests/test_architecture_contracts.py tests/test_contract_baselines.py -q` -- expected: 全绿
 - `python scripts/contract_snapshot.py --write --only public && python scripts/contract_snapshot.py --write --only exceptions && python scripts/contract_snapshot.py --check` -- expected: 全 `[OK]`
 - `python -m ruff check src tests` / `python -m ruff format --check src tests` / `python -m mypy src` -- expected: 无新增告警
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 1 `decision-needed`, 2 `patch`（已修）, 3 `defer`, 7 rejected。
+
+- [x] [Review][Decision→Resolved] 沙箱后端报「请求档位」而非「生效档位」 — `cli/http_status.py:_deployment` 用 `sandbox_backend or settings.sandbox_backend`，而该函数 docstring 与提交说明都称「本进程实际使用的档位」。`SANDBOX_BACKEND=auto` 或 docker daemon 不可用时引擎会降级到 `passthrough`（`engine/container.py:354-365` 的 `sandbox_decision.effective_backend`），状态面仍报 `auto`。Options: (a) 有 `sandbox_decision` 时报 `effective_backend`（装配点从 handler 取），(b) 保持报请求档位、把面板文案改成「请求档位」，(c) 两列都报（请求 / 生效）。Recommended: (a) — 安全姿态是状态面板的核心用途，报配置值会让人以为命令在沙箱里跑。**裁定 2026-11-19（用户「按推荐」）= 采纳 (a)**：`cli/http_status.py::_effective_sandbox_backend` 取 `engine.sandbox_decision.effective_backend`，`cli/http.py` 两处装配点改成「生效优先、取不到才回落请求档位」；判据 `test_effective_sandbox_backend_is_read_from_the_engine_decision`、`tests/test_cli_http.py::test_http_server_command_wires_the_status_source`（改为按 `effective_backend` 断言）、`test_embedded_wiring_prefers_the_engine_effective_backend`。
+- [x] [Review][Patch] 档位上限用例只造 17 条（上限 64）— 截断切片恒 no-op，删掉也绿。已改 100 条。
+- [x] [Review][Patch] `active_provider` 在装配期被抄成字符串 — `/provider` 运行期切换后状态不变。已改为运行期读实例（`HttpStatusSource._provider`），判据 `test_active_provider_is_the_live_instance_not_a_snapshot`。
+- [x] [Review][Defer] 两处装配点（`cli/http.py:364` / `:699`）的 `provider=` 接线与 `_clip` 上限（host 255 / backend 32 / provider 64）无断言 — deferred: A74（证据补齐，不改变行为）
+- [x] [Review][Defer] `test_pools_default_to_an_empty_list` 依赖宿主环境变量（`SANDBOX_BACKEND` / `ACTIVE_PROVIDER` 会被 `Settings` 读走） — deferred: A74
+- [x] [Review][Defer] `tests/test_cli_http.py` 的 `--sandbox docker` 用例未屏蔽真实 daemon 探活 — deferred: A74（maybe-false：本轮实测该文件 4s 内全绿，未观察到慢探活）
+
+Rejected:
+- false：池 / listener 超量导致整条状态 500 — 池上限受 `ROUTING_POOL_ENTRIES`（6 家）约束、listener 恒 ≤3（http + 1–2 ws），协议上限 16/4 不可达。
+- false：`ListenerMode(config.mode)` 遇未知值抛错 — 两个 config 类的 `mode` 都是 Literal。
+- false：WS 替身缺 `.config` / `.port` 时 AttributeError — 真实装配只传 `WsServer`，替身已提供两者。
+- false：内嵌入口忽略 CLI `--sandbox` — `build_http_service` 取 `executor.sandbox_backend`，`HttpAgentHandler` 构造时已带该覆盖（`cli/http_console.py:228`）。
+- rejected(low)：`settings=None` 时部署面静默空值 — 只有测试替身会这样构造，加 WARNING 属噪声。
+- false：`sandbox_backend` 未截断会 500 — `_clip` 已覆盖（见 defer 项的证据补齐）。
+- rejected(low)：`tests/test_cli_http.py` 与档位上限用例重复 — 同一断言点，已随上一 patch 一并解决。

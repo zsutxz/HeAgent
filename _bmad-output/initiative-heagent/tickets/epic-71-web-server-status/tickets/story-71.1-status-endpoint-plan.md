@@ -3,7 +3,7 @@ title: 'Story 71.1 状态协议与聚合端点'
 type: feature
 ticket: 1
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: 'dadafc0e224141588c1bacb82e61767db8d676cf'
 route: full
 route_source: auto
@@ -154,3 +154,20 @@ deferred: []
 - `python -m pytest tests/test_http_status_api.py tests/network/test_endpoint_security.py tests/test_web_endpoint_coverage.py tests/test_architecture_contracts.py tests/test_contract_baselines.py -q` -- expected: 全绿
 - `python scripts/contract_snapshot.py --check` -- expected: 与基线一致（先 `--write --only routes` 再 check）
 - `python -m ruff check src tests` / `python -m ruff format --check src tests` / `python -m mypy src` -- expected: 无新增告警
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 0 `decision-needed`, 2 `patch`（已修）, 0 `defer`, 6 rejected。
+
+- [x] [Review][Patch] 「序列化失败」与「取数失败」走同一条 500 文案 — `endpoints_status.py:51` 已把 `model_dump` 移进 `try`，但原用例的替身是在 `status()` 内抛错，两种失败不可区分。已补 `_NotStatusResponseSource`（`status()` 返回 `object()`）+ `test_serialization_failure_takes_the_same_fixed_500`。
+- [x] [Review][Patch] `failed` / `timed_out` 两档从未被任何用例产出 — `service.py:131-135` 的桶映射错接时 `sum(...)` 断言天然看不出来。已补 `test_failed_run_lands_in_the_failed_bucket`（执行体抛错 → `failed=1`）。
+
+Rejected:
+- false：注入方返回非 `StatusResponse` 时端点不校验字段集 — 只有入口层手写适配器可能如此，`StatusSource` 是结构化 Protocol，`extra="forbid"` 已在模型层保证。
+- false：状态未统计 WS「submit」连接 — 本仓没有 submit WS 端点（提交走 `POST /api/runs`），三条流已覆盖全部 WS。
+- false：`status()` 同步执行会阻塞事件循环 — 这是 `StatusSource` 文档化的契约（只读内存计数）；磁盘读取已在来源侧 5 秒缓存内。
+- false：`snapshot(limit=256)` 会少算后台任务 — 注册表终态保留上限 32 条，256 窗口恒覆盖整表。
+- rejected(low)：协议计数字段带 `0` 默认值，漏填会静默成 0 — 影响面是装配写错；改成必填要动协议面，收益不成比例。
+- false：`GET /api/status` 会触发 `TaskRegistry.prune()` 删条目 — 那是注册表读取路径的既有惰性 GC（`/api/tasks` 同样触发），不是本端点引入的写。

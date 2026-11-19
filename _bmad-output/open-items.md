@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**16 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 12：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73）。
+当前活动项：**17 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 13：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73 / A74）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -29,6 +29,7 @@
 | A71 | 框架错误码「只增不复用」无快照判据 | `active` | **origin=新增（2026-11-19 Epic 69 retro #1 升台账）**。传输层 35 码有 INV-8 快照守卫，框架码（`pub/exceptions.py` 的 `error_catalog()`）目前只有「唯一 + `E_*` 形态」断言 ⇒ 改名 / 复用不会被拦。触发条件 = 第一次因码改名或复用引发消费方分支错乱；闭合动作 = 给 `code → class` 对加只增快照（复用 `scripts/contract_snapshot.py` 机制 + `tests/fixtures/contract_baselines/`） |
 | A72 | 入口层 `except HeAgentError` 仍是根类一把抓 | `active` | **origin=新增（2026-11-19 Epic 69 retro #2 升台账）**。异常分类层已可用（4 类 14 个专用异常 + 码表），但 `cli/` 与 `network/` 的入口兜底仍捕获根类，无法按类给不同出口行为。触发条件 = 下一轮错误面 / UX 工作；闭合动作 = 逐入口把捕获面收敛到具体层（对外错误形状与退出码不变，属内部重分类） |
 | A73 | web_search 边际观察批（装配校验 / 文案 / 钳位协议 / 空结果 / 异常类型张力） | `active` | **origin=新增（2026-11-19 Epic 61 retro deferred 批升台账）**。五条同族、单独立项会造噪声：[C4] 装配点引擎名校验 fail-loud（错名穿越启动、dream 中段才爆）；[C5] `WEB_SEARCH_ENGINE` 组理由文案失真（挂 outbound_redirect「准外泄通道」）；[A11] 双层钳位 `[1,10]`/`[1,20]` 分工无契约文字；[E7] 空白字段条目误报「（无检索结果）」；[A5] 工具面 `RuntimeError` vs 引擎 `ToolError` 张力（用户裁定维持惯例，第二引擎或程序化调用方出现时再议）。触发条件 = 第二引擎出现 / 控制台文案批 / 真实误配案例；闭合动作 = 按括号内条目逐项处置，处置完本行移入 `retrospective-all-cycles.md` §三 |
+| A74 | Epic 71 状态面板 review 残差批（证据补齐 + 两处待裁定） | `active` | **origin=新增（2026-11-19 Epic 71 收口 review，12 个独立子代理 / 两个镜头）**。十一条同族证据缺口，单独立项会造噪声：[C1] `web/status-panel.js` 无**执行级**测试——`tests/fixtures/js/app_probe.js` 只加载 `app.js`，本文件从未被执行（计划里「node 探针覆盖行为」的表述不成立）；[C2] 字段覆盖守卫是全文子串匹配，实测 29 行里 12 行删掉仍绿；[C3] 端点计数用例走**复刻映射**替身，真实 `HttpStatusSource._request_metrics` 数值无断言；[C4] 两处装配点（`cli/http.py:364` / `:699`）的 `provider=` 接线与 `_clip` 上限（host 255 / backend 32 / provider 64）无断言；[C5] `heagent http-server` 装配点的 `workspace_root` 无用例（删掉该行仍全绿，依赖态恒 0）；[C6] `_skill_count` / `_memory_facts` 的 fail-soft 降级分支无用例；[C7] `/proc` 失败路径与 Windows 分支无用例（`_read_windows` 带 `# pragma: no cover`）；[C8] `/proc` 解析只断言量级、未钉已知文本（1024→1000 或字段下标错位都绿）；[C9] `_read_windows` 未设 `argtypes`/`restype`，64 位下 HANDLE 可能被截断；[C10] `HttpServer.close()` 不清 `_started_monotonic`/`_started_at_wall`，关闭后 `uptime_seconds` 继续增长；[C11] `test_pools_default_to_an_empty_list` 依赖宿主环境变量、`test_cli_http.py` 的 `--sandbox docker` 用例未屏蔽真实 daemon 探活。两项 design 裁定已于同日按用户「按推荐」落地：沙箱档位改报 `effective_backend`（两处装配点生效优先）、SSE 只计总数与错误码不进延迟窗口。触发条件 = 下一次触碰这些文件或出现真实误读案例；闭合动作 = 按括号内条目逐项补判据，处置完本行移入 `retrospective-all-cycles.md` §三 |
 
 ### 速读（按行动姿态分组）
 

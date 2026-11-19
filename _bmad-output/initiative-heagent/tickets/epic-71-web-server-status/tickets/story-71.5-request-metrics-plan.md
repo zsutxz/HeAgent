@@ -3,7 +3,7 @@ title: 'Story 71.5 请求计数与延迟'
 type: feature
 ticket: 5
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '2c0f0f1'
 route: full
 route_source: auto
@@ -98,3 +98,24 @@ deferred: []
 - **后续评审建议**：`false`。
 - **验证**：`pytest`（`tests/network` + 相关套件 **925 passed / 34 skipped**）；四份契约快照 `[OK]`；`ruff` / `format` / `mypy` 全绿；变异 3/3 RED。
 - **残差**：延迟窗口 256 条（近似 p50，非分位数库）；错误码上限 16 条（超出按次数截断）；不跨进程、不持久化。
+
+## Code Review
+
+### 2026-11-19（lenses: edge-case-hunter + verification-gap）
+
+**Code review complete.** 1 `decision-needed`, 5 `patch`（已修）, 1 `defer`, 6 rejected。
+
+- [x] [Review][Decision→Resolved] 流式响应（SSE）的延迟按「整条连接时长」计入窗口 — `middleware.py` 在 `finally` 里算 elapsed，一条运行期订阅（可长达数分钟）会独占 `latency_max_ms` 并把 p50 拉偏，而面板把它标成「延迟」。Options: (a) 记 TTFB（`http.response.start` 时刻），(b) 多 chunk 响应不计入延迟窗口（只计总数与错误码），(c) 维持现状但在 docstring 与面板注明「含流式连接时长」。Recommended: (b) — 该指标意在「请求有多慢」，流式连接寿命不是请求延迟。**裁定 2026-11-19（用户「按推荐」）= 采纳 (b)**：`metrics.is_event_stream()` 判 `text/event-stream`，`RequestMetrics.record(streamed=True)` 只计总数与错误码、不进延迟窗口（按 content-type 判定，避免把分块 JSON 误当流式）；判据 `test_streaming_response_is_counted_but_kept_out_of_the_latency_window`，`docs/frame.md` 状态 API 行同步。
+- [x] [Review][Patch] p50 取值无钉死（改成 `ordered[0]` 也满足 `max > p50 > 0`）— 已补 `test_percentile_is_the_window_median_not_the_minimum`（3 / 4 / 单样本 / 空窗口）。
+- [x] [Review][Patch] 16 条错误码截断从未被越界（删掉切片会让 `/api/status` 校验失败变 500）— 已补 `test_error_codes_are_truncated_with_the_loudest_kept`（20 码 + 高频码排首）。
+- [x] [Review][Patch] `status=0`（应用在 `response.start` 前抛错）分支无用例 — 中间件若在此抛错会替换原异常。已补 middleware 级用例（原异常穿透 + 只计总数、四桶为 0）。
+- [x] [Review][Patch] `metrics.py` 注释写「512 条」而常量是 256 — 已更正。
+- [x] [Review][Defer] 端点计数用例用的是**复刻映射**的替身（`_CountingStatusSource`），真实 `HttpStatusSource._request_metrics` 的数值无断言 — deferred: A74
+
+Rejected:
+- false：`metrics.record` 抛错会替换已服务的响应 — 分桶有 `if bucket in self._classes` 守卫，`record` 无其它可抛路径。
+- rejected(low)：非 2xx body 单块可超 1024 上限 — 单块体积由错误信封决定（KB 级），`error_code_from_body` 侧另有上限。
+- false：`total` 与四个分桶之和不等 — 刻意如此（status 0 / 1xx 只计总数），代码注释与面板分列已说明。
+- rejected(low)：样本少时 p50 == max — 中位数定义使然，docstring 已写「样本少时就是真实值」。
+- rejected(low)：`build_http_app` 二次调用会覆盖 `source._metrics` — 仓内无「一个 source 建两个 app」的调用点（`HttpServer.app` 缓存）。
+- rejected(low)：热路径里有 f-string — 每请求一次字符串拼接，与「无格式化」的措辞不符但不构成开销问题。
