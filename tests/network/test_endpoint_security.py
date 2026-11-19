@@ -38,7 +38,7 @@ import httpx
 
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_console_protocol import ConsoleOperationError
-from heagent.network.http_protocol import HttpErrorCode
+from heagent.network.http_protocol import HttpErrorCode, StatusResponse
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
 from heagent.network.notification_hub import NotificationHub
 from heagent.network.ws_auth import AUTH_CLOSE_CODE
@@ -206,6 +206,11 @@ _HTTP_CASES: dict[_RouteKey, _HttpRouteCase] = {
         boundary=_Probe("POST", "/api/session", 405, _NOT_ALLOWED),
         malformed=_Probe("GET", "/api/session/extra", 404, _NO_SUCH_ENDPOINT),
     ),
+    # 进程状态：只读聚合，写方法未注册；多出来的段不落在任何路由上。
+    ("http", ("GET",), "/api/status"): _HttpRouteCase(
+        boundary=_Probe("POST", "/api/status", 405, _NOT_ALLOWED),
+        malformed=_Probe("GET", "/api/status/extra", 404, _NO_SUCH_ENDPOINT),
+    ),
     ("http", ("GET",), "/api/tasks"): _HttpRouteCase(
         boundary=_Probe("POST", "/api/tasks", 405, _NOT_ALLOWED),
         malformed=_Probe("GET", "/api/tasks/a/b", 404, _NO_SUCH_ENDPOINT),
@@ -314,8 +319,15 @@ class _EmptyTaskSource:
         return None
 
 
+class _EmptyStatusSource:
+    """状态来源替身：进程状态全零（只读投影，不依赖任何运行时对象）。"""
+
+    def status(self) -> StatusResponse:
+        return StatusResponse(version=_VERSION)
+
+
 def _build_http_app(max_request_bytes: int | None = None) -> tuple[Any, _TripwireConsole]:
-    """装齐三种注入（运行服务 / 控制台 / 任务来源）的 HTTP app + 记录调用的 handler 替身。"""
+    """装齐四种注入（运行服务 / 控制台 / 任务来源 / 状态来源）的 HTTP app + 记录调用的 handler 替身。"""
     overrides: dict[str, Any] = {} if max_request_bytes is None else {"max_request_bytes": max_request_bytes}
     config = HttpServerConfig(port=_PORT, **overrides)
     console = _TripwireConsole()
@@ -325,6 +337,7 @@ def _build_http_app(max_request_bytes: int | None = None) -> tuple[Any, _Tripwir
         run_service=HttpRunService(config, None),
         console=console,
         tasks=_EmptyTaskSource(),
+        status=_EmptyStatusSource(),
     )
     return app, console
 
@@ -352,7 +365,7 @@ def _routes_of(app: Any) -> Any:
 
 
 def _http_app_route_keys() -> set[_RouteKey]:
-    """实测装配出来的 HTTP 路由集合（与基线对读，保证探针打的是文档里那 23 条）。"""
+    """实测装配出来的 HTTP 路由集合（与基线对读，保证探针打的是文档里那 24 条）。"""
     from starlette.routing import Route
 
     app, _console = _build_http_app()

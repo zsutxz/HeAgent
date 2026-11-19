@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from .config import HttpServerConfig
     from .endpoints_run import RunHistorySource
+    from .endpoints_status import StatusSource
     from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
@@ -66,12 +67,14 @@ class HttpServer:
         console: ConsoleHandler | None = None,
         tasks: TaskProgressSource | None = None,
         history: RunHistorySource | None = None,
+        status: StatusSource | None = None,
     ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
         self.console = console
         self.tasks = tasks
+        self.status = status
         # 历史回放来源（A35）：进程内无该 run 时用它回放 rollout；None = 维持 404。
         self.history = history
         self._app: ASGIApp | None = None
@@ -93,6 +96,7 @@ class HttpServer:
                 console=self.console,
                 tasks=self.tasks,
                 history=self.history,
+                status=self.status,
             )
         return self._app
 

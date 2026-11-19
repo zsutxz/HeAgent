@@ -15,6 +15,7 @@
       "_RUN_DETAIL_PATH": "/api/runs/{run_id}",
       "_RUN_EVENTS_PATH": "/api/runs/{run_id}/events",
       "_SESSION_PATH": "/api/session",
+      "_STATUS_PATH": "/api/status",
       "_TASKS_PATH": "/api/tasks",
       "_TASK_DETAIL_PATH": "/api/tasks/{task_id}"
     },
@@ -25,6 +26,7 @@
     "src/heagent/network/http_server/config.py": {},
     "src/heagent/network/http_server/endpoints_console.py": {},
     "src/heagent/network/http_server/endpoints_run.py": {},
+    "src/heagent/network/http_server/endpoints_status.py": {},
     "src/heagent/network/http_server/endpoints_tasks.py": {},
     "src/heagent/network/http_server/listener.py": {},
     "src/heagent/network/http_server/middleware.py": {},
@@ -40,11 +42,12 @@
   },
   "registrations": {
     "src/heagent/network/http_server/__init__.py": 0,
-    "src/heagent/network/http_server/app.py": 23,
+    "src/heagent/network/http_server/app.py": 24,
     "src/heagent/network/http_server/assets.py": 0,
     "src/heagent/network/http_server/config.py": 0,
     "src/heagent/network/http_server/endpoints_console.py": 0,
     "src/heagent/network/http_server/endpoints_run.py": 0,
+    "src/heagent/network/http_server/endpoints_status.py": 0,
     "src/heagent/network/http_server/endpoints_tasks.py": 0,
     "src/heagent/network/http_server/listener.py": 0,
     "src/heagent/network/http_server/middleware.py": 0,
@@ -53,7 +56,7 @@
     "src/heagent/network/http_server/service.py": 0,
     "src/heagent/network/ws_host.py": 4
   },
-  "route_count": 27,
+  "route_count": 28,
   "routes": [
     {
       "listener": "http",
@@ -256,6 +259,16 @@
       "name": "session_endpoint",
       "path": "/api/session",
       "path_expr": "_SESSION_PATH",
+      "source": "src/heagent/network/http_server/app.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "get_status",
+      "path": "/api/status",
+      "path_expr": "_STATUS_PATH",
       "source": "src/heagent/network/http_server/app.py"
     },
     {

@@ -92,6 +92,30 @@ def test_help_lists_http_options() -> None:
     assert "--ws-max-connections" in result.output
 
 
+def test_http_server_command_wires_the_status_source(
+    captured_server: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``http-server`` 必须注入状态来源：漏注入时真实入口的 ``/api/status`` 恒 404。
+
+    命令本身经 ``asyncio.run`` 起服务，因此这里不断言 HTTP 响应（那要在 event loop 里），
+    改为断言**装配产物**：source 已注入、且它真的出现在 app 的路由表里。
+    """
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    server = captured_server["server"]
+    assert server.status is not None, "HttpServer(...) 未收到状态来源"
+    assert server.status.status().max_inflight_runs >= 1
+
+    node = server.app
+    while not hasattr(node, "routes"):
+        node = getattr(node, "app", None)
+        assert node is not None, "middleware chain has no Starlette app underneath"
+    assert "/api/status" in {getattr(route, "path", "") for route in node.routes}
+
+
 def test_ws_connection_limit_cli_override_reaches_config_without_mutating_settings(
     monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
 ) -> None:

@@ -293,7 +293,7 @@ class TestPresets:
 
     def test_preset_count_is_pinned(self) -> None:
         presets = _presets()
-        assert len(presets) == 20
+        assert len(presets) == 21
         assert len(set(presets)) == len(presets), "同一 method+path 不得重复预置"
 
     def test_every_write_verb_is_reachable_from_the_presets(self) -> None:

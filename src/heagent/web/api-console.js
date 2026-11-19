@@ -42,6 +42,7 @@
     { method: "POST", path: "/api/dialogs/pick-directory" },
     { method: "GET", path: "/api/tasks" },
     { method: "GET", path: "/api/tasks/{task_id}" },
+    { method: "GET", path: "/api/status" },
   ];
 
   const el = {

@@ -44,6 +44,7 @@ from heagent.cli.http_config import (
     build_ws_servers,
 )
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http_status import bind_status_source, build_status_source
 from heagent.cli.run_history import run_history_source
 from heagent.cli.wiring import _build_provider, load_startup_settings
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings
@@ -351,6 +352,16 @@ def build_http_service(
     workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
     http_on = settings.http_enabled if http_enabled is None else http_enabled
     ws_on = settings.ws_enabled if ws_enabled is None else ws_enabled
+    task_registry = default_task_registry()
+    # 状态来源在 ``HttpServer`` 之前建、在 ``build_ws_servers`` 之后 ``bind_ws``：注入的是同一个对象，
+    # 因此晚绑定对 app 不可见（HTTP listener 先构造，WS listener 后构造）。
+    status_source = build_status_source(
+        version=_current_version(),
+        max_inflight_runs=config.max_inflight_runs,
+        run_service=run_service,
+        task_registry=task_registry,
+        enabled=http_on,
+    )
     http_server: HttpServer | None = None
     if http_on:
         console = HttpProjectConsole(
@@ -369,15 +380,17 @@ def build_http_service(
             console=console,
             # 进度注册表是**进程内**单例：网页入口与 CLI 同进程时，/api/tasks 读到的正是
             # 本进程里压缩等后台任务上报的进度（跨进程不共享，这是刻意的——没有 IPC）。
-            tasks=RegistryTaskSource(default_task_registry()),
+            tasks=RegistryTaskSource(task_registry),
             # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
             history=run_history_source(workspace.root),
+            status=status_source,
         )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
     ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
     # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
     # 供入口层构造的 cron notifier 发布。没有任何 listener ⇒ 无中枢。
     notification_hub = ws_servers[0].notification_hub if ws_servers else None
+    bind_status_source(status_source, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
     return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
 
 
@@ -667,6 +680,15 @@ def http_server_cmd(
     workspace = WorkspacePaths.from_root(os.getcwd())
 
     run_service = HttpRunService(config, handler)
+    task_registry = default_task_registry()
+    # 与内嵌入口同一形态：先在 ``HttpServer`` 之前建 source，再在 ``build_ws_servers`` 之后 bind_ws。
+    status_source = build_status_source(
+        version=_current_version(),
+        max_inflight_runs=config.max_inflight_runs,
+        run_service=run_service,
+        task_registry=task_registry,
+        enabled=http_on,
+    )
     server: HttpServer | None = None
     if http_on:
         console = HttpProjectConsole(
@@ -682,9 +704,10 @@ def http_server_cmd(
             version=_current_version(),
             run_service=run_service,
             console=console,
-            tasks=RegistryTaskSource(default_task_registry()),
+            tasks=RegistryTaskSource(task_registry),
             # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
             history=run_history_source(workspace.root),
+            status=status_source,
         )
     try:
         # 主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
@@ -710,6 +733,8 @@ def http_server_cmd(
             options=_WS_CONFIG_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
+    # 通知中枢从 listener 上取（本命令 `push_enabled=False` ⇒ 恒为 None，与 WS 侧的装配一致）。
+    bind_status_source(status_source, ws_servers, cli_hub=_hub)
     # 非回环绑定：启动前先向 stderr 打印一次明确告警。HTTP 侧固定「无认证」口径；WS 侧按 mode
     # 分流——对外模式是 token 认证，套用 exposure_warning 的「no authentication」文案会撒谎。
     if server is not None:

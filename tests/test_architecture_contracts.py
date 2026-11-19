@@ -748,6 +748,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "http",
         "http_config",
         "http_console",
+        "http_status",
         "init",
         "interactive",
         "port_finder",

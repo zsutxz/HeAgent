@@ -30,6 +30,11 @@
       "name": "EmbeddedHttpService"
     },
     {
+      "bases": [],
+      "module": "heagent.cli.http_status",
+      "name": "HttpStatusSource"
+    },
+    {
       "bases": [
         "BaseModel"
       ],
@@ -599,6 +604,13 @@
         "BaseModel"
       ],
       "module": "heagent.network.http_protocol",
+      "name": "RunStatusCounts"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
       "name": "RunStatusResponse"
     },
     {
@@ -619,6 +631,20 @@
       "bases": [
         "BaseModel"
       ],
+      "module": "heagent.network.http_protocol",
+      "name": "StatusResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "WsConnectionCounts"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
       "module": "heagent.network.http_server.config",
       "name": "HttpServerConfig"
     },
@@ -628,6 +654,13 @@
       ],
       "module": "heagent.network.http_server.config",
       "name": "HttpStartupError"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.http_server.endpoints_status",
+      "name": "StatusSource"
     },
     {
       "bases": [],

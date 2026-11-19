@@ -352,6 +352,56 @@ class SessionResponse(BaseModel):
     messages: list[SessionMessage]
 
 
+class RunStatusCounts(BaseModel):
+    """保留窗口内运行记录按状态分布（只计数，不携带任何 run 标识）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    running: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+    failed: int = Field(default=0, ge=0)
+    cancelled: int = Field(default=0, ge=0)
+    timed_out: int = Field(default=0, ge=0)
+
+
+class WsConnectionCounts(BaseModel):
+    """三条 WS 流当前的已登记连接数。
+
+    ``runs`` 是 ``/api/runs/{run_id}/ws`` 的订阅连接（跨 run 合计），``cli`` 是终端旁路
+    ``/api/cli/ws``，``notifications`` 是只读通知流 ``/api/notifications/ws``。未注册的流恒为 0。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    runs: int = Field(default=0, ge=0)
+    cli: int = Field(default=0, ge=0)
+    notifications: int = Field(default=0, ge=0)
+
+
+class StatusResponse(BaseModel):
+    """``GET /api/status`` 的稳定响应：进程自身状态的只读聚合投影。
+
+    字段封闭且只含枚举 / 非负整数 / 有界文本——**不含**绝对路径、凭据值、traceback（与
+    :class:`HealthResponse` 同一立场）。数值一律由入口层注入的来源提供，传输层不扫盘、不采样。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 字面量而非 `Literal[HTTP_SERVICE_NAME]`：``Literal`` 只接受字面量（mypy valid-type），
+    # 常量与这里的取值必须一致（由 ``tests/test_http_status_api.py`` 的同款断言钉住）。
+    service: Literal["heagent-http"] = "heagent-http"
+    version: str = Field(min_length=1, max_length=64)
+    schema_version: Literal["1"] = "1"
+    # 作用域**不同**，消费方不得当成比率渲染（``active_runs`` 是服务级、``max_inflight_runs`` 是每项目级）：
+    # 两个项目各跑一个 run 时取值为 2 / 1，而单项目上限仍是 1。
+    active_runs: int = Field(default=0, ge=0)
+    max_inflight_runs: int = Field(default=0, ge=0)
+    run_records: int = Field(default=0, ge=0)
+    run_status: RunStatusCounts = Field(default_factory=RunStatusCounts)
+    ws_connections: WsConnectionCounts = Field(default_factory=WsConnectionCounts)
+    background_tasks: int = Field(default=0, ge=0)
+
+
 def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
     """把事件文本字段截断到上限，并在末尾显式标记（绝不静默丢内容）。"""
     if len(value) <= limit:
@@ -494,9 +544,12 @@ __all__ = [
     "RunOutcome",
     "RunRequest",
     "RunStatus",
+    "RunStatusCounts",
     "RunStatusResponse",
     "SessionMessage",
     "SessionResponse",
+    "StatusResponse",
+    "WsConnectionCounts",
     "clip_text",
     "cursor_out_of_window",
     "error_envelope",

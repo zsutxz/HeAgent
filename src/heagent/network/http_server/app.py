@@ -29,6 +29,7 @@ from .endpoints_console import (
     _build_session_endpoints,
 )
 from .endpoints_run import _build_run_endpoints
+from .endpoints_status import _build_status_endpoint
 from .endpoints_tasks import _build_task_endpoints
 from .middleware import (
     _SECURITY_HEADERS,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
 
     from .config import HttpServerConfig
     from .endpoints_run import RunHistorySource
+    from .endpoints_status import StatusSource
     from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
@@ -71,6 +73,8 @@ _DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
 # 后台任务进度：进程内注册表的只读投影（列表 + 单条），数据由入口层注入。
 _TASKS_PATH = "/api/tasks"
 _TASK_DETAIL_PATH = "/api/tasks/{task_id}"
+# 进程状态聚合：运行态 / 连接数 / 后台任务条数的只读投影，数据由入口层注入。
+_STATUS_PATH = "/api/status"
 
 
 def build_http_app(
@@ -81,6 +85,7 @@ def build_http_app(
     console: ConsoleHandler | None = None,
     tasks: TaskProgressSource | None = None,
     history: RunHistorySource | None = None,
+    status: StatusSource | None = None,
 ) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
@@ -91,6 +96,8 @@ def build_http_app(
     （那些路径回 404），生产者侧注册表由入口层持有并注入。
     ``history`` 是**注入的历史回放来源**（A35）：进程内没有该 run 的记录时（重启后），
     ``GET /api/runs/<id>/events`` 用它回放 rollout 里的事件；``None`` = 维持 404。
+    ``status`` 是**注入的状态来源**（同一族接缝）：为 ``None`` 时不注册 ``/api/status``（回 404），
+    进程内运行态由入口层聚合成封闭模型后交进来。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
     Epic 56 D1：WS 路由已全部迁出本 app（宿主 = ``network/ws_host.py``），本 app 只剩纯 HTTP+SSE。
     """
@@ -215,6 +222,9 @@ def build_http_app(
                 routing.Route(_TASK_DETAIL_PATH, endpoint=get_task, methods=["GET"]),
             ]
         )
+    if status is not None:
+        get_status = _build_status_endpoint(responses, status)
+        routes.append(routing.Route(_STATUS_PATH, endpoint=get_status, methods=["GET"]))
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))
     app = applications.Starlette(
         routes=routes,

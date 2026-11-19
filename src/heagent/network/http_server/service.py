@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from heagent.network.event_stream_hub import WsRegistry
@@ -24,6 +24,7 @@ from heagent.network.http_protocol import (
     HttpRunConflictError,
     RunEventKind,
     RunStatus,
+    RunStatusCounts,
     SessionMessage,
     SessionResponse,
     clip_text,
@@ -108,6 +109,31 @@ class HttpRunService:
     def active_runs(self) -> int:
         """当前占用在途名额的运行数（诊断与测试用）。"""
         return len(self._active)
+
+    @property
+    def run_records(self) -> int:
+        """当前保留的运行记录数（含在途与终态，受 ``run_history_size`` 约束）。"""
+        return len(self._runs)
+
+    @property
+    def ws_connections(self) -> int:
+        """``/api/runs/{run_id}/ws`` 当前登记的连接数（跨 run 合计，不含 SSE 订阅者）。"""
+        return self._ws_registry.connection_count
+
+    def run_status_counts(self) -> RunStatusCounts:
+        """保留窗口内运行记录按状态分布（诊断出口：只计数，不外泄记录内容）。
+
+        与 :attr:`run_records` 同源（都在 ``_runs`` 上），因此两项之和恒等——不需要额外的索引，
+        也不会出现「总数与分布对不上」的分叉。
+        """
+        tally = Counter(record.status for record in self._runs.values())
+        return RunStatusCounts(
+            running=tally[RunStatus.RUNNING],
+            completed=tally[RunStatus.COMPLETED],
+            failed=tally[RunStatus.FAILED],
+            cancelled=tally[RunStatus.CANCELLED],
+            timed_out=tally[RunStatus.TIMED_OUT],
+        )
 
     def run(self, run_id: str) -> _RunRecord | None:
         """按 id 取运行记录；已被淘汰或从未存在时返回 ``None``（调用方回 ``unknown_run``）。"""
