@@ -27,7 +27,7 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 12 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 16 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release 路径（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仅 `ci.yml` + `codeql.yml`，release 是 `ci.yml` 内的 job 而非独立 workflow —— **2026-11-18 Epic 65 勘差确认该 job 已具备 build / twine check / OIDC 发布 / 多架构推送 / 审批门 + 失败摘要**，本条收敛为「首次真实 tag 发布待触发」）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
@@ -48,17 +48,32 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（12 条——A34/A41/A54/A55/A56/A59–A63/A65/A66，**索引**）
+#### A. 活动台账未闭合条目（16 条——A34/A41/A54/A55/A56/A59/A62/A65–A73，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。
 
-#### C. 纪律类产物滞后（非代码，2026-09-24 实测）
+#### C. 纪律类产物滞后（非代码）
 
-- **6 个 story 的 frontmatter 仍为 `status: backlog`**（与实际交付不符；2026-09-24 实测、2026-11-15 复核仍成立）：`36-1`、`36-2`、`36-3`、`37-1`、`38-1`、`39-1`（同 epic 的 `36-4` 已是 `done`）。
+> 2026-11-19 处置批：四条里两条**已修**、两条**裁定不再回洗**（v6 的 `sprint-status.yaml` 已归档只读，
+> 追溯性补写只会产出无现场证据的低可信度文本）。裁定可以推翻——若要恢复，按各条「回退口」执行。
+
+- ~~**6 个 story 的 frontmatter 仍为 `status: backlog`**~~ → **2026-11-19 已修**：`36-1`、`36-2`、`36-3`、
+  `37-1`、`38-1`、`39-1` 的 `status:` 已改为 `done`（与同 epic 的 `36-4` 一致）；`pytest
+  tests/test_deferred_ledger.py tests/test_deferred_id_registry.py` 仍全绿（15 passed）。
 - **`45-1` / `45-2` 无 story 文件**（该 epic 目录下只有 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名（仅存 git 历史）。
-- **16 个 epic 的 retrospective 键值仍为 `optional`**：25-28、38-39、43-46、49、51、55、57-58、61（2026-11-15 实测自 `sprint-status.yaml`，均未补做）。已补做：36/37/40/41/42（09-18，键值已归一 `done`）、Epic 48（09-23）、Epic 50（09-27）、Epic 59（10-29，accepted-with-open-items）。Epic 54 / 56 retro 产物在各周期目录。
-- **Epic 60 结构精简未登记 yaml**（2026-11-15 发现）：批次 9 五卡已于 2026-11-06~07 全部交付（`epics/epic-60-结构精简周期/` 5 份 spec frontmatter 均 `done`），但 `sprint-status.yaml` 无 `epic-60` 键——下一轮触碰台账时补登记（含 retro optional 键）。
+  **裁定（2026-11-19）：不回补**——缺件本身是历史事实，据 yaml/retro 倒填一份当时不存在的 story 文件
+  才是伪造产物；证据链保留在归档 yaml、`retrospective-all-cycles.md` 与 git 历史。回退口 = 用户明确要求
+  补齐归档产物形态时再写「补写说明」式文件（标明为事后重构）。
+- **16 个 epic 的 retrospective 键值仍为 `optional`**：25-28、38-39、43-46、49、51、55、57-58、61（2026-11-15 实测自 `sprint-status.yaml`）。
+  已补做：36/37/40/41/42（09-18，键值已归一 `done`）、Epic 48（09-23）、Epic 50（09-27）、Epic 59（10-29，accepted-with-open-items）。Epic 54 / 56 retro 产物在各周期目录。
+  **裁定（2026-11-19）：不再补做**——retro 的唯一产出是行动项，这些周期的行动项已进
+  `open-items.md` / `retrospective-all-cycles.md`；键值住已归档只读的 v6 yaml，不再驱动任何流程；
+  且触发时的现场证据（会话、评审记录）多数已不可复现。回退口 = 用户指定某一 epic 要正式 retro 时按
+  v7 形态补到 `initiative-heagent/tickets/<epic>/`。
+- **Epic 60 结构精简未登记 yaml**（2026-11-15 发现）：批次 9 五卡已于 2026-11-06~07 全部交付
+  （`epics/epic-60-结构精简周期/` 5 份 spec frontmatter 均 `done`）。**裁定（2026-11-19）`retired`**：
+  v6 yaml 已归档只读，补键没有消费方；交付事实由周期目录 spec frontmatter 与本文件 §1.3 承载。
 - **`S4-1` 仍 `skipped`**（executor emit `sandbox_backend` + `sandbox_pid`）——沙箱执行轨迹不可追溯。
 - `_bmad-output/README.md` 的导航已统一到当前归档规则：活动项只指向 [`open-items.md`](open-items.md)（2026-11-15 起），已闭合项按归属 Epic 进入各周期 `deferred-work.md`。
 

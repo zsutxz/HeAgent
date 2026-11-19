@@ -348,7 +348,8 @@ spine 只固定「各自独立构建会不一致」的决策；采纳方式是�
 - 仍开放、必须由人裁决的点写成 `unknown`（一句话用户问题）——**构建前必须清零**，否则 `next` 会把
   它列进 `blocked`。
 
-**不要**为 entry 预写 leaf 文件（`story.md`）：只有评审、细化或发布时才 `tickets.py pull <ref>`。
+**不要**为 entry 预写 leaf 文件（`story.md`）：只有评审、细化或发布时才 `tickets.py pull <epic-dir> <id>`
+（`<epic-dir>` 是 epic 目录、`<id>` 是 entry 的 id；不是 `pull <ref>`）。
 **不要**引入 sprint：v7 已取消 sprint，构建顺序只由表序与 `after` 决定；需要可演示切片时，在
 `## Story 拆分` 里说明每条 epic 收口可演示什么。
 

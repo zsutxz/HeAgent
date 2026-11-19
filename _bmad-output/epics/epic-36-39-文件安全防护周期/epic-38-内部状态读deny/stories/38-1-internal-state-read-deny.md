@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 38
 story: 38-1
-status: backlog
+status: done
 ---
 
 # Story 38-1: 内部状态读 deny + file/search handler 接入

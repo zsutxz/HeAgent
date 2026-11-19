@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 36
 story: 36-2
-status: backlog
+status: done
 ---
 
 # Story 36-2: path_safety 凭证读 deny + file handler 守卫

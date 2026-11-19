@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 39
 story: 39-1
-status: backlog
+status: done
 ---
 
 # Story 39-1: 安全声明 + 文档同步

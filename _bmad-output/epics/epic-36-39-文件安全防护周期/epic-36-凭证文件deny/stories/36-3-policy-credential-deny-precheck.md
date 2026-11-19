@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 36
 story: 36-3
-status: backlog
+status: done
 ---
 
 # Story 36-3: PolicyEngine._validate_paths 挂接凭证 deny 预检

@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 36
 story: 36-1
-status: backlog
+status: done
 ---
 
 # Story 36-1: path_safety 凭证写 deny 规则表 + check 函数

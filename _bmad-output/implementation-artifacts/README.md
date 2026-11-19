@@ -6,7 +6,7 @@
 
 | 路径 | 用途 | 当前状态 |
 | --- | --- | --- |
-| ~~`open-items.md`~~（2026-11-15 已上移 [`../open-items.md`](../open-items.md)） | 活动台账现住根目录 `open-items.md`「活动（未闭合）条目」节 | 活动项 12 条（A34/A41/A65 `frozen`；A54/A55/A56/A59/A60/A61/A62/A63/A66 `active`；A55 = Epic 61 真实冒烟残差，等用户 key；A56 = Epic 64 收口残差；A59–A66 = Epic 66-68 评审残差（A64 已于同日闭合，A65 用户裁定暂停）；A35 / A36 / A53 / A57 / A58 已于 2026-11-18 闭合，归档见 `../retrospective-all-cycles.md` §三） |
+| ~~`open-items.md`~~（2026-11-15 已上移 [`../open-items.md`](../open-items.md)） | 活动台账现住根目录 `open-items.md`「活动（未闭合）条目」节 | 活动项 16 条（A34/A41/A65/A68 `frozen`；A54/A55/A56/A59/A62/A66/A67/A69–A73 `active`；A55 = Epic 61 真实冒烟残差，等用户 key；A56 = Epic 64 收口残差；A59–A66 = Epic 66-68 评审残差（A60/A61/A63 于 2026-11-19 闭合、A64 同日闭合、A65 用户裁定暂停）；A67–A73 = 各 epic retro open questions 于 2026-11-19 升台账；A35 / A36 / A53 / A57 / A58 已于 2026-11-18 闭合，归档见 `../retrospective-all-cycles.md` §三） |
 | `arch-optimization-cycle/` | 架构优化周期的计划与 Phase 0–5 执行记录 | 全部 `done`，仅供追溯 |
 
 > 2026-11-15 四并二重组：本目录原 `deferred-work.md`（review 附件）与 `deferred-work-archive.md`（闭合台账）

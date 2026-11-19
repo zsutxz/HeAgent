@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**12 条**（`frozen` 3：A34 / A41 / A65；`active` 9：A54 / A55 / A56 / A59 / A60 / A61 / A62 / A63 / A66）。
+当前活动项：**16 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 12：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -19,18 +19,22 @@
 ① **跨进程不可见**：`GET /api/tasks` 读的是**进程内**单例注册表（`engine/tasks.py::default_task_registry`），生产者当前只有上下文压缩（`agent/context_runtime.py::maybe_compress` 与 CLI `/compact`）⇒ 同进程的网页/内嵌入口能读到，跨进程（如另起的 `http-server` 实例、cron 子进程）读不到。判据 `tests/test_cli_epic64_wiring.py`（同进程 200）与 `tests/network/test_http_tasks.py`（注入式来源）。闭合动作 = 真需要跨进程时再上 IPC/落盘投影；触发条件 = 出现真实的「网页端看不到别的进程在跑什么」诉求。
 ② ~~**`examples/` 不在门禁范围**~~ → **2026-11-18 已闭合**：`ruff check` / `ruff format --check` 的路径面已加 `examples`（`scripts/quality_gate.py`、`ci.yml`、`.pre-commit-config.yaml`、`docs/testing.md` 同步；`ruff.toml` 为 `examples/**` 只放行 RUF001/002/003 全角标点，其余规则同标准）⇒ 现存 112 条告警清零（修 7 条实质问题、105 条为中文标点）；**`mypy src` 仍不含 examples**（示例是自包含演示脚本，纳入需单独定口径，不属本项闭合范围）。 |
 | A59 | Epic 66 性能面观测缺口：缓存容量只到构造参数、命中率无运行时出口 | `active` | **origin=新增（2026-11-18 Epic 66 评审）**。实测事实：① 元数据缓存容量只到构造参数（`ProviderMetadataCache(max_size=64)`，无 Settings 键）⇒ 66.1 票面「缓存大小可配置」只到代码级；② `hits` / `misses` / `hit_rate` 无运行时出口（只有 `switchable` / `chain` / `router` / `key_rotation` 的 `metadata_cache` 属性可编程读），Epic 66 Done when 的「命中 >80%」目前只有单测合成证据；③ 技能侧 `SkillMatchCache`（32 槽）/ `SkillMatchIndex`（4 槽）同为常量。**2026-11-18 已补**：`RoutingProvider` / `KeyRotatingProvider` 也接入缓存（此前只接 `Switchable` / `Chain`，见同名提交）。触发条件 = 需要线上判断缓存是否真生效，或要一个配置旋钮；闭合动作 = 加缓存容量配置键 + `DEBUG_MODE` 下打命中率 |
-| A60 | keyring 未声明可选 extra | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。`pyproject.toml` 没有 `[keyring]` extra，而 67.5 的 plan 写「不把 keyring 变成硬依赖（可选 extra）」、模块诊断给裸 `pip install keyring`（`config/keyring_store.py::_warn_missing_keyring`）⇒ 票面口径与安装面不一致。触发条件 = 下个发布周期整理 extras，或用户希望一条命令装全；闭合动作 = 加 `keyring` extra + 诊断改 `pip install "heagent[keyring]"` + README 安装节同步 |
-| A61 | 审计面无保留/轮转策略 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。`pub/audit.py` 每次工具执行追加一行，文件无条数/字节上限（旧的 console 审计有 500 行裁剪），`heagent audit list/export/verify` 整文件读入；哈希链使「简单截断」不可行（截断即断链）。触发条件 = 审计文件达 MB 级或 `audit verify` 变慢；闭合动作 = 定 retention（阈值 + 归档文件 + 链续接规则：归档头带上一段末行 `digest`） |
 | A62 | 敏感操作留痕只覆盖网页写通道 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。`record_operation` 的接入点 = 会话删除（`context/session.py`）、技能删除/归档（`skills/skill_store.py`）、配置写入（`cli/http_console.py`）；CLI 侧写 `.env` / `setting.md`（`cli/init.py`、`cli/wizard.py`）不入统一审计链。触发条件 = 需要从 CLI 侧追证「谁改了配置」；闭合动作 = 把 CLI 写入路径也接到 `record_operation`（before/after 走 `fingerprint_file`） |
-| A63 | 缺 mcp 的安装诊断无判据 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。`McpSdkMissingError` 的类名只出现在 `tests/fixtures/contract_baselines/exception_types.json`，没有任何用例触发「缺包 → 显性安装提示」路径（`pytest -k mcp` 全绿是因为开发环境装了 mcp）。闭合动作 = 用 `monkeypatch` 让 `importlib.import_module("mcp")` 抛 `ImportError`，断言 `import heagent` 照常 + 工具面给 `pip install "heagent[mcp]"` |
 | A65 | Pages 部署前置设置未验证（**用户裁定暂停**） | `frozen` | **origin=新增（2026-11-18 Epic 68 评审）**。`.github/workflows/docs.yml` 已就绪（触发分支含 `master` / `main` / `feat/module-integration`，`mkdocs.yml` 已配 `site_url`），但仓库 Settings → Pages 的 Source 必须选 “GitHub Actions” 才能部署，且从未跑过一次真实 `workflow_dispatch`。**裁定指针：2026-11-18 用户裁定「暂停」**（不推进 Pages 发布，站点构建门仍在 CI docs step 里照跑）。恢复条件 = 用户决定启用 Pages 时：改仓库设置 → 手动触发一次 → 确认 `page_url` 可访问（判据 = run 绿 + 200） |
 | A66 | 依赖锁与漏洞扫描口径未定 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。① `requirements.lock`（102 行）由 `pip freeze --exclude-editable` 从**本机全量环境**导出：含 dev/gui/http/mkdocs 工具链（`pytest` / `mypy` / `ruff` / `bandit` / `mkdocs` / `textual` / `uvicorn`）与 `mcp`，不是纯运行时锁；② 无「与 pyproject 漂移」判据（`scripts/lock_requirements.py --check` 只验生成幂等）；③ `ci.yml` 的 pip-audit 已去掉 `continue-on-error`（高危即红），但没有 `--ignore-vuln` 白名单与复核期限 ⇒ 一个新 CVE 会同时红掉所有 PR。触发条件 = 首次因 CVE 变红，或下个发布周期对齐安装面；闭合动作 = 定锁范围（core 6 项 vs 全量）+ 漂移门 + 白名单策略 |
+| A67 | devcontainer 启动耗时为估算值 | `active` | **origin=新增（2026-11-19 Epic 65 retro #2 升台账）**。`README.md` / `.devcontainer/` 标「约 2–3 分钟」，但立项时所在开发容器无 docker daemon（`docker info` 不可用）⇒ 从未实测。触发条件 = 首次在有 daemon 的机器上 `devcontainer up`；闭合动作 = 回填实测值，偏差超 2 倍则改文案（判据 = 实测秒数写进 README 该行） |
+| A68 | release 失败通知无外推通道（**挂起待裁定**） | `frozen` | **origin=新增（2026-11-19 Epic 65 retro #3 升台账）**。`ci.yml` 的 release job 失败只靠 GitHub 自带邮件——引入外部 webhook 需要 secret，与 67 轮确立的「零 secret 发布」契约冲突。**裁定指针：Epic 65 retro Open questions #3（需用户裁定是否引入 secret）**；恢复条件 = 用户决定要即时推送时，单独立项并明确 secret 策略 |
+| A69 | `KeyRotatingProvider` 元数据缓存收益未经真实池验证 | `active` | **origin=新增（2026-11-19 Epic 66 retro #2 升台账）**。池内成员通常同模型 ⇒ 元数据同值，缓存收益只在「池成员配了不同模型」时可观测；当前只保证语义正确（命中不改变 provider 选择）。触发条件 = 出现池内异模型配置或要量化收益；闭合动作 = 异模型池的前后调用耗时对比，写进 `docs/performance.md` |
+| A70 | 技能库指纹依赖 `mtime_ns` / `size`，粗粒度 FS 漏失效 | `active` | **origin=新增（2026-11-19 Epic 66 retro #3 升台账）**。粗粒度时间戳文件系统（FAT、部分网络盘 / 9p）上「同一时间粒度内改两次且大小不变」不会触发缓存失效。触发条件 = 技能库部署到粗粒度 FS 且出现实际漏失效；闭合动作 = 指纹加内容哈希（或 size + mtime_ns + 首尾字节抽样），并在 `SkillMatchCache` 判据里补一条「同 size 同 mtime 不同内容」用例 |
+| A71 | 框架错误码「只增不复用」无快照判据 | `active` | **origin=新增（2026-11-19 Epic 69 retro #1 升台账）**。传输层 35 码有 INV-8 快照守卫，框架码（`pub/exceptions.py` 的 `error_catalog()`）目前只有「唯一 + `E_*` 形态」断言 ⇒ 改名 / 复用不会被拦。触发条件 = 第一次因码改名或复用引发消费方分支错乱；闭合动作 = 给 `code → class` 对加只增快照（复用 `scripts/contract_snapshot.py` 机制 + `tests/fixtures/contract_baselines/`） |
+| A72 | 入口层 `except HeAgentError` 仍是根类一把抓 | `active` | **origin=新增（2026-11-19 Epic 69 retro #2 升台账）**。异常分类层已可用（4 类 14 个专用异常 + 码表），但 `cli/` 与 `network/` 的入口兜底仍捕获根类，无法按类给不同出口行为。触发条件 = 下一轮错误面 / UX 工作；闭合动作 = 逐入口把捕获面收敛到具体层（对外错误形状与退出码不变，属内部重分类） |
+| A73 | web_search 边际观察批（装配校验 / 文案 / 钳位协议 / 空结果 / 异常类型张力） | `active` | **origin=新增（2026-11-19 Epic 61 retro deferred 批升台账）**。五条同族、单独立项会造噪声：[C4] 装配点引擎名校验 fail-loud（错名穿越启动、dream 中段才爆）；[C5] `WEB_SEARCH_ENGINE` 组理由文案失真（挂 outbound_redirect「准外泄通道」）；[A11] 双层钳位 `[1,10]`/`[1,20]` 分工无契约文字；[E7] 空白字段条目误报「（无检索结果）」；[A5] 工具面 `RuntimeError` vs 引擎 `ToolError` 张力（用户裁定维持惯例，第二引擎或程序化调用方出现时再议）。触发条件 = 第二引擎出现 / 控制台文案批 / 真实误配案例；闭合动作 = 按括号内条目逐项处置，处置完本行移入 `retrospective-all-cycles.md` §三 |
 
 ### 速读（按行动姿态分组）
 
 - **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）
-- **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A59（缓存配置键 + 命中率出口）、A60（keyring extra）、A61（审计 retention）、A62（CLI 写盘留痕）、A63（缺 mcp 诊断判据）、A66（依赖锁口径 + 审计白名单）
-- **等用户裁定 / 恢复**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）、A65（用户裁定暂停 Pages 发布，恢复条件已写明）
+- **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A59（缓存配置键 + 命中率出口）、A62（CLI 写盘留痕）、A66（依赖锁口径 + 审计白名单）、A67（devcontainer 实测回填）、A69（池内异模型缓存收益）、A70（技能指纹内容哈希）、A71（框架码只增快照）、A72（入口异常收窄）、A73（web_search 边际观察批）
+- **等用户裁定 / 恢复**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）、A65（用户裁定暂停 Pages 发布，恢复条件已写明）、A68（release 失败推送是否引入 secret）
 
 ### 维护规则（活动项）
 

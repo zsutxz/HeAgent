@@ -2,7 +2,7 @@
 cycle: file-safety-hardening
 epic: 37
 story: 37-1
-status: backlog
+status: done
 ---
 
 # Story 37-1: scrub_sensitive_env 纯函数 + shell spawn 接入
