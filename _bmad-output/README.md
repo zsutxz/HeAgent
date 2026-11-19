@@ -9,7 +9,7 @@
 | 了解全周期与编号 + 活动台账 | [`open-items.md`](open-items.md)（2026-11-15 由 consolidated-overview.md 并入活动台账后定名） |
 | 查历史记录与跨周期教训 | [`retrospective-all-cycles.md`](retrospective-all-cycles.md) |
 | 查已定型的系统决策（ADR） | [`initiative-heagent/decisions/`](initiative-heagent/decisions/)（2026-11-18 起） |
-| 查看未闭合遗留项 | [`open-items.md`](open-items.md) 的「活动（未闭合）条目」节（**活动项 13 条**：A34/A41/A64 `frozen`；A54/A55/A56/A59/A60/A61/A62/A63/A65/A66 `active`） |
+| 查看未闭合遗留项 | [`open-items.md`](open-items.md) 的「活动（未闭合）条目」节（**活动项 12 条**：A34/A41/A65 `frozen`；A54/A55/A56/A59/A60/A61/A62/A63/A66 `active`） |
 | 查看单一状态来源 | [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（已归档） |
 | 深入某个周期 | `epics/<周期>/` 下的 `brief.md`、`prd.md`、`architecture.md`、`epics.md` 和 `stories/` |
 

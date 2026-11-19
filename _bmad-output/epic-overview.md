@@ -27,7 +27,7 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 13 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 12 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release 路径（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仅 `ci.yml` + `codeql.yml`，release 是 `ci.yml` 内的 job 而非独立 workflow —— **2026-11-18 Epic 65 勘差确认该 job 已具备 build / twine check / OIDC 发布 / 多架构推送 / 审批门 + 失败摘要**，本条收敛为「首次真实 tag 发布待触发」）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
@@ -36,7 +36,7 @@
 - ✅ **Epic 65 工程自动化（已收口，2026-11-18）**：9/9 `done`，按 v6 勘误「勘差 + ratchet」执行——5 条勘差收口（65.1 CI↔本地门禁映射契约 `tests/test_ci_gate_parity.py`、65.2 PR 触发面守卫、65.3 版本真源/65.4 CHANGELOG 现状已达成、65.5 补 `release` 失败摘要 step），4 条新建（65.6 `.devcontainer/` + 4 例契约、65.7 `LOG_FORMAT` 结构化日志 + `pub/log_config.py`、65.8 `DEBUG_MODE` 调试模式、65.9 `scripts/profile_run.py` 剖面脚本）。retro `accepted` 落 `initiative-heagent/tickets/epic-65-工程自动化/epic-65-工程自动化-retrospective.md`；全量 `pytest` 4867 passed / 覆盖率 93.43% / 六门绿；提交 `c8b0b24`（feat）/ `b93094a`（docs）。收口残差 **A58** 同日闭合：`runtime_stats` 采集器加 JSON 分支（`.heagent/skills/runtime_stats/collect.py`，本地技能不进版本库），text 日志输出与改前逐字节一致。
 - ✅ **Epic 66 性能优化（已收口，2026-11-18）**：5/5 `done`——66.1 聚合层 `get_metadata` LRU（`f826aaf`；收口补 `RoutingProvider` / `KeyRotatingProvider` 接线）、66.2/66.3 技能匹配索引预计算 + 结果缓存（`6752b96`）、66.4 技能包索引期只读一次 entry（`d542a22`）、66.5 provider SDK 延迟导入（`0b1b156`：`import heagent` 后 `openai`/`anthropic` 均不在 `sys.modules`）。retro `accepted` 落 `initiative-heagent/tickets/epic-66-性能优化/epic-66-性能优化-retrospective.md`；收口同时把「冷启动省 >20%」做成比值判据（`tests/test_deferred_imports.py` 的 `-m benchmark` 用例）并去掉 CI 的 `--benchmark-only`（它原先把不用 fixture 的比值型判据整片跳过）。收口残差登记 **A59**（缓存容量配置键 + 命中率出口）。
 - ✅ **Epic 67 安全增强（已收口，2026-11-18）**：10/10 `done`——67.1-67.3 输入验证框架 / 工具执行审计 JSONL / 敏感操作哈希链（`218dd9b`）、67.4/67.5 密钥轮换提醒与 keyring（`68c1ee2`）、67.6/67.9/67.10 漏洞扫描报告导出 / `mcp` 移出核心依赖（7→6）/ `requirements.lock`（`c50ce28`）、67.7/67.8 端点安全覆盖表 + 沙箱逃逸 7 向量（`b4d0e79`）。retro `accepted` 落 `initiative-heagent/tickets/epic-67-安全增强/epic-67-安全增强-retrospective.md`；收口残差登记 **A60**（keyring extra）/ **A61**（审计 retention）/ **A62**（CLI 写盘留痕）/ **A63**（缺 mcp 诊断判据）/ **A66**（依赖锁与审计白名单口径）。
-- ✅ **Epic 68 文档与 API（已交付，2026-11-18）**：3/3 `done`——68.1/68.3 `scripts/build_docs.py` + `.github/workflows/docs.yml` Pages 部署（`31dfb55`；收口补 `site_url` 与触发分支 `master` —— 原 `if` 只认 `master`/`main`，而本仓默认分支是 `feat/module-integration`，部署会静默不触发）、68.2 公开 API docstring 覆盖判据（99 处补到 0，`0302daa`）。retro `accepted-with-open-items` 落 `initiative-heagent/tickets/epic-68-文档与API/epic-68-文档与API-retrospective.md`；残差 **A64**（`frozen`：Outcome 的「API 文档」无渲染产物，待裁定改口径 or 引 mkdocstrings）/ **A65**（Pages Source 设置 + 一次真实部署验证）。
+- ✅ **Epic 68 文档与 API（已交付，2026-11-18）**：3/3 `done`——68.1/68.3 `scripts/build_docs.py` + `.github/workflows/docs.yml` Pages 部署（`31dfb55`；收口补 `site_url` 与触发分支 `master` —— 原 `if` 只认 `master`/`main`，而本仓默认分支是 `feat/module-integration`，部署会静默不触发）、68.2 公开 API docstring 覆盖判据（99 处补到 0，`0302daa`）。retro `accepted-with-open-items` 落 `initiative-heagent/tickets/epic-68-文档与API/epic-68-文档与API-retrospective.md`；残差 **A64 已于同日闭合**（用户裁定「开启」：`docs/api/` 13 页由 `mkdocstrings` 从 docstring 生成，判据 `tests/test_api_docs_pages.py`，闭合正文见 `retrospective-all-cycles.md` §三）/ **A65**（`frozen`：用户裁定暂停 Pages 发布，站点构建门仍在 CI docs step 里照跑）。
 - ✅ **Epic 69 异常体系完善（已收口，2026-11-18）**：3/3 `done`——异常三层层次（`HeAgentException` 为别名）、4 类共 14 个专用异常、错误码与 `error_catalog()`（`a21c20e`）。retro `accepted` 落 `initiative-heagent/tickets/epic-69-异常体系完善/epic-69-异常体系完善-retrospective.md`；收口把 3 个层次外异常（`InputValidationError` / `McpSdkMissingError` / `FactCompactConflictError`）收编进 `pub/exceptions.py`（26 → **29** 类，码表与 `docs/errors.md` 同步）。
 - ✅ **Epic 62 代码架构重构（已收口，2026-11-18）**：62.1 / 62.2 / 62.3 / 62.6 / 62.7 / 62.8 经 `tickets.py mark` 置 `done`（62.4 早 done、62.5 dropped），retro `accepted` 落 `initiative-heagent/tickets/epic-62-代码架构重构/epic-62-代码架构重构-retrospective.md`——欠账由 Epic 63 retro 的 Open questions 起、Epic 64 收口时一并清。
 - ✅ **Epic 57（已收口）**：retro 遗留清理 2026-10-26 四 story 全 done；retro action item-12（push 待推远端）仍 open，owner=tan。
@@ -48,7 +48,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（13 条——A34/A41/A54/A55/A56/A59–A66，**索引**）
+#### A. 活动台账未闭合条目（12 条——A34/A41/A54/A55/A56/A59–A63/A65/A66，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。

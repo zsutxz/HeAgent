@@ -54,12 +54,19 @@ pytest -q                                  → 5208 passed / 51 skipped / 30 des
 
 ## Open questions / 残留（已登记台账）
 
-1. **A64（`frozen`，需裁定）｜Epic 68 的「API 文档」没有渲染产物**：Epic `Outcome` 写「MkDocs API 文档
-   覆盖全部公开 API 并自动部署」，实际 `mkdocs.yml` 无 API 节、无插件；「公开 API 文档」被实现成
-   docstring 存在性 ratchet。两条路：
-   - (a) **改口径**：把 Epic `Outcome` 与 68.2/68.3 的票面措辞收敛为「docstring 覆盖 + 常驻判据 + 站点自动部署」；
-   - (b) **补渲染**：引 mkdocstrings 生成 `docs/api/`，代价是插件依赖 + 与既有散文风格并存的两套风格。
-   裁定前不接受任何「已全覆盖」的表述。
+1. **A64（2026-11-18 闭合，用户裁定「开启」）｜Epic 68 的「API 文档」没有渲染产物**：Epic `Outcome` 写
+   「MkDocs API 文档覆盖全部公开 API 并自动部署」，而原实现只有 docstring 存在性 ratchet。用户裁定**补渲染**
+   后按「包页 + `show_submodules`」交付：
+   - `docs/api/` 13 页（索引 + 12 个核心包），正文由 `mkdocstrings` 从 docstring 生成 —— 不做逐模块页，
+     包内新增模块自动被 `show_submodules` 展开，避免「每加一个模块补一个 md 壳」的两份事实；
+   - `mkdocs.yml` 加 `plugins`（search + mkdocstrings python handler，`filters: ["!^_"]` 只渲染公开成员、
+     `docstring_style: google`、`show_source: false`），nav 增「API 参考」节；
+   - 构建期依赖不进依赖树：`pip install mkdocs "mkdocstrings[python]"`；`scripts/build_docs.py` 预检三者并给
+     安装提示，`ci.yml` 的 docs step 与 `docs.yml` 同步装；
+   - 判据 `tests/test_api_docs_pages.py`（4 例：包页集合 == `src/heagent/` 非入口层包 / 每页一个
+     `::: heagent.<pkg>` 且开 `show_submodules` / nav 登记全部页面 / 索引逐个链接）；
+   - 站点侧实测 `mkdocs build --strict` 0 warning、28 页、4.3 s。
+   闭合正文见 `_bmad-output/retrospective-all-cycles.md` §三。
 2. **A65｜Pages 前置设置未验证**：仓库 Settings → Pages 的 Source 必须选 “GitHub Actions”，
    且从未跑过一次真实 `workflow_dispatch`。闭合判据 = run 绿 + `page_url` 可访问。
 3. **版本注入只在 `scripts/build_docs.py` 路径生效**：裸跑 `mkdocs build --strict`（CI 的 docs 门）时
