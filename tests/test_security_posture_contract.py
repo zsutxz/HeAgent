@@ -44,7 +44,14 @@ FRAME_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     1: ("SafetyGuard", "PolicyEngine", "defense-in-depth"),
     2: ("默认链路未启用", "MCP stdio"),
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
-    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API", "WS_LAN_NO_AUTH"),
+    4: (
+        "Authorization: Bearer",
+        "fail-closed",
+        "浏览器 WebSocket API",
+        "WS_LAN_NO_AUTH",
+        "wss",
+        "SPKI-SHA256 pin",
+    ),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
     6: ("open-items.md",),
 }
@@ -54,7 +61,14 @@ AGENTS_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     1: ("SafetyGuard", "PolicyEngine", "sandbox 后端"),
     2: ("Docker 后端默认未启用", "MCP stdio", "D53-1"),
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
-    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API", "WS_LAN_NO_AUTH"),
+    4: (
+        "Authorization: Bearer",
+        "fail-closed",
+        "浏览器 WebSocket API",
+        "WS_LAN_NO_AUTH",
+        "wss",
+        "SPKI-SHA256 pin",
+    ),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
     6: ("open-items.md",),
 }

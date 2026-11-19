@@ -3,7 +3,7 @@ title: 'Story 73.6 端到端验收与安全口径同步'
 type: feature
 ticket: 6
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto
@@ -75,3 +75,49 @@ deferred: []
 - 已实测：`tests/test_security_posture_contract.py` 现守卫「要素 1..6、canonical 段唯一、短语齐全」，
   短语集为正向包含（`FRAME_ELEMENT_PHRASES` / `AGENTS_ELEMENT_PHRASES`）。
 - 已实测（2026-11-19 补做 retro 时）：全量 `pytest` 5518 passed / 0 failed；六门全绿，可作本票基线对照。
+
+## Evidence（交付回填，2026-11-19）
+
+### 口径同步
+
+- `docs/frame.md` §4.19 要素 4 改写为「两档 + 生产形态 `wss` + token」：新增 `wss` / `SPKI-SHA256 pin` /
+  `heagent tls rotate-key` 是唯一改 pin 的动作、`lan` 与 TLS 互斥；要素数量与编号仍 1..6。
+- `AGENTS.md` 要素 4、`CLAUDE.md`「安全口径」同批改写（要素不增不删）。
+- `tests/test_security_posture_contract.py` 的 `FRAME_ELEMENT_PHRASES[4]` / `AGENTS_ELEMENT_PHRASES[4]`
+  追加 `wss` / `SPKI-SHA256 pin`，仍为正向包含。
+- **反向证据**：把 `docs/frame.md` 里的 `SPKI-SHA256 pin` 改成占位符 ⇒ `pytest tests/test_security_posture_contract.py -q`
+  = `1 failed, 57 passed`（点名 `frame-element-4`）；还原后 = `58 passed`。
+- `deploy/README.md` 姿态 3/4 与配置约束、`.env.example` 的 `WS_TLS_*` / `WS_LAN_NO_AUTH` 注释、
+  `CHANGELOG.md`（`### Added` + `### Changed（破坏性）`：`tls` 布尔 → 对象）同步。
+- `docs/tls-connect-guide.md`（本地资料、不入库）补「落地状态」节。
+
+### 端到端取证（容器内，`172.17.0.3:9299` wss + token；驱动脚本 `.heagent/tmp/e2e_ws_tls.py`）
+
+`16/16 passed`，逐条原始输出见运行日志；关键项：
+
+| 判据 | 结果 |
+|---|---|
+| `heagent tls init` / `issue --san 172.17.0.3` / `verify` | 三个 `[OK]`，pin `sha256/…`（每轮重签不变） |
+| 默认信任库连 wss | `SSLCertVerificationError: unable to get local issuer certificate`（自签不冒充受信） |
+| `ca.pem` 作锚 + `check_hostname=True` | 握手成功并收到 `hello version=0.10.0`（SAN 覆盖绑定地址） |
+| wss 无 token / 错 token | 各 `HTTP 403` |
+| wss + 正确 token | `101` + hello 首帧 |
+| 提交 run → 订阅 → cancel | ack `run_id=…`；订阅收到 `{"kind":"cancelled"}` 终态事件 |
+| 真实握手叶证书 SPKI vs `heagent tls fingerprint` | 逐字相同（`short=BIRT-B3DJ-G4JY` 那轮） |
+| `/api/status` 的 `listeners[].tls` | `enabled=true`、`spki_sha256`/`short_fingerprint` 与 CLI 逐字一致 |
+| `heagent doctor`（TLS 三键已配） | `ws_tls_fingerprint` / `ws_tls_expiry` / `ws_tls_san` 三条齐 |
+| `WS_LAN_NO_AUTH=true` + `WS_TLS_*` | 进程拒绝启动（exit 1，消息点名两族键） |
+| 启动日志 | `ws event=started address=172.17.0.3:9299 listener=external tls=wss auth=token` |
+
+### 未实测 / 待裁决
+
+- **客户端 pin 校验**（`aihome-client` 的 `X509TrustManager`）不在本仓 —— 本仓只证明服务端呈现的 SPKI 与
+  发布的 pin 值一致、以及无 token / 错 token 被拒；「pin 改错 ⇒ 握手被拒」属客户端行为，未在本仓实测。
+- **宿主真机（Windows）未实测**：本机无 `openssl`，材料只在容器内签发；宿主侧待跑
+  `heagent tls --dir .heagent/tls init --force` → `heagent tls issue --san 192.168.2.226` → `heagent tls verify`
+  （容器命令：`docker run --rm -v "$PWD:/work" -w /work <含 openssl 的镜像> …`）。
+- **`.env` 生产姿态切换未执行（待裁决）**：本机当前仍是 `WS_HOST=192.168.2.226` + `WS_LAN_NO_AUTH=true`
+  （第一步明文调试档）。切到 `wss + token` 会让尚未支持 pin 的客户端立即连不上，故留待客户端就绪后由用户决定；
+  切换步骤 = `.heagent/tls` 跑 `init --force`（旧材料无 `identity.key`）→ `issue --san 192.168.2.226` →
+  `.env` 设 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`、`WS_LAN_NO_AUTH=false`、`~/.heagent/setting.md` 配
+  `WS_AUTH_TOKEN` → 重启 → `heagent tls fingerprint --format pin` 交给客户端内置。

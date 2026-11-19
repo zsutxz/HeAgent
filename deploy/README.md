@@ -112,12 +112,16 @@ spec 要点：
    `ws://127.0.0.1:9201/...`。
 2. **对外只读订阅**：`WS_HOST=0.0.0.0` + `WS_AUTH_TOKEN`（用户级 `~/.heagent/setting.md`）——客户端必须
    带 `Authorization: Bearer <token>`；缺 token **拒绝启动**（fail-closed）。
-3. **对外且加密**：在姿态 2 基础上配 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`（PEM，二者必须同时给），
-   listener 走 `wss://`。不配 TLS 时启动会打 `event=plaintext_external` 告警（明文运行可见）。
+3. **对外且加密（生产形态）**：在姿态 2 基础上配 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`（PEM，二者必须同时给），
+   listener 走 `wss://`。材料用 `heagent tls init` + `heagent tls issue` 生成（默认 `.heagent/tls/`），
+   客户端**不导证书**：只 pin 服务端身份密钥的 SPKI-SHA256（`heagent tls fingerprint` 打印，
+   重签叶证书不改 pin，`heagent tls rotate-key` 是唯一改 pin 的动作）。不配 TLS 时启动会打
+   `event=plaintext_external` 告警（明文运行可见）。
 4. **内网调试入口（明文 + 免 token，Epic 72）**：`WS_HOST=<本机私有 IPv4>` + **`WS_LAN_NO_AUTH=true`**——
    同一局域网内直接 `ws://<私有 IPv4>:9201/...`，客户端不必带 token、也不必导证书。这是**显式放宽**：
    只接受私有地址字面量（`0.0.0.0` / 公网地址 / 主机名一律拒绝启动），且同网段任何设备都能驱使代理。
-   该形态与第二步（`wss://` + token）互斥于同一端口：需要认证就回到姿态 2/3。
+   该形态与第二步（`wss://` + token）**互斥**：`WS_LAN_NO_AUTH=true` 与 `WS_TLS_*` 同开会直接拒绝启动，
+   需要认证就回到姿态 2/3。
 
 ```dotenv
 # 姿态 4 示例：内网调试入口（明文、无 token）；宿主回环不再监听 9201
@@ -136,8 +140,9 @@ WS_MAX_CONNECTIONS=16
   都有。该端点只在 `CRON_PUSH_ENABLED=true` 时存在（默认关 ⇒ 路由不注册，客户端拿裸 403）；在 `lan` 上
   它意味着宿主 cron 的 LLM 输出对同网段可见（启动 WARNING 已写明）。
 - `WS_LAN_NO_AUTH=true` 的三条准入：绑**私有地址字面量**、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、
-  绑回环时无意义（拒绝启动并说明改法）。
-- `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE` **成对**给或都不给（只给一半拒绝启动）。
+  绑回环时无意义（拒绝启动并说明改法）；此外**不得与 `WS_TLS_*` 同开**（`wss` + 免 token 拒绝启动）。
+- `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE` **成对**给或都不给（只给一半拒绝启动）；两份材料读得出时还要求
+  它们真的是同一对（`heagent tls verify` 可查），否则每次握手都失败。
 
 ```dotenv
 # 姿态 2/3 示例：单个对外 listener（不带 TLS 时明文，启动告警）

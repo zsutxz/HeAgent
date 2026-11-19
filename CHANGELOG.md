@@ -14,6 +14,13 @@
 
 > 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
 
+### Changed（破坏性）
+
+- **`/api/status` 的 listener 条目 `tls` 从布尔改为对象**（Epic 73）：`{"enabled": bool,
+  "spki_sha256": str|null, "short_fingerprint": str|null, "not_after": ISO|null, "san": [str]|null}`。
+  未启用 TLS 时 `enabled=false` 且其余四项为 `null`。消费方（网页控制台 / 客户端）按 `.enabled` 读；
+  旧形态 `tls: true` 不再成立。
+
 ### Removed（破坏性）
 
 - **第二个 WS listener 退役**（Epic 72）：`WS_EXTERNAL_HOST` / `WS_EXTERNAL_PORT`（默认 `9301`）/
@@ -25,6 +32,12 @@
 
 ### Added
 
+- **WS TLS 安装期信任（Epic 73）**：服务端身份密钥 `identity.key` 长期固定，叶证书重签只换有效期与 SAN
+  ⇒ 客户端 pin 的 `SPKI-SHA256` 不变。新增 `heagent tls {init,issue,rotate-key,fingerprint,verify}`
+  （`rotate-key` 是唯一改变 pin 的动作，打印新旧指纹与双 pin 过渡）；`/api/status` 的 listener 条目增
+  `tls` 子对象（`enabled` / `spki_sha256` / `short_fingerprint` / `not_after` / `san`）；TLS 启用时启动期
+  自检到期余量（< 7 天）、SAN 是否覆盖绑定地址、cert/key 是否同一对（不配对拒绝启动），`heagent doctor`
+  同口径三项。判据 `tests/test_tls_identity.py` / `tests/test_cli_tls.py` / `tests/test_cli_tls_selfcheck.py`。
 - **内网免认证 WS 模式（`lan`）**（Epic 72）：`WS_LAN_NO_AUTH=true` + 私有 IPv4 绑定 ⇒ 非回环也免 token
   （`docs/tls-connect-guide.md` 第一步的「内网调试入口」）。三条准入 fail-loud：只接受私有地址字面量
   （通配 / 公网 / 主机名拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义；Host/Origin

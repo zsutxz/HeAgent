@@ -1503,14 +1503,18 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
    **2026-11-04 D5 修订**：WS listener 可经 `WS_LOCAL_AUTH_ENABLED=true` **也**强制 Bearer token（默认关）——
    开启时前门由 Origin/Host 换成 token，旁路 `/api/cli/ws` 一并强制（不再免认证）；HTTP 无对外模式、不在本修订范围。
    内网免认证档（`lan`，见要素 4）**同样无认证、无 TLS**：绑定地址是私有 IP **不等于**同网段可信。
-4. **非回环绑定分两档**（WS listener 绑非回环地址）：
+4. **非回环绑定分两档，生产形态是 `wss` + token**（WS listener 绑非回环地址）：
    - **`external`（默认档，未开 `WS_LAN_NO_AUTH`）**：**强制** `Authorization: Bearer <token>`，缺 token
-     **拒绝启动**（fail-closed，绝不降级成无认证对外）；认证**不是绝对边界**（token 可泄露、无 TLS 时连接
-     可被中间人观察）；浏览器 WebSocket API 无法自定义请求头 ⇒ 该档**不适用**于浏览器页面。
-   - **`lan`（内网调试入口，须显式 `WS_LAN_NO_AUTH=true`）**：**无认证**、通常也无 TLS，只接受**私有地址
+     **拒绝启动**（fail-closed，绝不降级成无认证对外）；`WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE` 配齐即
+     `wss`（Epic 73 第二步），此时「加密 + token」才是完整生产形态。认证**不是绝对边界**（token 可泄露），
+     加密也不是（客户端信任锚是服务端身份公钥的 **SPKI-SHA256 pin**，由 `heagent tls fingerprint` 给出；
+     重签叶证书复用身份密钥 ⇒ pin 不变，`heagent tls rotate-key` 是**唯一**改变 pin 的动作）；
+     浏览器 WebSocket API 无法自定义请求头 ⇒ 该档**不适用**于浏览器页面。
+   - **`lan`（内网调试入口，须显式 `WS_LAN_NO_AUTH=true`）**：**无认证、无 TLS**，只接受**私有地址
      字面量**（通配 `0.0.0.0` / 公网地址 / 主机名一律拒绝启动），身份是同一局域网内的调试入口——同网段
      任何设备都能驱使代理（执行命令、读写文件），只能靠网络侧兜底（不映射公网、不长期监听），每次启动
-     一条 WARNING。台阶明确：这是**显式选择的安全放宽**，不是默认，也不构成边界。
+     一条 WARNING。它与 TLS **互斥**：`wss` + `WS_LAN_NO_AUTH=true` **拒绝启动**（加密了却不认证毫无意义）。
+     台阶明确：这是**显式选择的安全放宽**，不是默认，也不构成边界。
 5. **端点可见性**：**HTTP listener 没有对外模式**（恒按本地模式口径对待，不得绑公网）；终端旁路
    `/api/cli/ws` **只**挂回环（`local`）listener（`lan` / `external` 恒不注册——旁路含终端里尚未提交的输入）；
    只读通知流 `/api/notifications/ws`（Epic 58）随 listener 注册，`lan` 与 `external` 上同样可见
