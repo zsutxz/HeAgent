@@ -465,6 +465,11 @@ class StatusResponse(BaseModel):
     cron_jobs: list[CronJobInfo] = Field(default_factory=list, max_length=32)
     skill_count: int = Field(default=0, ge=0)
     memory_facts: int = Field(default=0, ge=0)
+    # ---- 资源（71.4）：不可得即 null（绝不填 0 冒充），并标注采样通路 ----
+    rss_bytes: int | None = Field(default=None, ge=0)
+    threads: int | None = Field(default=None, ge=0)
+    cpu_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    resource_source: str = Field(default="unavailable", max_length=32)
 
 
 def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:

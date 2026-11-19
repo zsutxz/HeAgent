@@ -33,6 +33,7 @@ from heagent.network.http_protocol import (
     StatusResponse,
     WsConnectionCounts,
 )
+from heagent.network.proc_stats import read_process_stats
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills.skill_store import SkillStore, default_skill_roots
@@ -238,6 +239,7 @@ class HttpStatusSource:
         """进程状态的只读快照（同步：只读内存计数；依赖态走 5 秒缓存，不在每次请求里读盘）。"""
         service = self._run_service
         dependency = self._dependency()
+        resources = self._resources()
         return StatusResponse(
             version=self._version,
             active_runs=service.active_runs if service is not None else 0,
@@ -261,7 +263,19 @@ class HttpStatusSource:
             cron_jobs=dependency[0],
             skill_count=dependency[1],
             memory_facts=dependency[2],
+            **resources,
         )
+
+    @staticmethod
+    def _resources() -> dict[str, Any]:
+        """本进程资源快照（不可得项为 ``None``，并标注采样通路）。"""
+        stats = read_process_stats()
+        return {
+            "rss_bytes": stats.rss_bytes,
+            "threads": stats.threads,
+            "cpu_seconds": stats.cpu_seconds,
+            "resource_source": stats.source,
+        }
 
     def _started_at(self) -> datetime | None:
         """启动时刻（未启动 / 未绑定 listener 时为 ``None``）。"""

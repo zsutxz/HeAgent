@@ -766,6 +766,11 @@
     },
     {
       "bases": [],
+      "module": "heagent.network.proc_stats",
+      "name": "ProcessStats"
+    },
+    {
+      "bases": [],
       "module": "heagent.network.ws_auth",
       "name": "AuthThrottle"
     },

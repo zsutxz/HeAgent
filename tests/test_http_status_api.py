@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import contextlib
 import logging
 from types import SimpleNamespace
@@ -514,6 +515,54 @@ class TestDependencyState:
         refreshed = source.status().memory_facts
 
         assert (first, cached, refreshed) == (1, 1, 3)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 资源采样：本进程 RSS / 线程 / CPU（Story 71.4）
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestProcessResources:
+    async def test_status_carries_the_process_resources(self) -> None:
+        async with _client(_source()) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["resource_source"] in {"procfs", "ctypes", "unavailable"}
+        assert set(["rss_bytes", "threads", "cpu_seconds"]).issubset(payload)
+        if payload["resource_source"] != "unavailable":
+            # 采样通路可用时数值必须真的送达状态面（映射处填 0 或漏传都该红）。
+            assert payload["rss_bytes"] is not None and payload["rss_bytes"] > 0
+            assert payload["cpu_seconds"] is not None and payload["cpu_seconds"] >= 0
+
+    def test_sampler_reports_real_numbers(self) -> None:
+        from heagent.network.proc_stats import read_process_stats
+
+        stats = read_process_stats()
+
+        if stats.source == "unavailable":  # 不支持的平台：三个值必须是 None，不能是 0
+            assert (stats.rss_bytes, stats.threads, stats.cpu_seconds) == (None, None, None)
+            return
+        assert stats.rss_bytes is not None and 0 < stats.rss_bytes < 1 << 40
+        assert stats.cpu_seconds is not None and stats.cpu_seconds >= 0
+
+    def test_unsupported_platform_degrades_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from heagent.network import proc_stats
+
+        monkeypatch.setattr(proc_stats.sys, "platform", "plan9")
+        stats = proc_stats.read_process_stats()
+
+        assert stats.source == "unavailable"
+        assert (stats.rss_bytes, stats.threads, stats.cpu_seconds) == (None, None, None)
+
+    def test_sampling_is_cheap_enough_for_a_polled_endpoint(self) -> None:
+        from heagent.network.proc_stats import read_process_stats
+
+        start = time.perf_counter()
+        for _ in range(1000):
+            read_process_stats()
+        elapsed = time.perf_counter() - start
+
+        assert elapsed < 0.5, f"1000 次采样耗时 {elapsed:.3f}s，超出可轮询的量级"
 
 
 # ═══════════════════════════════════════════════════════════════════
