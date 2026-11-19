@@ -1,7 +1,8 @@
 """同源 API 探索器的静态契约（Epic 70，Story 70.3）。
 
-本机没有 node（`tests/fixtures/js/app_probe.js` 那类探针会 skip），因此这里用**源码级**契约钉死
-可验证的部分。每条断言都对着一条真实不变量，而不是「源码里有没有某个词」：
+本机没有 node 时（`tests/fixtures/js/app_probe.js` 那类探针会 skip）这里用**源码级**契约钉死
+可验证的部分；有 node 的环境（CI 镜像）另由 `tests/fixtures/js/panels_probe.js` 做可执行回归
+（见本文件末尾 :class:`TestApiConsoleProbe`）。每条静态断言都对着一条真实不变量，而不是「源码里有没有某个词」：
 
 - 面板真的挂在页面上：脚本在白名单内、`index.html` 有全部元素与默认收起、脚本在面板桥之后加载；
 - 不渲染 HTML、不引第三方资源、不绕开面板桥自己发 fetch；
@@ -19,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from heagent.network.http_server import _WEB_ASSETS, read_web_asset
+from tests.helpers_js_probe import NODE, run_panels_probe
 
 _JS = read_web_asset("api-console.js").decode("utf-8")
 _HTML = read_web_asset("index.html").decode("utf-8")
@@ -318,3 +320,48 @@ class TestPresets:
         assert "先选择会话" in _JS
         assert 'path.split("{project_id}")' in _JS
         assert 'path.split("{session_id}")' in _JS
+
+
+@pytest.mark.skipif(NODE is None, reason="需要 node 才能执行面板行为探针（CI 镜像自带 node）")
+class TestApiConsoleProbe:
+    """可执行回归（`tests/fixtures/js/panels_probe.js`）：真 panels.js + api-console.js + fetch 替身。"""
+
+    def test_get_renders_status_code_elapsed_and_formatted_json(self, tmp_path: Path) -> None:
+        ok = run_panels_probe("api-get", tmp_path)["ok"]
+
+        assert ok["output"].startswith("HTTP 200 ("), "首行给状态码与耗时"
+        assert " ms)" in ok["output"]
+        assert '\n{\n  "status": "ok"' in ok["output"], "响应体按 JSON 缩进渲染"
+        assert ok["status"] == "请求完成：HTTP 200"
+        assert ok["state"] == "done"
+
+    def test_error_envelope_shows_code_and_message(self, tmp_path: Path) -> None:
+        bad = run_panels_probe("api-get", tmp_path)["bad"]
+
+        assert bad["output"].startswith("HTTP 400 (")
+        assert bad["status"] == "bad_request: path is required", "错误信封的 code 原样展示（便于查 docs/errors.md）"
+        assert bad["state"] == "failed"
+
+    def test_local_guards_send_nothing(self, tmp_path: Path) -> None:
+        result = run_panels_probe("api-guard", tmp_path)
+
+        assert result["noLeadingSlash"] == {"calls": 0, "status": "路径必须以 / 开头：只能请求本站同源端点"}
+        assert result["placeholder"]["calls"] == 0, "占位符未替换时不得把 {project_id} 当成真实 id 发出去"
+        assert result["badBody"] == {"calls": 0, "status": "请求体不是合法 JSON：本次没有发出请求"}
+
+    def test_write_methods_need_confirmation_before_the_request(self, tmp_path: Path) -> None:
+        result = run_panels_probe("api-confirm", tmp_path)
+
+        assert result["cancelled"]["prompts"] == 1, "写方法必须弹一次确认"
+        assert result["cancelled"]["calls"] == 0, "取消即一个请求都不发"
+        assert result["cancelled"]["status"] == "已取消：POST /api/projects 没有发出请求"
+        assert result["accepted"]["posted"] == 1, "确认之后恰好发一次"
+
+    def test_presets_only_fill_the_form(self, tmp_path: Path) -> None:
+        preset = run_panels_probe("api-confirm", tmp_path)["preset"]
+
+        assert preset["count"] == 21, "预置清单条数与后端路由表对齐（改动须同步两条用例）"
+        assert preset["firstLabel"] == "GET /api/health"
+        assert preset["method"] == "GET"
+        assert preset["path"] == "/api/health"
+        assert preset["calls"] == 0, "点预置只填表单，不自动发送"

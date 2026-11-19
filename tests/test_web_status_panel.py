@@ -1,6 +1,6 @@
-"""Story 70.2：顶栏「服务身份」与「进程会话快照」两个徽标的静态契约。
+"""Story 70.2：顶栏「服务身份」与「进程会话快照」两个徽标的静态契约 + 可执行回归。
 
-这里钉的是**源码契约**（资源里必须有什么 / 绝不能有什么），不是像素级行为：
+静态契约钉的是**源码契约**（资源里必须有什么 / 绝不能有什么），不是像素级行为：
 
 - 两个徽标的 id 必须在页面里声明，脚本必须真的引用它们（否则渲染是死代码）；
 - 快照请求只走同源 ``/api/session``，且**不得**塞进 5 秒 health 轮询（无谓请求）；
@@ -8,18 +8,21 @@
 - 断连语义是「保留上次值 + 标注」，不是清空；
 - 渲染纪律：只用 ``textContent``，没有任何 HTML 注入 sink。
 
-可执行行为回归（真 app.js + node + 最小 DOM 替身）在 ``tests/test_http_web_ui.py``；本机无 node 时
-那些用例 skip，这份静态契约因此在无 node 环境里也守得住。``node --check`` 的替代自查见
+可执行行为回归（真 app.js + node + 最小 DOM 替身，用例 ``Y``）在本文件末尾的
+:class:`TestServiceIdentityProbe`：版本跟着响应变、快照两态、断连保留与恢复。没有 node 的环境
+（本仓开发容器）那一类用例 skip，静态契约仍生效；``node --check`` 的替代自查见
 :meth:`TestScriptStructure.test_brackets_are_balanced`。
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 from heagent.network.http_server import read_web_asset
+from tests.helpers_js_probe import NODE, run_app_probe
 
 _HTML = read_web_asset("index.html").decode("utf-8")
 _APP_JS = read_web_asset("app.js").decode("utf-8")
@@ -198,3 +201,35 @@ class TestScriptStructure:
         assert "http://" not in _NO_COMMENTS
         assert "https://" not in _NO_COMMENTS
         assert "//cdn" not in _NO_COMMENTS
+
+
+@pytest.mark.skipif(NODE is None, reason="需要 node 才能执行前端行为探针（CI 镜像自带 node）")
+class TestServiceIdentityProbe:
+    """可执行回归：真 app.js + 最小 DOM 替身，断言落在徽标的可观察文本与 ``data-state`` 上。"""
+
+    def test_version_comes_from_the_response(self, tmp_path: Path) -> None:
+        result = run_app_probe("Y", tmp_path)
+        initial = result["initial"]
+
+        assert initial["meta"] == "heagent-http · v9.9.9 · schema 1"
+        assert initial["metaState"] == "ready"
+        assert initial["metaHidden"] is False, "拿到响应后徽标必须可见"
+        assert result["changed"]["meta"] == "heagent-http · v1.2.3 · schema 2", (
+            "换一个响应版本号，徽标必须跟着变（前端持任何版本常量都过不了这条）"
+        )
+
+    def test_session_snapshot_covers_both_run_states(self, tmp_path: Path) -> None:
+        result = run_app_probe("Y", tmp_path)
+
+        assert result["initial"]["snapshot"] == "本进程 · 会话 s1 · 暂无运行 · 消息 1", "run_id 为 null 时给占位文案"
+        assert result["withRun"]["snapshot"] == "本进程 · 会话 s1 · 运行 run-7（running） · 消息 0"
+
+    def test_offline_keeps_the_last_identity_then_recovers(self, tmp_path: Path) -> None:
+        result = run_app_probe("Y", tmp_path)
+        offline = result["offline"]
+
+        assert offline["metaState"] == "offline"
+        assert offline["serviceState"] == "offline"
+        assert offline["meta"] == "heagent-http · v1.2.3 · schema 2", "断连时保留上次的服务身份，不清空"
+        assert offline["metaHidden"] is False, "断连不得隐藏徽标（否则用户看不出自己连的是哪个版本）"
+        assert result["recovered"]["metaState"] == "ready"

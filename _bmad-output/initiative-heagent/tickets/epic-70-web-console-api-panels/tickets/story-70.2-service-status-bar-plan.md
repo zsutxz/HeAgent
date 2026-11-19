@@ -3,7 +3,7 @@ title: 'Story 70.2 服务状态条与进程会话快照'
 type: feature
 ticket: 2
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '329311d'
 route: full
 route_source: auto
@@ -56,3 +56,18 @@ context:
 - `/api/session` 是**进程级**单用户快照，与「项目内会话」不是一回事（控制台的多数操作走
   `/api/projects/{id}/sessions`）。文案必须写明「当前进程」，否则会被读成「项目会话」。
 - 不要把 `/api/session` 接进现有 SSE 循环（它是快照，不是事件流）。
+
+## 评审（2026-11-19）
+
+| 判据 | 证据 | 结论 |
+| --- | --- | --- |
+| 静态：无硬编码版本串、四个字段齐全、断连只标态 | `tests/test_web_status_panel.py` | 满足 |
+| 行为：health 换版本 → 徽标跟着变 | `app_probe.js` case `Y` → `TestServiceIdentityProbe`（node）：`v9.9.9` → `v1.2.3` | 满足（本轮补探针） |
+| 行为：`run_id: null` 占位 / 有 run 时 id + 状态都可见 | probe → `本进程 · 会话 s1 · 暂无运行 · 消息 1` / `… 运行 run-7（running） · 消息 0` | 满足 |
+| 行为：断连保留上次值、恢复回 ready | probe `offline`（state=offline 但文本不变）/ `recovered`（ready） | 满足 |
+| 文案写明「当前进程」 | 评审发现原文案只有 hover `title` 说明进程语义，可见文本仍是「会话 s1」 ⇒ 已给 `renderSessionSnapshot` 首段加「本进程」 | 已修 |
+
+**评审修复（跨 story 影响）**：终态刷新会额外拉一次 `GET /api/session`，使既有
+`tests/test_http_web_ui.py` case M 的「被拒提交总调用数 == 4」断言在**有 node 的环境**下变成 8
+（4 次提交 + 4 次快照）⇒ CI 会红，而开发容器无 node 时该用例 skip，故此前不可见。已把该断言改为
+只数提交口（`POST /api/projects/default/runs`），保留「不重试、不静默」的原意。

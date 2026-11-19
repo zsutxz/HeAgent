@@ -5,17 +5,20 @@
 - 页面必须有的东西：任务面板的四个元素 id、条目/详情的渲染字段与类名、轮询的 2s 常量与停表路径；
 - 页面绝不能有的东西：HTML 注入路径、第三方资源、`/api/tasks*` 之外的端点。
 
-浏览器里的真实轮询节奏（谁在驱动定时器、可见性切换的观感）不在本文件覆盖范围：本机无 node 时
-行为探针会 skip，静态断言因此只保证「可检形态」（常量、句柄、可见性分支），不假装是运行时结果。
+浏览器里的真实轮询节奏（谁在驱动定时器、可见性切换的观感）由 `tests/fixtures/js/panels_probe.js`
+的可执行回归覆盖（见本文件末尾 :class:`TestTasksPanelProbe`）：本机无 node 时那类用例 skip，
+静态断言只保证「可检形态」（常量、句柄、可见性分支），不假装是运行时结果。
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 from heagent.network.http_server import _WEB_ASSETS, read_web_asset
+from tests.helpers_js_probe import NODE, run_panels_probe
 
 _HTML = read_web_asset("index.html").decode("utf-8")
 _JS = read_web_asset("tasks.js").decode("utf-8")
@@ -244,3 +247,54 @@ class TestSourceShape:
         """反向自证：剥壳函数不能把问题藏起来（否则本类断言全是假的）。"""
         assert _bracket_faults(_strip_strings_and_comments("(() => { if (x) { }")), "未闭合的块必须被抓到"
         assert _bracket_faults(_strip_strings_and_comments('const s = "( 未闭合";')) == []
+
+
+@pytest.mark.skipif(NODE is None, reason="需要 node 才能执行面板行为探针（CI 镜像自带 node）")
+class TestTasksPanelProbe:
+    """可执行回归（`tests/fixtures/js/panels_probe.js`）：真 tasks.js + 可控定时器。"""
+
+    def test_list_renders_rows_in_server_order(self, tmp_path: Path) -> None:
+        first = run_panels_probe("tasks-list", tmp_path)["first"]
+
+        assert [row["title"] for row in first["rows"]] == ["context_compression · 42%", "context_compression · 100%"]
+        assert first["rows"][0]["state"] == "running"
+        assert first["rows"][0]["meta"].startswith("运行中 · ")
+        assert first["rows"][1]["meta"].startswith("已完成 · ")
+        assert first["emptyHintHidden"] is True, "有任务时空态文案必须收起"
+        assert first["status"] == "共 2 个任务"
+
+    def test_polling_is_armed_while_active_and_stops_at_terminal(self, tmp_path: Path) -> None:
+        result = run_panels_probe("tasks-list", tmp_path)
+
+        assert result["first"]["timers"] == 1, "存在 running 时必须排下一轮"
+        assert result["afterTerminal"]["armedBefore"] == 1
+        assert result["afterTerminal"]["timers"] == 0, "全终态后必须停表（不留空转定时器）"
+        assert result["afterEmpty"]["timers"] == 0, "空列表同样停表"
+        assert result["afterEmpty"]["emptyHintShown"] is True
+
+    def test_failures_are_stated_and_do_not_clear_the_list(self, tmp_path: Path) -> None:
+        after_failure = run_panels_probe("tasks-list", tmp_path)["afterFailure"]
+
+        assert after_failure["status"] == "server_error: request failed", "失败要显示稳定错误码与服务端文案"
+        assert after_failure["state"] == "failed"
+        assert after_failure["rows"] == 2, "取数失败不得清空已渲染的行"
+        assert after_failure["timers"] == 1, "失败后继续排程（下次成功即恢复）"
+
+    def test_detail_404_and_success_render_the_server_fact(self, tmp_path: Path) -> None:
+        result = run_panels_probe("tasks-list", tmp_path)
+
+        assert result["detail404"]["text"] == "not_found: no such task", (
+            "未知 id 的错误码是 not_found（不是 unknown_task）"
+        )
+        assert result["detail404"]["state"] == "failed"
+        assert result["detail404"]["rows"] == 1, "详情失败不得牵连列表"
+        assert result["detailOk"] == {"percent": "100%", "status": "已完成"}
+
+    def test_hidden_tab_stops_polling_and_resume_fetches_immediately(self, tmp_path: Path) -> None:
+        result = run_panels_probe("tasks-visibility", tmp_path)
+
+        assert result["armed"] == 1
+        assert result["whenHidden"] == {"timers": 0, "calls": 1}, "不可见的标签页不打服务端"
+        assert result["whenVisible"]["calls"] == 2, "恢复可见立刻补取一次"
+        assert result["whenVisible"]["timers"] == 1
+        assert result["whenVisible"]["rows"] == 1

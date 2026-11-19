@@ -3,7 +3,7 @@ title: 'Story 70.1 网页端任务进度面板'
 type: feature
 ticket: 1
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '329311d'
 route: full
 route_source: auto
@@ -65,3 +65,17 @@ context:
   但**必须在全终态时停轮询**，否则是一个没人关的定时器。
 - 若新增 JS 文件（而非写进 `app.js`），需同步 `_WEB_ASSETS` 白名单与静态契约测试 —— 优先写进
   `app.js`，避免多开一条资源面。
+
+## 评审（2026-11-19）
+
+| 判据 | 证据 | 结论 |
+| --- | --- | --- |
+| 静态契约：容器 / 空态 / 无内联 style / 无第三方资源 | `tests/test_web_tasks_panel.py`（源码级契约，49 例） | 满足 |
+| 行为：两条任务按后端顺序渲染、`percent` 可见 | `tests/fixtures/js/panels_probe.js` case `tasks-list` → `TestTasksPanelProbe`（node） | 满足（本轮补：此前只有静态） |
+| 行为：存在 `running` 时下一轮重取、全终态后不再排程 | probe `first.timers=1` / `afterTerminal.timers=0` | 满足 |
+| 行为：详情 404 文案 | probe → `not_found: no such task` | 满足；本 plan 原写 `unknown_task` 有误（端点复用通用码），以实测为准 |
+| 行为：列表 500 不清空已渲染内容 | probe `afterFailure`（`rows=2` / `state=failed` / 仍排程） | 满足 |
+| 后端零 diff | `network/http_server/assets.py` +3（新脚本进白名单），路由与端点零改动 | 修正口径：白名单是新增静态资源的必需面，本条按「路由/端点零 diff」判 |
+
+**评审补充**：本机无 node 时该 epic 只有静态契约（作者原判断），本轮装上 node（20.18.1）后补齐
+行为探针，并在有/无 node 两种环境下各跑一遍（无 node 时探针类用例 skip，静态契约照常生效）。

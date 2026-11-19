@@ -139,8 +139,13 @@ global.document = {
 };
 
 const store = new Map();
+// 定时器**不自动触发**：健康轮询由 `fireIntervals()` 手动推一轮（用例 Q 需要同一页面内多次查健康）。
+const intervals = [];
 global.window = {
-  setInterval: () => 0,
+  setInterval: (fn) => {
+    intervals.push(fn);
+    return intervals.length;
+  },
   localStorage: {
     getItem: (key) => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, String(value)),
@@ -548,8 +553,15 @@ async function settle(count = 6) {
   for (let index = 0; index < count; index += 1) await tick();
 }
 
+/** 推一轮健康轮询（替身不自动触发定时器；同一页面内多次查健康靠这里）。 */
+async function fireIntervals() {
+  for (const fn of intervals) fn();
+  await settle();
+}
+
 async function load() {
   // 每次用例都重新执行脚本，得到干净的闭包状态（模拟一次页面载入）。
+  intervals.length = 0; // 新页面没有上一页的定时器
   // eslint-disable-next-line no-new-func
   new Function(src)();
   await settle();
@@ -1072,7 +1084,8 @@ const CASES = {
       text: await submitAndRead(() => jsonResponse(400, { error: { code: "weird_code", message: "server said boom" } })),
     });
     net.routes.set("POST", "/api/projects/default/runs");
-    const callsAfterSubmitErrors = net.calls.length;
+    // 只数提交口本身：终态刷新会额外拉一次 `/api/session`（Epic 70），那不是「重试提交」。
+    const callsAfterSubmitErrors = callsMatching("POST /api/projects/default/runs").length;
 
     world.sessions.default = [session("s1", "会话一")];
     route("DELETE", "/api/projects/default/sessions/s1?confirm=true", () =>
@@ -1410,6 +1423,54 @@ const CASES = {
     world.lastWrite = null;
     world.pBConfigFails = false;
     return result;
+  },
+
+  async Y() {
+    // 服务身份徽标与进程会话快照（Story 70.2）：版本/模式只来自响应体，离线保留上次文本。
+    const health = (version, schema) =>
+      route("GET", "/api/health", () =>
+        jsonResponse(200, { status: "ok", service: "heagent-http", version: version, schema_version: schema }),
+      );
+    health("9.9.9", "1");
+    route("GET", "/api/session", () =>
+      jsonResponse(200, { session_id: "s1", run_id: null, status: null, messages: [{ role: "user", text: "hi" }] }),
+    );
+    await load();
+    const initial = {
+      meta: els["service-meta"].textContent,
+      metaState: els["service-meta"].dataset.state,
+      metaHidden: els["service-meta"].hidden,
+      snapshot: els["session-snapshot"].textContent,
+      snapshotHidden: els["session-snapshot"].hidden,
+    };
+
+    // 换一个版本号与 schema：徽标必须跟着响应变（前端不得持任何版本常量）。
+    health("1.2.3", "2");
+    await fireIntervals();
+    const changed = { meta: els["service-meta"].textContent };
+
+    // 快照里有在途 run：run_id 与状态都要出现在徽标里。
+    route("GET", "/api/session", () =>
+      jsonResponse(200, { session_id: "s1", run_id: "run-7", status: "running", messages: [] }),
+    );
+    await load();
+    const withRun = { snapshot: els["session-snapshot"].textContent };
+
+    // 健康检查失败：只标离线，服务身份文本**保留**（不清空、不隐藏）。
+    route("GET", "/api/health", () => jsonResponse(500, { error: { code: "server_error", message: "boom" } }));
+    await fireIntervals();
+    const offline = {
+      meta: els["service-meta"].textContent,
+      metaState: els["service-meta"].dataset.state,
+      metaHidden: els["service-meta"].hidden,
+      serviceState: els["service-status"].dataset.state,
+    };
+
+    // 恢复：徽标回到 ready。
+    health("1.2.3", "2");
+    await fireIntervals();
+    const recovered = { metaState: els["service-meta"].dataset.state };
+    return { initial, changed, withRun, offline, recovered };
   },
 };
 

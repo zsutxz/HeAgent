@@ -1707,7 +1707,8 @@
     const runId = asText(snapshot && snapshot.run_id);
     const status = asText(snapshot && snapshot.status);
     const count = snapshot && Array.isArray(snapshot.messages) ? snapshot.messages.length : 0;
-    const parts = [];
+    // 首段写死「本进程」：`/api/session` 是进程级快照，与侧栏的项目会话不是一回事，文案不得留歧义。
+    const parts = ["本进程"];
     if (sessionId) parts.push(`会话 ${sessionId}`);
     if (!runId) parts.push("暂无运行");
     else if (status) parts.push(`运行 ${runId}（${status}）`);

@@ -3,7 +3,7 @@ title: 'Story 70.3 同源 API 探索器'
 type: feature
 ticket: 3
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '329311d'
 route: full
 route_source: auto
@@ -62,3 +62,17 @@ context:
 - 与 CSP 的关系：`connect-src 'self'` 允许同源 fetch，但**不允许**任何外部主机；不要为了
   「顺手测外部 URL」去放宽 CSP。
 - 面板不得进入默认首屏动线（避免被当成普通功能误触）。
+
+## 评审（2026-11-19）
+
+| 判据 | 证据 | 结论 |
+| --- | --- | --- |
+| 静态：资源白名单 / 元素绑定 / `confirm` 在请求之前 / 预置与路由双向 | `tests/test_web_api_console.py` | 满足 |
+| 行为：GET 成功显示状态码 + 耗时 + 格式化 JSON | `panels_probe.js` case `api-get` → `TestApiConsoleProbe`（node）：`HTTP 200 (12 ms)` + 两空格缩进 | 满足（本轮补探针） |
+| 行为：400 错误信封显示 `code` 与 `message` | probe → 状态行 `bad_request: path is required` | 满足 |
+| 行为：写方法未确认不发请求 | probe → 取消：`prompts=1` / `calls=0`；确认后 `posted=1` | 满足 |
+| 本地拦截：路径不以 `/` 开头 / 请求体非 JSON / 占位符未替换 | probe case `api-guard` → 三种情形 `calls=0` | 满足（本轮补） |
+| 预置清单每条都能在后端路由表命中 | `test_presets_cover_exactly_the_backend_routes`（21 条逐对比对） | 满足；提交信息写「20 条」是笔误，代码与测试都是 21 |
+
+**评审记录**：探针里 `elapsed` 由 `performance.now()` 替身固定步进 12ms 得出，断言只钉格式与
+「有数字」，不钉真实耗时。

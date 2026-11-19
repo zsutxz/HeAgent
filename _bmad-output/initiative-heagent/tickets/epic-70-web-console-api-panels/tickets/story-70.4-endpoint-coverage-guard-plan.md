@@ -3,7 +3,7 @@ title: 'Story 70.4 前端消费覆盖守卫'
 type: feature
 ticket: 4
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: '329311d'
 route: full
 route_source: auto
@@ -61,3 +61,19 @@ epic 都没接入，而没有任何东西会因此变红 —— 这次能发现�
 - 提取器对模板串敏感：写死「只认单引号字符串」会漏掉 `${...}` 拼接。实现时按「去掉插值后保留
   固定前缀」处理，并补一条针对动态段的用例，防止守卫本身假绿。
 - 白名单是逃生门：要留，但必须带理由，且不允许多条目共用一句笼统理由（测试里可断言理由长度下限）。
+
+## 评审（2026-11-19）
+
+| 判据 | 证据 | 结论 |
+| --- | --- | --- |
+| 正向：新路由未接前端且不在白名单 ⇒ 红并点名 | `test_guard_detects_a_new_unconsumed_route`（monkeypatch 注入 `/api/guard-probe`） | 满足 |
+| 反向：前端路径拼错 ⇒ 红并点名 | `test_guard_detects_a_typo`（注入 `/api/typo`） | 满足 |
+| 白名单每条带理由且指向真实路由 | `test_whitelist_entries_still_exist_and_have_reasons`（理由长度下限 12） | 满足 |
+| 守卫本身看得见东西 | `test_frontend_paths_are_discovered`（≥10 条且含 `api-console.js`）、`test_backend_route_parser_sees_the_task_endpoints` | 满足 |
+| 真实文件的变异可检 | 两条 monkeypatch 变异分别作用在路由集合与前端路径集合上 | 满足 |
+
+**已知边界（未立台账）**：`_matches` 允许「前端前缀路径匹配更长的路由模板」（`/api/tasks` 落在
+`/api/tasks/{task_id}` 上）。反向断言因此抓不到「后端删掉**集合路由**、详情路由仍在」这一种漂移。
+取舍写在模块 docstring 里：前端拼的是动态 id，必须按段前缀对齐；替代方案（要求方法 + 精确模板）
+需要从 `fetch(url, {method})` 静态还原方法，成本高于收益。风险面是「某端点被删」而非「新增未接」，
+后者正是本守卫要防的那类静默缺口。
