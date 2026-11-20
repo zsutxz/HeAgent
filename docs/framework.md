@@ -23,19 +23,24 @@
   - [4.11 MCP 集成 (`tools/mcp/`)](#411-mcp-集成-toolsmcp)
   - [4.12 运行时引擎 (`engine/`)](#412-运行时引擎-engine)
   - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
+  - [4.13.1 受控 GoalScript（Story 51-7）](#4131-受控-goalscriptstory-51-7)
   - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
-  - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
-  - [4.17.1 WebSocket 入口（Epic 54；Epic 56 迁至独立 server）](#4171-websocket-入口epic-54epic-56-迁至独立-server)
-  - [4.17.1.1 CLI 旁路订阅（Epic 55）](#41711-cli-旁路订阅epic-55)
-  - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalog--configwritepy--clihttppy--clidialogspy--web)
-  - [4.19 安全口径（唯一真源）](#419-安全口径canonical)
+  - [4.16 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#416-http-网页入口-networkhttp_--clihttppy--web)
+  - [4.16.1 WebSocket 入口（Epic 54；Epic 56 迁至独立 server）](#4161-websocket-入口epic-54epic-56-迁至独立-server)
+    - [CLI 旁路订阅（Epic 55）](#cli-旁路订阅epic-55)
+    - [只读通知流（Epic 58）](#只读通知流epic-58)
+  - [4.17 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#417-网页控制台-pubworkspacepy--pubprojectspy--configcatalog--configwritepy--clihttppy--clidialogspy--web)
+  - [4.18 安全口径（canonical）](#418-安全口径canonical)
 
 - [五、已知缺口](#五已知缺口)
 - [六、目录结构](#六目录结构)
 - [七、完整调用链](#七完整调用链)
 - [八、技术规范](#八技术规范)
-- [九、历史与迁移](#九历史与迁移)
+  - [8.1 目标工作流质量收口](#81-目标工作流质量收口)
+  - [8.2 Goal/Epic/Story 产物契约](#82-goalepicstory-产物契约)
+  - [8.3 声明式敏捷流程收口](#83-声明式敏捷流程收口)
+  - [8.4 工程纪律条款](#84-工程纪律条款)
 
 
 ## 一、项目定位
@@ -190,7 +195,7 @@ AgentLoop.run(prompt)
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `cli/terminal.py`） |
-| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_protocol.py` + `network/http_server/` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
+| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_protocol.py` + `network/http_server/` + 包内 `web/`，协议、静态页与安全立场见 4.16） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -471,19 +476,19 @@ SafetyGuard
 
 `shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` + `bind_sandbox_profile` 注入配置的后端与 profile 名。注入走 `RuntimeSlot`（contextvar），与 skills 包等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。
 
-**FirejailBackend：** `profiles` dict（profile 名 → firejail 参数映射）供 `PolicyEngine` 裁决出的 profile 名选用（配置注入见下段）；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only；边界地位见 §4.19。
+**FirejailBackend：** `profiles` dict（profile 名 → firejail 参数映射）供 `PolicyEngine` 裁决出的 profile 名选用（配置注入见下段）；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only；边界地位见 §4.18。
 
-**DockerRunner（container 档首个实现，Epic 53 期一，2026-10-21）：** `tools/sandbox/docker.py`——每命令一次性容器、短命命令捕获形状（argv 组装恒以 `sh -c` 收尾，不容长命双向管道）；镜像经 `Settings.sandbox_docker_image`（默认 `heagent-sandbox:3.11`，与 `DockerRunner.DEFAULT_IMAGE` 同源，交叉校验测试钉住；构建文件 `docker/sandbox/Dockerfile` 以 digest pin 基座，`ARG BASE` 保留换源重建通道）；网络档按 brief D2（决策记录 `_bmad-output/epics/epic-53-容器沙箱档周期/brief.md`）——`--network=none` 默认，`SANDBOX_NETWORK=True` 才 bridge；workspace 挂载 FR-1 会话目录优先、缺省回落 workspace_root（firejail `--private` 同型语义，不给静默无挂载；回退链末端是启动进程 cwd ⇒ **启动目录即挂载面**：从盘根启动会把整盘以 9p 无缓存挂进容器，是 daemon/IO 卡顿的放大器，`scripts/start_heagent.ps1` 把 cwd 钉在仓库根）；容器硬化 `--cap-drop=ALL` + `no-new-privileges` + 非 root `sandbox` 用户；资源限额 `--memory`/`--pids-limit` 映射（`cpu_seconds` 无诚实映射，配置了打提示）；探测 = CLI 在 PATH 且 daemon 应答，resolver 期可用性闸（不可用告警回透传，事件/决策不再报 container 档），`run()` 内首触探测走线程池；daemon 健康心跳（`_HEALTH_PROBE_TTL_SECONDS` 30s 复用窗口 + **single-flight**：同批并发只付一次探针，锁内二次检查 TTL 复用结论）；失败**不**改可用性闸、不退透传；判定**分原因**——CLI **明确报错**（连不上 / 未启动）立即判死并短路，**纯超时**才重试（逐次递增预算 `_HEALTH_PROBE_TIMEOUTS`=3s→8s、间隔 `_HEALTH_PROBE_RETRY_DELAY_SECONDS`=0.5s））与「daemon 不可用」熔断（**慢不否决**：只有硬失败——CLI 明确报错、或命令超时后清理链 CLI 整体挂起——才进 `_DEGRADED_COOLDOWN_SECONDS`=120s 整窗；探针只是**超时**则放行本次命令并落 WARNING，把「卡」交给该命令自身的 timeout 与清理链兜底——同一份 CLI 卡顿也会拖慢 `docker run`，跳过命令等于替它放弃，2026-11-02 实测探针耗尽 11.5s 预算后把 cron 作业的 `date /t` 判成未执行，而 30s 后同一 daemon 只需 519ms；命令超时且清理链任一 CLI 调用撞 10s 上限 ⇒ 同样直接返回带 `[daemon-unresponsive]` 诊断的超时结果、不再 spawn；窗口内**半开复探**——心跳过期即再探一次，恢复**或仅超时**都立刻清零窗口并放行，只有仍明确报错才顺延窗口，修复「daemon 已恢复仍被拒满整窗」）——2026-11-02 三次事故形态分别是「每条超时都要白等满 timeout+40s 清理链且模型无从知道该重启 daemon」「9 分钟无 docker 活动后首批量并行命令的探针各耗尽预算、误判整窗 120s 全停、模型据此劝用户重启 Desktop（实测 2 分钟后同一 daemon 单条命令仅 610ms）」与「探针超时仍把命令判成未执行（cron 步骤被 0ms 跳过）」；超时/取消经 `docker kill -- <name>` 精确清理（kill 后校验：容器已因 `--rm` 删除即视为清理达成；仍存活或状态真不确定才升级 WARNING + `rm -f` 兜底；杀 CLI 进程不停容器；kill 与 inspect 双超时视为 CLI 整体挂起，跳过必然也超时的 `rm -f`）。仅覆盖 `execute_in_sandbox` 注入的 shell 路径；宿主内核 / Docker daemon 自身逃逸风险仍在——该档的边界地位见 §4.19（要素 2）。
+**DockerRunner（container 档首个实现，Epic 53 期一，2026-10-21）：** `tools/sandbox/docker.py`——每命令一次性容器、短命命令捕获形状（argv 组装恒以 `sh -c` 收尾，不容长命双向管道）；镜像经 `Settings.sandbox_docker_image`（默认 `heagent-sandbox:3.11`，与 `DockerRunner.DEFAULT_IMAGE` 同源，交叉校验测试钉住；构建文件 `docker/sandbox/Dockerfile` 以 digest pin 基座，`ARG BASE` 保留换源重建通道）；网络档按 brief D2（决策记录 `_bmad-output/epics/epic-53-容器沙箱档周期/brief.md`）——`--network=none` 默认，`SANDBOX_NETWORK=True` 才 bridge；workspace 挂载 FR-1 会话目录优先、缺省回落 workspace_root（firejail `--private` 同型语义，不给静默无挂载；回退链末端是启动进程 cwd ⇒ **启动目录即挂载面**：从盘根启动会把整盘以 9p 无缓存挂进容器，是 daemon/IO 卡顿的放大器，`scripts/start_heagent.ps1` 把 cwd 钉在仓库根）；容器硬化 `--cap-drop=ALL` + `no-new-privileges` + 非 root `sandbox` 用户；资源限额 `--memory`/`--pids-limit` 映射（`cpu_seconds` 无诚实映射，配置了打提示）；探测 = CLI 在 PATH 且 daemon 应答，resolver 期可用性闸（不可用告警回透传，事件/决策不再报 container 档），`run()` 内首触探测走线程池；daemon 健康心跳（`_HEALTH_PROBE_TTL_SECONDS` 30s 复用窗口 + **single-flight**：同批并发只付一次探针，锁内二次检查 TTL 复用结论）；失败**不**改可用性闸、不退透传；判定**分原因**——CLI **明确报错**（连不上 / 未启动）立即判死并短路，**纯超时**才重试（逐次递增预算 `_HEALTH_PROBE_TIMEOUTS`=3s→8s、间隔 `_HEALTH_PROBE_RETRY_DELAY_SECONDS`=0.5s））与「daemon 不可用」熔断（**慢不否决**：只有硬失败——CLI 明确报错、或命令超时后清理链 CLI 整体挂起——才进 `_DEGRADED_COOLDOWN_SECONDS`=120s 整窗；探针只是**超时**则放行本次命令并落 WARNING，把「卡」交给该命令自身的 timeout 与清理链兜底——同一份 CLI 卡顿也会拖慢 `docker run`，跳过命令等于替它放弃，2026-11-02 实测探针耗尽 11.5s 预算后把 cron 作业的 `date /t` 判成未执行，而 30s 后同一 daemon 只需 519ms；命令超时且清理链任一 CLI 调用撞 10s 上限 ⇒ 同样直接返回带 `[daemon-unresponsive]` 诊断的超时结果、不再 spawn；窗口内**半开复探**——心跳过期即再探一次，恢复**或仅超时**都立刻清零窗口并放行，只有仍明确报错才顺延窗口，修复「daemon 已恢复仍被拒满整窗」）——2026-11-02 三次事故形态分别是「每条超时都要白等满 timeout+40s 清理链且模型无从知道该重启 daemon」「9 分钟无 docker 活动后首批量并行命令的探针各耗尽预算、误判整窗 120s 全停、模型据此劝用户重启 Desktop（实测 2 分钟后同一 daemon 单条命令仅 610ms）」与「探针超时仍把命令判成未执行（cron 步骤被 0ms 跳过）」；超时/取消经 `docker kill -- <name>` 精确清理（kill 后校验：容器已因 `--rm` 删除即视为清理达成；仍存活或状态真不确定才升级 WARNING + `rm -f` 兜底；杀 CLI 进程不停容器；kill 与 inspect 双超时视为 CLI 整体挂起，跳过必然也超时的 `rm -f`）。仅覆盖 `execute_in_sandbox` 注入的 shell 路径；宿主内核 / Docker daemon 自身逃逸风险仍在——该档的边界地位见 §4.18（要素 2）。
 
-**沙箱硬化配置接入：** 后端能力经四组配置项接入配置面（**默认全关闭，默认行为逐字节不变**）：① `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `container.default()` 传入 `FirejailBackend.profiles`——高级隔离参数（--seccomp/--caps 类）由此声明；② `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`，per-tool 差异化选用 profile（与代码内映射同形状，不引入新抽象）；③ 资源限额 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（0=关闭）——firejail 映射 `--rlimit-as` / `--rlimit-cpu`（排在 profile 参数后、`--` 前），WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开的 KILL_ON_JOB_CLOSE 按位或）；④ 进程数限额 `SANDBOX_NPROC_LIMIT`（0=关闭）——firejail 映射 `--rlimit-nproc`，WinJob 映射 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`。**限额触发为显性失败**：子进程被终止 → 非零退出码经正常结果回传（对齐超时 `exit_code=-1` 先例），不静默截断输出；JSON 配置坏行/坏条目告警丢弃（对齐 `routing_pool_map` 容错）。⚠ 进程数限额两后端语义不对称：firejail 侧底层 `setrlimit(RLIMIT_NPROC)` 按**真实 UID** 计数（非 per-sandbox 作用域），WinJob 侧才是 job 作用域，故默认关闭。以上均属 defense-in-depth 层，边界地位见 §4.19。
+**沙箱硬化配置接入：** 后端能力经四组配置项接入配置面（**默认全关闭，默认行为逐字节不变**）：① `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `container.default()` 传入 `FirejailBackend.profiles`——高级隔离参数（--seccomp/--caps 类）由此声明；② `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`，per-tool 差异化选用 profile（与代码内映射同形状，不引入新抽象）；③ 资源限额 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（0=关闭）——firejail 映射 `--rlimit-as` / `--rlimit-cpu`（排在 profile 参数后、`--` 前），WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开的 KILL_ON_JOB_CLOSE 按位或）；④ 进程数限额 `SANDBOX_NPROC_LIMIT`（0=关闭）——firejail 映射 `--rlimit-nproc`，WinJob 映射 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`。**限额触发为显性失败**：子进程被终止 → 非零退出码经正常结果回传（对齐超时 `exit_code=-1` 先例），不静默截断输出；JSON 配置坏行/坏条目告警丢弃（对齐 `routing_pool_map` 容错）。⚠ 进程数限额两后端语义不对称：firejail 侧底层 `setrlimit(RLIMIT_NPROC)` 按**真实 UID** 计数（非 per-sandbox 作用域），WinJob 侧才是 job 作用域，故默认关闭。以上均属 defense-in-depth 层，边界地位见 §4.18。
 
-**沙箱会话目录（FR-1，2026-08-26）：** `Settings.sandbox_session_workspace`（env `SANDBOX_SESSION_WORKSPACE`，默认 False）开启后，`EngineContainer.create_run_context` 经 `sandbox_session_dir(run_id)`（幂等目录解析；run_id 非法——空串/含分隔符/`..`/绝对路径——抛 `ValueError`）为每个 run 幂等创建 `<workspace_root 回退链>/.heagent/sandboxes/<run_id>/` 并写入 `RunContext.metadata["sandbox_workspace"]`——**根锚定 workspace_root 回退链**（参数→container→policy→cwd）而非进程 cwd，目录落在 file 工具围栏内；目录创建失败**显性抛异常**（消息含 try 外预推导的目标路径）、严禁静默降级。开关关闭时清除 caller 预含键、不建目录、不 bind，argv/cwd 与现状逐字节一致。`ToolExecutor.execute_in_sandbox` 检测到该键并校验（非 str/空串不 bind；目录缺失 bind 前抛 `RuntimeError` 显性失败）后经 `bind_sandbox_workspace` 送达后端——Firejail 复用既有 `_build_argv(workspace_root=)` 通道**优先**作为 `--private` 根（优先于构造期 workspace_root），WinJob 将其作为子进程 cwd（**目录约定 only，零文件系统/网络隔离**；边界地位见 §4.19）；`sandbox_runner=None` 时记 "sandbox_workspace ignored" warning 照旧透传；对子类 override 经 `inspect.signature` 探测做旧签名兼容。firejail 不可用时目录照常解析创建、后端照旧 warn + Passthrough 降级。
+**沙箱会话目录（FR-1，2026-08-26）：** `Settings.sandbox_session_workspace`（env `SANDBOX_SESSION_WORKSPACE`，默认 False）开启后，`EngineContainer.create_run_context` 经 `sandbox_session_dir(run_id)`（幂等目录解析；run_id 非法——空串/含分隔符/`..`/绝对路径——抛 `ValueError`）为每个 run 幂等创建 `<workspace_root 回退链>/.heagent/sandboxes/<run_id>/` 并写入 `RunContext.metadata["sandbox_workspace"]`——**根锚定 workspace_root 回退链**（参数→container→policy→cwd）而非进程 cwd，目录落在 file 工具围栏内；目录创建失败**显性抛异常**（消息含 try 外预推导的目标路径）、严禁静默降级。开关关闭时清除 caller 预含键、不建目录、不 bind，argv/cwd 与现状逐字节一致。`ToolExecutor.execute_in_sandbox` 检测到该键并校验（非 str/空串不 bind；目录缺失 bind 前抛 `RuntimeError` 显性失败）后经 `bind_sandbox_workspace` 送达后端——Firejail 复用既有 `_build_argv(workspace_root=)` 通道**优先**作为 `--private` 根（优先于构造期 workspace_root），WinJob 将其作为子进程 cwd（**目录约定 only，零文件系统/网络隔离**；边界地位见 §4.18）；`sandbox_runner=None` 时记 "sandbox_workspace ignored" warning 照旧透传；对子类 override 经 `inspect.signature` 探测做旧签名兼容。firejail 不可用时目录照常解析创建、后端照旧 warn + Passthrough 降级。
 
 **沙箱后端强度分级（FR-2，2026-08-26）：** 引入 `SandboxTier(StrEnum)` 四档强度枚举 `passthrough(0) < job(1) < firejail(2) < container(3)`——`PassthroughRunner`→`passthrough`、`WinJobBackend`→`job`、`FirejailBackend`→`firejail`、`DockerRunner`→`container`（OS 级强隔离，Epic 53 期一落地，2026-10-21）。`CommandRunner` Protocol 新增 `tier` 属性，执行路径经 `ToolExecutor._runner_tier()` 查询当前后端档位（无后端→`PASSTHROUGH`；自定义 runner 缺 `tier`→`PASSTHROUGH` fail-safe），并随 `SANDBOX_REQUIRED` emit 事件 `details["sandbox_tier"]` 可观测。审批降级（`SandboxTier.can_relax_approval`）仅 `container` 档返回 True——弱后端（passthrough/job/firejail）一律维持原审批要求（NFR-2 测试锁定）；该判定点已于 Epic 53 期二（Story 53-4，2026-11-03）**接入** `PolicyEngine` 裁决：`PolicyEngine._container_relaxes_approval` 在「工具真进沙箱（`sandbox_tools` 且非 MCP）+ 后端 `tier.can_relax_approval` 为真 + 后端 `available` 为真 + provider 未抛错」四条全成立时放松审批，落 `PolicyVerdict.approval_relaxed=True` 并打 WARNING 留痕；放松**不**绕过沙箱授权，弱后端 / 降级 Passthrough / 宿主执行面（file/git）/ MCP 工具一律照旧要求审批（`tests/test_sandbox_approval_relax.py`）。
 
 **沙箱 env 豁免（FR-3，2026-08-26）：** `scrub_sensitive_env(env, *, allowlist=...)` 新增 `allowlist` 参数（精确变量名、大小写不敏感）——命中 allowlist 的变量即使匹配敏感后缀也保留，其余仍剥离；未配置时行为与现状逐字节一致（默认全剥离）。配置入口 `Settings.sandbox_env_allowlist`（env `SANDBOX_ENV_ALLOWLIST`，逗号分隔）经 `sandbox_env_allowlist_set` property 解析，`_run_subprocess_shell`/`_run_subprocess_exec` 经 `_spawn_kwargs()` → `_env_allowlist()` 读 Settings 传入（2026-09-15 起两条路径共用同一 kwargs 构造，env 剥离不会分叉）。豁免仅作用于 env 剥离，不影响 `path_safety` 凭证 deny 与 `SafetyGuard` 凭证路径拦截。
 
-**SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id, *, runner)`（runner 构造期注入，B1 seam）按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session，无会话回落全局 runner）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话只提供 cwd 保持约定（「cd 前缀 + 尾捕获」），WinJob 无文件系统隔离、Firejail 亦无完整隔离；边界地位见 §4.19。
+**SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id, *, runner)`（runner 构造期注入，B1 seam）按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session，无会话回落全局 runner）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话只提供 cwd 保持约定（「cd 前缀 + 尾捕获」），WinJob 无文件系统隔离、Firejail 亦无完整隔离；边界地位见 §4.18。
 
 **E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
 
@@ -530,7 +535,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 差异：policy 用 `context/self.workspace_root`（皆空则放行），handler 用 `workspace_root()`
 （RuntimeSlot → override → cwd）。
 
-另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。**项目级可配置入口（2026-09-17）**：`.heagent/path_deny.json`（workspace 围栏锚定 + 进程级懒缓存）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，边界地位见 §4.19。
+另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。**项目级可配置入口（2026-09-17）**：`.heagent/path_deny.json`（workspace 围栏锚定 + 进程级懒缓存）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，边界地位见 §4.18。
 
 #### edits.py — 编辑原语支撑（行尾保真 / diff 回执 / 落盘前快照）
 
@@ -549,7 +554,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
   `bind_edit_snapshot_run(run_context.run_id)` 完成；未绑定（直接调工具 / 子进程 / 测试）退化为
   工作区级共享目录。快照是 **best-effort**：文件超 2 MB 或 I/O 失败均跳过快照、不阻断编辑
   （回执不出现 snapshot 行，仅记日志）。快照 GC 见「五、已知缺口」。
-- ⚠ 行尾保真与快照均属**可用性**护栏（快照目录位于 workspace 内、可被 shell 删除），边界地位见 §4.19。
+- ⚠ 行尾保真与快照均属**可用性**护栏（快照目录位于 workspace 内、可被 shell 删除），边界地位见 §4.18。
 
 #### builtins/ — 29 个内置工具（运行时 ToolRegistry 注册数，2026-11-16 实计）
 
@@ -686,7 +691,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/sessions/<session_id>.json` 存储/恢复**对话历史**（消息列表）。交互模式下通过 `session_id` 自动保存/恢复。
 
-五条判据（与文件路径 / 并发写直接相关；边界地位见 §4.19）：
+五条判据（与文件路径 / 并发写直接相关；边界地位见 §4.18）：
 
 - **id 判据**：`^[a-zA-Z0-9_-]{1,128}\Z`（路径遍历防线）+ **Windows 保留设备名**拒绝（`WINDOWS_RESERVED_DEVICE_NAMES` 22 项 = CON/PRN/AUX/NUL + COM1-9 + LPT1-9；`NUL` 在字符集**之内**，放行即在 Windows 上写向空设备、静默丢整段对话）。网络层持同义镜像 `SESSION_ID_RESERVED_NAMES`（不得 import 运行栈，靠测试钉逐元素相等）；CLI `--resume` 在构造 provider 前用同一个`validate_session_id()` fail-fast。
 - **写入**：`pub.persist.atomic_update_text`（跨进程锁 = 同目录 `<id>.json.lock`）。**写入路径刻意不删锁文件**（删除会让「B 等旧 inode、C 拿新文件」的经典竞态失效互斥）。
@@ -752,7 +757,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 **触发投递语义（misfire 口径，2026-11-06 成文）**：双触发 tick 是**判定式而非队列式**——每 tick（`cron_tick_seconds`，默认 60s）以 `cron_matches(now)` 判定「此刻是否命中」，无排队、无补跑：进程宕机跨过整个命中窗口、或命中时已有 dream 在跑（`_dreaming` 互斥只防并发，不提供窗口幂等——快速 dream 收口后同窗口 tick 再命中会再跑一次），该次触发丢弃；idle 是机会主义触发（非预约），不适用 misfire。`CronScheduler`（§4.7）由**分钟级 ledger key** 提供每逻辑分钟至多一次的幂等（`ledger.complete` 先于 `last_run` 写回，P1-10；失败也盖 `last_run`，防每分钟热重试 P1-11），但同样**宕机窗口不补跑**——对跳过敏感的无人值守批次须在调用方（外部任务计划器或包装脚本）层自做 catch-up，框架内不补跑。
 
-⚠ **安全立场**：dreaming = 无人监督 + 联网（`web_fetch` / `web_search`）+ 改持久记忆，被污染网页可经 prompt injection 跨会话污染记忆库——这是本模块的真实风险面，边界地位见 §4.19；OS 沙箱就绪后 dreamer 须迁移进沙箱。`web_fetch` / `web_search` 返回经 `guard_content` 启发式围栏（机制出自 Epic 35，2026-08-19：命中内置注入签名加 warning 标记后透传，不阻断；与 MCP `bridge_result` 同语义）。
+⚠ **安全立场**：dreaming = 无人监督 + 联网（`web_fetch` / `web_search`）+ 改持久记忆，被污染网页可经 prompt injection 跨会话污染记忆库——这是本模块的真实风险面，边界地位见 §4.18；OS 沙箱就绪后 dreamer 须迁移进沙箱。`web_fetch` / `web_search` 返回经 `guard_content` 启发式围栏（机制出自 Epic 35，2026-08-19：命中内置注入签名加 warning 标记后透传，不阻断；与 MCP `bridge_result` 同语义）。
 
 ### 4.7 Cron 调度 (`cron/`)
 
@@ -908,13 +913,13 @@ HeAgentError (base)
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
 | `http_max_subscribers` | 16 | **每 run** 的 SSE 订阅者上限（同一 run 的并发事件流；超限回 429 `rate_limited`）。与 WS 连接额度独立。 |
 | `ws_enabled` | `True` | 是否装配 WS listener（单 listener，默认 9201）；`False` = 不启动 |
-| `ws_host` | `127.0.0.1` | WS listener 绑定地址（Epic 56 D1：与 HTTP 完全分离的独立 server）。**按绑定地址 + `WS_LAN_NO_AUTH` 切三档**（D5 + Epic 72）：回环 = `local`（免认证）；非回环 + `WS_LAN_NO_AUTH=true` = `lan`（内网免认证，只接受私有地址字面量，启动打 `event=exposed listener=lan auth=none`）；其余非回环 = `external`（强制 token，启动打 `event=exposed listener=external auth=token`）；三档的边界地位见 §4.19 |
+| `ws_host` | `127.0.0.1` | WS listener 绑定地址（Epic 56 D1：与 HTTP 完全分离的独立 server）。**按绑定地址 + `WS_LAN_NO_AUTH` 切三档**（D5 + Epic 72）：回环 = `local`（免认证）；非回环 + `WS_LAN_NO_AUTH=true` = `lan`（内网免认证，只接受私有地址字面量，启动打 `event=exposed listener=lan auth=none`）；其余非回环 = `external`（强制 token，启动打 `event=exposed listener=external auth=token`）；三档的边界地位见 §4.18 |
 | `ws_port` | 9201 | WS 入口端口（1..65535）。四条端点（提交 `/api/runs/ws`、订阅 `/api/runs/{run_id}/ws`、旁路 `/api/cli/ws`、通知流 `/api/notifications/ws`）路径不变、端口 8766 → 9001 是 Epic 56 的**唯一 breaking change**（通知流是 Epic 58 新增，非迁移）；**默认值 2026-10-29 起由 9001 改为 9901**（9001 段常被本机其他程序占用，避免启动即顺延）；**2026-11-04 起由 9901 改为 9201**（本仓部署段，避开高频占用区） |
 | `ws_max_connections` | 16 | **每 run** 的 WebSocket 订阅上限 + CLI 旁路 hub 的连接总额 + **提交端点的连接席位**（迁移自 `http_ws_max_connections`）；三处各自计数、同值同源。独立于 SSE 订阅池，超额在 accept 后收到 `rate_limited` 错误帧（检查+登记同一步） |
 | `ws_shutdown_timeout` | 5 | WS server 关闭排空的等待上限（秒）：关既有订阅连接 → 停 listener |
 | `ws_tls_cert_file` | None | 对外模式 TLS 的 PEM 证书路径（D4）。与 `ws_tls_key_file` **要么都给要么都不给**（半配即 `WsConfigError` / 命令级 exit 1）；配齐即 listener 走 `wss`。不配 = 明文，对外模式启动打 `event=plaintext_external` 告警 |
 | `ws_tls_key_file` | None | 对外模式 TLS 的 PEM 私钥路径（同上） |
-| `ws_cli_bypass_enabled` | False | **CLI 旁路订阅开关**（Epic 55，Epic 56 D7 起宿主 = WS server）：开启时 WS listener 注册 `WS /api/cli/ws`，把**终端里那一轮** run 的事件（文本增量 / 工具调用 / 终态）实时推给旁路订阅者。只读、跨轮次、不占运行名额、不写会话历史、没有 `cancel` 通道（终端独占 Ctrl+C / 双击 Esc）。**默认关**——开了等于让能连上该端口的进程看到终端 agent 的工具输出（可能含文件内容），边界地位见 §4.19。 |
+| `ws_cli_bypass_enabled` | False | **CLI 旁路订阅开关**（Epic 55，Epic 56 D7 起宿主 = WS server）：开启时 WS listener 注册 `WS /api/cli/ws`，把**终端里那一轮** run 的事件（文本增量 / 工具调用 / 终态）实时推给旁路订阅者。只读、跨轮次、不占运行名额、不写会话历史、没有 `cancel` 通道（终端独占 Ctrl+C / 双击 Esc）。**默认关**——开了等于让能连上该端口的进程看到终端 agent 的工具输出（可能含文件内容），边界地位见 §4.18。 |
 | `ws_local_auth_enabled` | False | **本地强制认证开关**（2026-11-04 D5 修订）：True 时回环主 listener **也**强制 `Authorization: Bearer <token>`（含旁路端点 `/api/cli/ws`——旁路不再免认证）。开启前必须在 `~/.heagent/setting.md` 配 `WS_AUTH_TOKEN`，否则配置构造期拒绝启动（fail-closed，与对外模式同口径）。开启时该 listener 的前门由 Origin/Host 换成 token；本机消费者（console 的 run 订阅、观察脚本）都要带 token。非回环绑定时开关冗余（对外模式本就强制认证）。 |
 | `http_max_inflight_runs` | 1 | **每项目**同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
 | `http_max_total_inflight` | 0 | **服务级**在途运行总额（跨项目共享）；0 = 不限 ⇒ 不设时全局上限 = 项目数 × `http_max_inflight_runs`；超限提交收 `total_inflight_limit`（2026-09-27 新增） |
@@ -925,7 +930,7 @@ HeAgentError (base)
 | `http_idle_timeout` | 300 | 单次网页 Agent 运行的**静默**上限（秒）：无事件且无在途工具才算卡死，按 `timed_out` 终结并释放名额；0 = 关闭 |
 | `http_tool_inflight_timeout` | 3600 | 单个**在途工具**的最长在途时间（秒）：超过即按「工具卡死」终结该 run，文案 `run stalled: a tool has been in flight for over Ns`；0 = 关闭。**刻意不复用** `http_idle_timeout`——长 shell / 子代理期间同样没有事件，用静默阈值会误杀正常长调用（2026-09-27） |
 | `http_shutdown_timeout` | 5 | 关闭时「停止接收 → 终结在途 run → 关订阅 → 关 listener」全过程的等待上限 |
-| `http_console_write_enabled` | False | 网页控制台的**配置写入通道**开关（Story 50-5）。关闭时配置面全只读，且网页**无法通过任何请求**打开它自己；开启渠道只有启动配置（系统环境变量 / 项目 `.env` / 全局 `.env`），开启时入口层 stderr + 日志双通道高亮告警。**开启即等于任何能连上该端口的人都能改项目 `.env`**（边界地位见 §4.19；机制与默认值见 4.18） |
+| `http_console_write_enabled` | False | 网页控制台的**配置写入通道**开关（Story 50-5）。关闭时配置面全只读，且网页**无法通过任何请求**打开它自己；开启渠道只有启动配置（系统环境变量 / 项目 `.env` / 全局 `.env`），开启时入口层 stderr + 日志双通道高亮告警。**开启即等于任何能连上该端口的人都能改项目 `.env`**（边界地位见 §4.18；机制与默认值见 4.17） |
 | `http_console_projects_file` | None | 项目注册表落点覆盖（缺省 `<服务启动工作区>/.heagent/console/projects.json`）。需要机器级共享时显式指向 `~/.heagent/projects.json`；缺省**不写用户 home** |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
@@ -952,7 +957,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `manager.py` | `MCPClientManager`（生命周期 façade）— 并发连接+发现+注册，单 server 失败隔离；`discovery_failures` 结构化记录失败，cli 渲染 stderr（不隐藏发现错误） |
 | `sdk.py` | `import_mcp()` / `mcp_types()` / `require_sdk()` — mcp SDK 的**唯一导入通道**：本包任何模块都不得在 import 期 `from mcp… import …`（那会让缺可选依赖时 `import heagent` 直接炸）；缺包抛 `McpSdkMissingError`（`E_TOOL_MCP_SDK_MISSING`，带 `pip install "heagent[mcp]"` 提示） |
 
-⚠ MCP 工具与内置工具同等不可信（执行前拦截 + 返回启发式围栏均已落地）；这两层的边界地位见 §4.19。
+⚠ MCP 工具与内置工具同等不可信（执行前拦截 + 返回启发式围栏均已落地）；这两层的边界地位见 §4.18。
 
 **安装面（Story 67.9）**：`mcp` 自核心依赖移到可选 extra ⇒ 基础安装（6 项）不含 MCP SDK，需要 MCP 时 `pip install "heagent[mcp]"`（`dev` extra 已含它，测试与 CI 不降级）；缺包只影响 MCP 能力，`import heagent` 与普通 CLI 照常。
 
@@ -986,7 +991,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 **已知限制：**
 
 - **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（机制见 `docs/sandbox.md`）
-- **安全边界**：SafetyGuard / PolicyEngine / sandbox 三层的边界地位见 §4.19。
+- **安全边界**：SafetyGuard / PolicyEngine / sandbox 三层的边界地位见 §4.18。
 
 #### 事件传输：JSONL / rollout（`events/`）
 
@@ -1025,7 +1030,6 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 （messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
 `_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
-当前工作流的维护说明见[「Goal 工作流」专题](goal-workflow.md)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
@@ -1118,7 +1122,7 @@ AST 判据钉住：写点必须走 `transition()`，且唯一写点 `_transition
 被授权 Story 的工具写受 per-run write allowlist 预检（`engine/policy.py` 的
 `_validate_write_allowlist`：`file_write` / `file_edit` 目标越集 → BLOCKED，走
 `PolicyEngine.evaluate() → ToolExecutor → SafetyGuard → handler` 既有治理链，零旁路）。**定位与
-path_safety / 工作区围栏同构：纵深防御**（边界地位见 §4.19；shell 路径可绕过，故另有宿主
+path_safety / 工作区围栏同构：纵深防御**（边界地位见 §4.18；shell 路径可绕过，故另有宿主
 Git 审计事后检测（`goal/write_audit.py` 的 `_audit_story_writes`，`cli/goal/` 子包负责编排与呈现；2026-11-07 自 `cli/goal.py` 迁入该模块）：per-story 会话前后只读 Git 增量基线，
 tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物」→ FAILED + `write_violation` → 撤销闩
 单向置位（随 checkpoint 持久化，重启后该 Goal 仍串行）；untracked 增量只发警告事件不判负）。
@@ -1146,7 +1150,7 @@ checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id �
 
 Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
 与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
-无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.19。
+无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.18。
 
 `workflow.md` 是自包含的声明式入口。其 `on_create` 声明创建规范化 `GoalArtifact` 和 `current` 指针；
 每个 inline `## Step NN:` 区块声明 prompt、输入输出和 checkpoint。CLI 只映射已支持的
@@ -1164,7 +1168,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 （漂移 fail-loud，报 `content hash differs from …`）。声明与派生 revision 同源：未显式声明
 `revision` 的包，脚本内容进入 `workflow_revision` 指纹（改脚本 = 流程漂移）。
 
-**⚠️ 边界地位见 §4.19（AD-9 / AD-12）**：脚本在**宿主解释器**内执行，理论上拥有 Python 进程
+**⚠️ 边界地位见 §4.18（AD-9 / AD-12）**：脚本在**宿主解释器**内执行，理论上拥有 Python 进程
 权限。可用的约束只是「形态 + 资源 + 请求面」，用于约束**可信本地包**的误用，不用于承载
 不可信输入；第三方 workflow 包必须先有 OS 级隔离（容器 / VM / firejail）与隔离 worker，
 该 worker 不在本 Story 范围。
@@ -1181,7 +1185,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
   Runner、文件句柄、进程或网络句柄。
 - **有界执行（`script_runtime.ScriptRuntime`）**：`max_requests`（facade 计数，超限抛）、
   `max_depth`（AST 嵌套层级）、`timeout_seconds`（`asyncio.wait_for`）。**超时是协作式的**
-  ——脚本若在同步 CPU 循环里不让出事件循环，取消不会生效；这正是 §4.19 所述非边界
+  ——脚本若在同步 CPU 循环里不让出事件循环，取消不会生效；这正是 §4.18 所述非边界
   的具体含义，故如实声明而不假装挡住。
 - **状态变更仍归 Runner（AD-1）**：`WorkflowRunner` 是唯一状态机，脚本不写 checkpoint /
   `workflow.json` / `current`，也不直接改 Runner 状态；执行结果以
@@ -1235,7 +1239,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 2026-09-23 由 Linux 等价验证抓出：无门控时会多开一次文件），凭据不可用（损坏 / `outputs` 形状不符）时
 跳过并记 warning（`manifest.json` 是通用文件名，可能属于别的工具，不据此拒读）。
 代价与边界：渲染/导入后被**手工编辑**的包将拒读（有意，fail-loud；渲染器对漂移本就 `RenderError`）；
-清单只钉它列出的文件，包内新增文件不在校验范围；能写该目录者本就能直接改写 `SKILL.md`，故本项只是 defense-in-depth 层（边界地位见 §4.19）。
+清单只钉它列出的文件，包内新增文件不在校验范围；能写该目录者本就能直接改写 `SKILL.md`，故本项只是 defense-in-depth 层（边界地位见 §4.18）。
 
 **导入器凭据（2026-09-28 交付，活动台账 A1④）**：导入形态（`skills/skill_importer.py` 物化到
 `.heagent/skills/<id>/`）的凭据不在包内，而在 **skills 根目录的兄弟文件** `manifest.lock`——它是整批
@@ -1264,7 +1268,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 各自一次原子 open，组件之间仍有时间差；③ 恶意挂载、更高权限宿主进程与「可信导入 snapshot」这类
 非竞态面不受影响——`manifest.lock` 的 `resources` 哈希已于 2026-09-28 交付（见上），但**可信导入
 snapshot**（物化来源自身的可信性）与「凭据文件与包由同一写者掌控时可被同时改写」仍属未闭合面。
-不声称已完成 TOCTOU 防护；所有方案仍是 defense-in-depth 层（真边界见 §4.19）。实现与判据见 `tests/test_skill_packages_toctou.py`（形状用例 +
+不声称已完成 TOCTOU 防护；所有方案仍是 defense-in-depth 层（真边界见 §4.18）。实现与判据见 `tests/test_skill_packages_toctou.py`（形状用例 +
 「替换中间目录」竞态用例，仅 POSIX 跑；变异体 5/5 精确变红）、`tests/test_skill_package_integrity.py`
 （两类凭据的读侧语义 + 未托管包零行为变化，变异体 6/6 精确变红）与 `tests/test_skill_importer.py`
 （钉整包 / 漂移拒导 / 老 lock 补齐 / 落地前复核）；Ask First 授权与证据见活动台账 A1 条目。
@@ -1317,7 +1321,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 - **消费隔离约定**：EventBus 观察者异常逐个捕获记录（不影响其他观察者、不向发布方传播）；workflow `emit` 注入端口异常隔离同口径（warning，不改业务控制流）。
 分发词汇：**观察**（EventBus 订阅，改不了流）/ **拦截**（agent middleware，不在 events/ 域）/ **扇出**（同步扇出、独立异常域）。事件无 nack/重投/补偿——持久域靠 append-only 回放，观察域以有界缓冲为界。
 
-### 4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)
+### 4.16 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)
 
 本机网页入口（Epic 49）：`heagent http-server` 起来后，浏览器打开 stderr 提示的地址即可使用内置
 聊天页；默认 CLI 也会在同一进程内自动提供该入口（见下表「默认 CLI 自启动」）。分层与 HTTP 家族既有实现同构
@@ -1326,13 +1330,13 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 
 **Epic 56 D1 起是「同进程双 server」（期二可再起一条对外 WS listener，共 2–3 条）**：本节的 HTTP listener（默认 `127.0.0.1:9101`）只服务
 HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独立 listener（默认 `127.0.0.1:9201`，
-见 4.17.1），两者共享的只有注入的进程内状态（`HttpRunService` / `CliEventHub`）与 `network/`
+见 4.16.1），两者共享的只有注入的进程内状态（`HttpRunService` / `CliEventHub`）与 `network/`
 同层协议模型。入口层 `EmbeddedHttpService` 拥有**两条** listener、一个生命周期：HTTP 先启动、
 失败则整体回滚；关停顺序 HTTP 先（排空运行到终态）→ WS 后（关残余连接与 listener）。
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.17.1 帧契约）与 `{run, cancel, ping}` 命令（`run` 仅集合级端点有效，见 4.17.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.16.1 帧契约）与 `{run, cancel, ping}` 命令（`run` 仅集合级端点有效，见 4.16.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
 | 传输层 | `network/http_server/`（子包：app / listener / service / pipeline / endpoints_*）：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 与 `ws_host` 均**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住；共用的延迟导入辅助住 `network/optional_deps.py`）。 |
 | 可选依赖 | `starlette` / `uvicorn` / `websockets>=13.0,<18` 由 `pyproject.toml` 的 `http` extra **直接声明**；服务端只延迟导入 Starlette/Uvicorn，不直接导入 `websockets`。缺少 HTTP 栈抛 `HttpDependencyError`；缺少 WS 协议实现时 HTTP 仍可启动并记录 `ws_unavailable`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`。 |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）；探测收尾（`writer.close()` 之后的 `await writer.wait_closed()`）**自带 `_PROBE_TIMEOUT` 上界**——对端只收不关（或黑洞）时不再把就绪门禁拖成无界等待（2026-09-28 修复，`tests/network/test_http_server.py::TestProbeBoundedClose`）|
@@ -1349,13 +1353,13 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 | 取消、重连与终态 | 终态转换**首个获胜**（AD-10）：完成 / `DELETE` / 运行超时 / 关停竞争时只产生一个终态事件，名额在 done callback 里归还（**含「任务未被调度就被取消」的病态路径**——那时协程体不执行，靠 callback 兜底补写 `cancelled`）。`Last-Event-ID: N` 只重放**严格大于** N 的事件；游标早于缓冲窗口（`N < oldest_seq - 1`）返回 409 `resync_required`（不发看似连续的流），客户端据此拉 `/api/session` 快照；空闲流每 15 秒发一条 SSE 注释心跳（`yield None` → `: ping`，不占 ID）。重放与水位去重语义**单源** `http_protocol.replay_then_follow`（A54④：WS 与 SSE 曾各抄一份；2026-11-15 起 WS 侧终态判定也按快照时刻捕获，与 AD-4「终态事件先于流结束」对齐）。**断线只释放订阅者、绝不取消运行**（取消只能走 `DELETE`）。订阅者队列与事件窗口**同界**：消费端被背压卡住（客户端不读）时**结束该订阅者的流**（客户端带游标重连 → ring buffer 补齐或 409 重新同步），既不无限堆积内存、也不静默跳过事件（2026-09-23 评审修复）|
 | 限额与超时 | **三条时限都面向「卡死」而非「跑得久」**（2026-09-24 修复，2026-09-27 补第三条）：`HTTP_IDLE_TIMEOUT`（默认 300s）是**静默**上限——既没有新事件、也没有在途工具（`tool_call` 已发、`tool_result` 未到）时才计时，到点按 `timed_out` 终结，文案 `run stalled: no activity for Ns`；`HTTP_REQUEST_TIMEOUT`（默认 **0 = 不限制**）是运维显式设的**总时长**硬上限，文案 `run exceeded the configured time limit (Ns)`；`HTTP_TOOL_INFLIGHT_TIMEOUT`（默认 **3600s**）是**单个在途工具**的最长在途时间——只数「有没有在途工具」会让永不返回的工具把在途名额无界占住，文案 `run stalled: a tool has been in flight for over Ns`（**刻意不复用** `http_idle_timeout`：长 shell / 子代理期间同样没有事件，用静默阈值会误杀正常长调用，既有用例 `test_in_flight_tool_stretches_the_idle_window` 钉住）。旧实现把 300s **墙钟**当默认，长任务（多轮工具 / 子代理 / goal 工作流）会被误杀成 `timed_out`。时限由看门狗任务以「取消运行任务」实现 ⇒ **超时是协作式的**：executor 吞掉 `CancelledError` 时时限并未生效——终态按实际结果走，但服务端记 `event=timeout_ignored`（带 `reason=idle|tool|hard`）；运行内部（provider / 网络）自己抛的 `TimeoutError` 按 **failed** 归因，不谎报「超过配置时限」。三个时限都可设 0 关闭（全关时看门狗根本不启动）。归因**看谁发的取消**：用户 `DELETE` 优先于看门狗，且 `deadline_reason` **一次性消费**——否则 executor 吞掉看门狗那次取消后，之后的 `DELETE` 会被误记成 `timed_out` 并吞掉取消（2026-09-27 修复）。在途运行数 `HTTP_MAX_INFLIGHT_RUNS`（**每项目**各计一份，非等待式，满即 409 ⇒ 全局同时刻上限 = 项目数 × 该值，默认最多 32；2026-09-24 评审校正：原写「全局上限」）。可选的 `HTTP_MAX_TOTAL_INFLIGHT`（默认 **0 = 不限**）另设**服务级**总额、跨项目共享，两类上限**同时**生效、先撞谁按谁拒（超限 ⇒ 409 `total_inflight_limit`；2026-09-27 新增，D9 的按项目语义逐字不变）；客户端连接数上限交给 Uvicorn `limit_concurrency`（超额连接在**进 ASGI 之前**被拒），每 run 的 **SSE 订阅者**上限是**独立旋钮** `HTTP_MAX_SUBSCRIBERS`（默认 **16**，与连接额度同值 ⇒ 默认行为不变；2026-09-28 从 `HTTP_MAX_CONNECTIONS` 拆出——此前两者复用同一个键，超额订阅只能由 Uvicorn 在 ASGI 之前拒，客户端拿裸 `text/plain` 503、本入口的 429 `rate_limited` 分支**实际不可达**）；订阅者限额的**检查与登记在同一步完成**（`_RunRecord.try_add_subscriber`）——旧实现「先查后加」拆在端点与生成器两处，并发 `GET .../events` 能一起穿过限额（2026-09-27 修复）|
 | 运行隔离 | 入口层 `cli.http_console.HttpAgentHandler`：**每次运行新建独立 `AgentLoop`**（loop 持跨 run 可变展示态），handler 自建 engine（`approval_handler=None` ⇒ 需要审批的调用维持既有 fail-safe 阻断，**绝不**读服务进程 stdin）、不自动连接 MCP；传输层只认注入的可调用对象，不认识 `AgentLoop`（AD-1 的接缝）；**绑定完整 cron 工具面**（`enable_cron=True`，2026-10-28 用户裁决改判）——网页会话与交互模式共用同一份 `<项目>/.heagent/cron/jobs.json`，`cron_add` / `cron_list` / `cron_remove` 全部可用；handler **不启动**后台调度（`_build_loop` 顺带构造的 `CronScheduler` 被丢弃——构造只赋值字段、不建 task；start/stop 属**进程级**生命周期：`cli/interactive.py`、`gui/app.py`），因此网页写的任务在本进程 IDLE 不触发，由交互模式 / GUI 的调度器执行；跨进程同分钟重复执行由 `engine` ledger 的幂等键与租约兜底（`cron:{job_id}:{分钟}`，落 `.heagent/ledger/`）。原 A11② 形态（`enable_cron=False` 时连 `JobStore` 都不构造、见到已绑 cron 的 loop 即显式失败）**已撤销**（2026-09-27 修复 → 2026-10-28 改判） |
-| 来源校验 | 同源防线（AD-6；边界地位见 §4.19）：所有请求必须带**唯一**且匹配本 listener 的 `Host`（规范化小写、http 默认端口省略；**回环绑定时**接受 `127.0.0.1` / `localhost` / `[::1]` 三个等价写法，非回环只认配置的那个名字）；带 `Origin` 时必须等于 `http://<该 authority>`（拒绝 `null` 与跨站）；重复 `Host` 与任何 `forwarded` / `x-forwarded-*` / `x-real-ip` 头一律 403 `origin_forbidden`（**不信任代理**，Uvicorn 侧也已 `proxy_headers=False`）。被拒的**状态变更不产生任何副作用**（提交不建 run、取消不动 run，有测试钉住） |
+| 来源校验 | 同源防线（AD-6；边界地位见 §4.18）：所有请求必须带**唯一**且匹配本 listener 的 `Host`（规范化小写、http 默认端口省略；**回环绑定时**接受 `127.0.0.1` / `localhost` / `[::1]` 三个等价写法，非回环只认配置的那个名字）；带 `Origin` 时必须等于 `http://<该 authority>`（拒绝 `null` 与跨站）；重复 `Host` 与任何 `forwarded` / `x-forwarded-*` / `x-real-ip` 头一律 403 `origin_forbidden`（**不信任代理**，Uvicorn 侧也已 `proxy_headers=False`）。被拒的**状态变更不产生任何副作用**（提交不建 run、取消不动 run，有测试钉住） |
 | 可观测性 | 每条请求一条日志（`event=request`：不透明 `request_id` / method / path / status / `elapsed_ms`），并在响应头回 `x-request-id`；每次运行在启动与终态各一条（`event=run_started` / `event=run_finished`：`run_id` / status / `elapsed_ms`）。**日志不含** prompt、回答或工具输出正文（工具名与作用对象仍会出现——那是既有引擎 `LoggingObserver` 的行为，与 CLI/GUI 一致）；入口层插桩经 `_safe_log`，日志设施故障不影响协议行为；运行失败额外记一条 `event=run_failed`（含 traceback）——运行是后台任务，异常不会走 Uvicorn 的 traceback 通道，不记就等于丢掉真实缺陷的栈（2026-09-23 评审修复）|
 
-⚠ **安全立场**：本入口与 WS listener（4.17.1）同属入口面，边界地位见 §4.19；运行本入口
+⚠ **安全立场**：本入口与 WS listener（4.16.1）同属入口面，边界地位见 §4.18；运行本入口
 须放在容器 / VM 等 OS 级隔离中（缺口见五、已知缺口）。
 
-### 4.17.1 WebSocket 入口（Epic 54；Epic 56 迁至独立 server）
+### 4.16.1 WebSocket 入口（Epic 54；Epic 56 迁至独立 server）
 
 **独立 listener**（Epic 56 D1）：`WsServer` 自建 ASGI app，**零 HTTP 路由**（控制台页 / 静态资源 /
 REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HOST` / `WS_PORT` /
@@ -1370,8 +1374,8 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | --- | --- | --- | --- |
 | `WS /api/runs/ws` | **集合级**：经 WS 提交 run（Epic 56 D2 新增；见下表「提交 run」行） | ✅ | ✅（`external` 在 token 后） |
 | `WS /api/runs/{run_id}/ws` | 单 run 订阅 + `{cancel, ping}`（Epic 54） | ✅ | ✅（`external` 在 token 后） |
-| `WS /api/cli/ws` | CLI 旁路只读事件流（Epic 55，默认关；见 4.17.1.1） | ✅（开关开时） | ❌ **不注册**（D9） |
-| `WS /api/notifications/ws` | 只读通知流：cron 执行结果（Epic 58，默认关；见 4.17.1.2） | ✅（中枢注入时） | ✅（中枢注入时；`external` 在 token 后，Epic 58 D2） |
+| `WS /api/cli/ws` | CLI 旁路只读事件流（Epic 55，默认关；见「CLI 旁路订阅」） | ✅（开关开时） | ❌ **不注册**（D9） |
+| `WS /api/notifications/ws` | 只读通知流：cron 执行结果（Epic 58，默认关；见「只读通知流」） | ✅（中枢注入时） | ✅（中枢注入时；`external` 在 token 后，Epic 58 D2） |
 
 | 关注点 | 实现事实 |
 | --- | --- |
@@ -1384,14 +1388,14 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。提交端点**不占**订阅名额（它不订阅事件、不建 run 记录）。 |
 | 入站上界 | 三条上限（Epic 56 Story 56-3 起）：`WS_MAX_COMMAND_CHARS=4096`（**非 run** 帧的字符上限）、`WS_MAX_INBOUND_CHARS=6×MAX_PROMPT_CHARS+信封余量`（入站文本的廉价预检——按 `ensure_ascii` 最坏转义推算，否则合法的最大 prompt 会被挡在协议层外）、`WS_MAX_FRAME_BYTES=MAX_REQUEST_BYTES_FOR_MAX_PROMPT`（Uvicorn `ws_max_size`，与 HTTP 请求体上限同源）。应用层超限关闭码 `1009`。关闭码 `1000` 正常结束、`1001` 服务关停、`1008` 策略/协议违规、`1011` 内部错误。 |
 | 可选依赖 | `websockets>=13.0,<18` 直接声明在 `http` extra；服务端不直接导入 `websockets`，由 Uvicorn 选择协议实现。缺少实现时 HTTP 仍可启动、记录一次 `ws_unavailable` 安装诊断，且 WS 升级回 **404**（可执行判据：`tests/network/test_ws_missing_dependency.py`，子进程阻断 import + 裸 socket 探测）。 |
-| 监听模式（三档） | 唯一 listener 按**绑定地址 + `WS_LAN_NO_AUTH`** 切档（Epic 56 D5 + Epic 72）：① 回环 = `local`（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；② 非回环 + `WS_LAN_NO_AUTH=true` = `lan`（**内网调试入口**：无认证、无 TLS，Origin/Host 防线**保留**——无 `Origin` 的非浏览器客户端照放行、`Host` 必须等于绑定地址；三条准入 fail-loud：只接受私有地址字面量（通配 / 公网 / 主机名拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义；每次启动一条 `ws event=exposed listener=lan auth=none` WARNING）；③ 其余非回环 = `external`（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；该 listener 的前门是 token 认证）。**2026-11-04 D5 修订**：回环 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` **也**强制 token——开关打开时该 listener 的前门从 Origin/Host 换成 token（与对外档同一防线替换逻辑：浏览器 WS API 无法自定义请求头，token 门天然挡浏览器直连），端点集不变（旁路照挂、一并强制 token）。三档的边界地位见 §4.19。 |
+| 监听模式（三档） | 唯一 listener 按**绑定地址 + `WS_LAN_NO_AUTH`** 切档（Epic 56 D5 + Epic 72）：① 回环 = `local`（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；② 非回环 + `WS_LAN_NO_AUTH=true` = `lan`（**内网调试入口**：无认证、无 TLS，Origin/Host 防线**保留**——无 `Origin` 的非浏览器客户端照放行、`Host` 必须等于绑定地址；三条准入 fail-loud：只接受私有地址字面量（通配 / 公网 / 主机名拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义；每次启动一条 `ws event=exposed listener=lan auth=none` WARNING）；③ 其余非回环 = `external`（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；该 listener 的前门是 token 认证）。**2026-11-04 D5 修订**：回环 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` **也**强制 token——开关打开时该 listener 的前门从 Origin/Host 换成 token（与对外档同一防线替换逻辑：浏览器 WS API 无法自定义请求头，token 门天然挡浏览器直连），端点集不变（旁路照挂、一并强制 token）。三档的边界地位见 §4.18。 |
 | 只读旁观（`WsServerConfig.readonly`，默认关；Epic 72 起无入口层配置键） | `WsServerConfig.readonly` 为真时该 listener **不注册**提交端点 `/api/runs/ws`（提交能力不给，连「试一下拿 `run_conflict`」的机会都没有），已订阅连接上的 `cancel` 回 `invalid_request` 且**不断连**（事件流照常、运行不受影响），`ping` 正常。用「不支持」而不是「静默忽略」——客户端必须知道它连的是观众席。原 `WS_EXTERNAL_READONLY` / `--ws-external-readonly` 随第二 listener 退役，该字段只供程序化装配与测试；判据 `tests/network/test_ws_e2e.py` 的只读 listener 用例 + 架构契约的路由集断言。 |
-| 单 listener 装配（Epic 72 取代期二 D8–D14） | `cli/http_config.py::build_ws_servers()` 恒返回 **1 条** listener：`WS_HOST` 绑回环 ⇒ `local`；绑私有 IPv4 + `WS_LAN_NO_AUTH=true` ⇒ `lan`；其余非回环 ⇒ `external`（缺 token 拒绝构造）。**端点可见性由 listener 身份决定**：`/api/cli/ws` 只在 `local` 注册（终端事件可能含文件内容——口径见 §4.19 要素 5），`build_ws_app` 自身再判一次 `mode` 作为纵深（即使调用方误传 `cli_hub` 也不注册）；`lan` / `external` 上旁路跳过并打 `ws event=cli_bypass_skipped reason=non_loopback_listener` WARNING。启动顺序 HTTP → WS（失败回滚已启动的全部），关停 HTTP 先、WS 后；日志与公告以 `listener=local|lan|external` 区分。**退役**：`WS_EXTERNAL_*` 五键、`--ws-external-*` 三选项与 `scripts/setup_ws_external.py` 全部删除（残留键由 `heagent doctor` 的 `doctor.retired_key` 提示）。 |
+| 单 listener 装配（Epic 72 取代期二 D8–D14） | `cli/http_config.py::build_ws_servers()` 恒返回 **1 条** listener：`WS_HOST` 绑回环 ⇒ `local`；绑私有 IPv4 + `WS_LAN_NO_AUTH=true` ⇒ `lan`；其余非回环 ⇒ `external`（缺 token 拒绝构造）。**端点可见性由 listener 身份决定**：`/api/cli/ws` 只在 `local` 注册（终端事件可能含文件内容——口径见 §4.18 要素 5），`build_ws_app` 自身再判一次 `mode` 作为纵深（即使调用方误传 `cli_hub` 也不注册）；`lan` / `external` 上旁路跳过并打 `ws event=cli_bypass_skipped reason=non_loopback_listener` WARNING。启动顺序 HTTP → WS（失败回滚已启动的全部），关停 HTTP 先、WS 后；日志与公告以 `listener=local|lan|external` 区分。**退役**：`WS_EXTERNAL_*` 五键、`--ws-external-*` 三选项与 `scripts/setup_ws_external.py` 全部删除（残留键由 `heagent doctor` 的 `doctor.retired_key` 提示）。 |
 | 认证（对外模式，Epic 56 D3） | 静态 token 的 `Authorization: Bearer <token>` 在 **`accept()` 之前**校验（`network/ws_auth.py` 是纯逻辑面：严格单头 `Bearer` 解析 + `hmac.compare_digest` 常量时间比较 + 按来源地址的失败滑窗)。失败 `close(1008)`、**不发错误信封**（与 Origin 拒绝同形：真实 Uvicorn 下客户端拿 HTTP 403，无 body）；"缺 token / token 错 / 被限速" 对外不可区分。token 真源是**用户级 `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`**（`Settings.user_ws_auth_token` 直读该文件）——它**不是** `Settings` 字段，项目 `.env` / 系统环境变量一律不参与（否则仓库作者可预置一个已知 token；写在项目 `.env` 里时命令层启动告警，且配置面板照常把它报成未知键）。非回环绑定缺 token ⇒ 配置构造期 `WsConfigError`（fail-closed，**绝不**降级成「无认证对外」）。凭证只走**握手头**——浏览器 WebSocket API 无法自定义请求头，故对外模式不支持浏览器直连（本机控制台走 HTTP，不受影响）。**2026-11-04 D5 修订**：`WS_LOCAL_AUTH_ENABLED=true` 时回环主 listener 强制同一 token 门（accept 前校验、`close(1008)`、缺 token 构造期拒绝，口径逐字同对外模式），旁路端点**不再免认证**（token 真源与 fail-closed 同上）。 |
 | TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。**2026-11-04 D5 修订**：回环 + 强制认证 + 明文 ⇒ 打 `ws event=plaintext_local_auth`（token 在回环明文上传输，本机窃听可读，同样必须可见）。 |
-| 安全立场 | 与 4.17 / 4.17.1.1 / 4.17.1.2 同一口径，边界地位见 §4.19（本节只列机制事实）。 |
+| 安全立场 | 与 4.16 / 4.16.1 同一口径，边界地位见 §4.18（本节只列机制事实）。 |
 
-#### 4.17.1.1 CLI 旁路订阅（Epic 55）
+#### CLI 旁路订阅（Epic 55）
 
 `/api/runs/{run_id}/ws` 订阅的是**网页创建的 run**；终端里那一轮 run 由 CLI 自己持有，既没有
 `_RunRecord`，也不占 `HTTP_MAX_INFLIGHT_RUNS` 名额。`WS /api/cli/ws` 因此是**另一条流**：只读、
@@ -1407,7 +1411,7 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |
 | 装配 | `cli/http_config.py::build_ws_servers` 在 `WS_CLI_BYPASS_ENABLED` 为真时建 hub 并注入**本地 listener**（Epic 56 D7 起宿主 = WS server，9201；期二 D9：对外 listener 恒不注入，且 `build_ws_app` 再判一次 `mode`）；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。主 listener 本身是对外模式（期一单对外）⇒ 旁路被**跳过**并打 `ws event=cli_bypass_skipped reason=external_listener`。开启时 stderr 打一行 `[ws] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
 | 同源防线 | 与 run-WS 共用 `_request_origin_violation`（accept 前校验，违规 close ⇒ 客户端拿 403）。既有 ASGI 中间件对非 `http` scope 放行，故 CSWSH 防线由 WS 层单独执行。 |
-| 安全立场 | 与其它三条端点同一口径，边界地位见 §4.19；默认关，需要时显式开。 |
+| 安全立场 | 与其它三条端点同一口径，边界地位见 §4.18；默认关，需要时显式开。 |
 
 判据：`tests/network/test_cli_event_hub.py`（15 例：seq / 窗口 / 限额 / 背压 / 关停）、
 `tests/network/test_cli_ws_e2e.py`（13 例：真实 TCP + 真 websockets 客户端）、
@@ -1416,7 +1420,7 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 关停的**唯一实现**在 `network/event_stream_hub.py::EventStreamHub`，`CliEventHub` 是其薄适配
 （本组既有判据是那次重构的验收线：文件内容零改动）。
 
-#### 4.17.1.2 只读通知流（Epic 58）
+#### 只读通知流（Epic 58）
 
 cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有一个终局答案：它不是「一条 run」
 （无 run 记录、无状态机、无取消），也不是「终端观众席」（旁路按 D9 永不出网）。因此单开一条只读流
@@ -1431,7 +1435,7 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 | 可见性 | 与旁路**刻意不同**（Epic 58 D2）：中枢注入即注册，`local` / `lan` / `external` **都注册**——通知流送的是宿主自己排的 cron 产物，不暴露终端会话内容；`external` 上还有 token（fail-closed），`lan` 上无认证但代价（同网段可见）由启动 WARNING 写明。旁路旁观的「宿主的终端」才必须留在本地。 |
 | 装配 | `cli/http_config.py::build_ws_servers` 在 `CRON_PUSH_ENABLED` 为真时建中枢并注入每一条 listener；未注入 ⇒ 路由不注册（Uvicorn 给客户端裸 403，不是应用层 404）。发布点由入口层把 `cron_notifier` 注入 `build_cron_job_runner`（一次执行一条；goal 自动推进分支不发）。 |
 | 与终端回显的关系 | 两条路互不依赖：`CRON_PUSH_ENABLED` 管推送，`CRON_ECHO_TO_TERMINAL` 管终端 stderr 单行回显（`[cron <job_id>] …`），四种组合都合法（Epic 58 D4/D6）。 |
-| 安全立场 | 与其它三条端点同一口径，边界地位见 §4.19；对外 listener 上意味着宿主 LLM 输出会离开本机。 |
+| 安全立场 | 与其它三条端点同一口径，边界地位见 §4.18；对外 listener 上意味着宿主 LLM 输出会离开本机。 |
 
 判据：`tests/network/test_event_stream_hub.py`（10 例：通用核 seq / 窗口 / 背压 / 关停）、
 `tests/network/test_notification_hub.py`（7 例：载荷 / 跨作业单调 / 文本有界）、
@@ -1441,9 +1445,9 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 `tests/test_cli_cron_echo.py`（14 例：两开关四组合 + 回显形态 + 装配判据「中枢挂每个 listener、路由随开关注册」）、
 `tests/network/test_notification_cron_e2e.py`（2 例：**整链**——真 AgentLoop(stub provider) → runner → notifier → 中枢 → 真实 TCP → 真 websockets 客户端，成功与失败各一条）。
 
-### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
+### 4.17 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
-Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
+Epic 50 把 4.16 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
 （项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
 会话 / 配置来源求解 / 写入流水线留在入口层 `cli/http.py` 与顶层模块（脊柱 I1：网络层不认识 `Settings`）。
 
@@ -1458,7 +1462,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 资源旋钮上界 | `config/catalog/guards.py::RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束）。**同一常量还是「高影响键」的事实源**（2026-09-27，台账 A13）：`impact_for(key)` → 配置项的 `impact` 字段（`high` / `normal`），面板据此挂徽标并在写入确认框里点名 —— 文案取自后端 `labels`，**前端零硬编码键名**（UX-DR3 的差异化确认） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果（`applied` / `rolled_back` / `rollback_failed`——后两者分别表示「回读不符但已还原」与「回读不符**且还原也失败**」，2026-09-27 补），**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
-| 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
+| 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.16 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
 | 原生目录选择（Story 50-8 R2） | `cli/dialogs.py`：浏览器**拿不到**本机绝对路径，故「选文件夹」由**服务端所在机器**弹原生窗口。后端顺序 `tkinter` → `powershell`（PS 5.1 `FolderBrowserDialog`）→ `none`（`--dialog-backend` 可钉死，**默认 `none` = 禁用**，2026-09-27 裁定），对话框跑在**子进程**里（`asyncio.create_subprocess_exec` + 冻结 argv + 超时 300s + kill + 有界回收 + 凭证剥离 env），只解析 stdout 的 ASCII 标记行并复验 `is_dir()`（脏值 / 取消 / 超时一律 `cancelled=true`）；入口层持有**单在途**（并发 → `dialog_busy`）。返回值**不是权限**：登记仍走 `POST /api/projects` 的全套校验 |
 | 网页 cron 能力（2026-10-28，用户裁决改判） | `HttpAgentHandler.new_loop()` 以 `enable_cron=True` 组装：网页会话与交互模式 / GUI 共用同一份 `<项目>/.heagent/cron/jobs.json`，`cron_add` / `cron_list` / `cron_remove` 全部可用（原 A11② 的「不绑 cron 工具」形态**撤销**；此前网页侧一律回 `Error: cron tools not configured.`）。**handler 不启停调度器**：`_build_loop` 在有会话时顺带构造的 `CronScheduler` 被丢弃（构造只赋值字段、不建 task，无泄漏），start/stop 属进程级生命周期（`cli/interactive.py`、`gui/app.py`）⇒ 网页写的任务在本进程不触发，由那些入口的调度器执行；网页进程若也要自己跑调度，应挂 `EmbeddedHttpService` 生命周期，**不能**按 run 启停。同分钟跨进程重复执行由 `engine` ledger 的幂等键 + 租约兜底（`cron:{job_id}:{分钟}`，落 `.heagent/ledger/`）。⚠ 代价：绑定的是**可写** store ⇒ 端口可达者能增删该项目的定时任务（无认证、回环亦不可信）。判据：`tests/test_cli_http.py::test_new_loop_binds_the_full_cron_surface`（`enable_cron=True` 接线 + 同一 `jobs.json` 可见性 + 丢弃 scheduler 不抛） |
 | 网页侧工具结果收敛（Story 50-8 R5；2026-09-28 扩到 `content_search` / `file_edit`） | `cli.http_console._web_tool_output`：**两类收敛**——① `file_read` / `file_edit` 的**成功**结果内容**整份**不进网页事件流（前者是文件正文、后者是 `OK: edited …` + diff + 快照，对话区只显示「工具名 → 作用对象」）；② `content_search` 的成功结果**只留去重的命中文件清单**（`_matched_files` 剥掉 `路径:行号: 正文` 的行内容，保序去重）。**失败消息照旧**（内置工具用返回值 `Error: ...` 表达可预期失败，故判据 = `is_error` **或** 该前缀；无命中消息与超大文件跳过行同属诊断，**原样保留**）；会话文件 / `rollout.jsonl` / CLI / GUI **一字不变**（审计与回放不受影响），模型侧也照旧拿到全文 |
@@ -1467,14 +1471,14 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 框架异常码 | `pub/exceptions.py` 每个异常类带 `code`（形态 `E_<分类>_<具体>`，**只增不复用**），`error_catalog()` 给出码 → 类名 / 描述 / 建议，`error_code_of(exc)` 对非框架异常返回 `E_UNKNOWN`；当前 **29** 类，码表与 `docs/errors.md` 第二节逐条一致（`tests/test_exceptions.py` 钉死）。与传输层码是两套封闭集合，刻意不合并（Epic 69 / Story 69.3） |
 | 前端纪律 | 纯文本渲染（`createTextNode`，永不 `innerHTML`）；面板文案 / 只读原因 / 取值提示全部由后端 `labels` / `guards` / `source` 派生，**前端零硬编码**；零第三方资源、零内联脚本 / 事件属性；`[hidden]{display:none!important}` 全局兜底（作者样式的 `display:flex` 会压过 UA 的 `[hidden]`） |
 
-⚠ **安全立场**（与 4.17 同一口径，边界地位见 §4.19）：绑定告警（`network.exposure`，判定单点）与写通道
+⚠ **安全立场**（与 4.16 同一口径，边界地位见 §4.18）：绑定告警（`network.exposure`，判定单点）与写通道
 / 项目登记 / 项目移除的**回环门**都只是 defense-in-depth——回环门**防不住「本机浏览器发起的跨站写入」**，
-同源防线是 4.17 的 `Origin` / `Host` 校验。写通道默认关闭（`HTTP_CONSOLE_WRITE_ENABLED=false`），
+同源防线是 4.16 的 `Origin` / `Host` 校验。写通道默认关闭（`HTTP_CONSOLE_WRITE_ENABLED=false`），
 **开启即等于「任何能连上该端口的人都能改项目 `.env`」**（启动时 stderr + 日志双通道告警），且网页
 **无法通过任何请求**打开它自己。**并发口径（D9）**：在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`
 （默认最多 32），**无全局软上限**；需要硬上限时用可选的 `HTTP_MAX_TOTAL_INFLIGHT`（默认 0 = 不限，2026-09-27）。
 
-⚠ **新增的宿主进程拉起面（Story 50-8 R2，边界地位见 §4.19）**：`POST /api/dialogs/pick-directory` 会让
+⚠ **新增的宿主进程拉起面（Story 50-8 R2，边界地位见 §4.18）**：`POST /api/dialogs/pick-directory` 会让
 **服务端所在机器**弹出一个原生窗口（子进程 `tkinter` / `powershell`）。防线是「回环来源 + 单在途 + 冻结
 argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「只有本机用户能触发」的保证——这是本 Epic 有意引入的**新暴露面**，已登记在五。
 **默认姿态 = 关，两条入口都关**（2026-09-27 裁定，见台账 A19）：`--dialog-backend` 的默认值已由 `auto` 改为
@@ -1484,7 +1488,11 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 通道的既有惯例一致（`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False** —— 新控制台能力默认关）。
 （默认值裁定的缘由：实测暴露内嵌路径没有关闭该入口的手段，促成上方默认关闭裁定。）
 
-### 4.19 安全口径（canonical）
+#### 工作区状态路径（Story 50-1）
+
+`WorkspacePaths` 从构造时解析的项目根派生运行状态路径；HTTP 装配与 CLI loop 优先使用已注入 engine 的根，不在每次请求时重读 cwd。GUI 保留 `context_dir=None` 的既有语义。路径围栏仍是 defense-in-depth 层（边界地位见 §4.18）。
+
+### 4.18 安全口径（canonical）
 
 > **本节是安全口径的唯一真源**：本文件其它章节、`AGENTS.md`（派生副本）与各周期产物只引用不复述，
 > 表述不一致时以本节为准。本节只裁定「是不是边界」；校验点、限额、默认值等机制细节留在各自章节，
@@ -1528,35 +1536,35 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 缺口 | 说明 |
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
-| MCP / engine sandbox 安全边界 | 三层非边界与 OS 级兜底立场见 §4.19；本行的缺口事实是 shell 路径的兜底实施项 = container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，须显式 --sandbox docker / env 选择） |
-| MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
-| 用户可配置 MCP 签名入口 | **两级都生效**（2026-11-18 起，活动台账 A36 闭合）：项目级 `.heagent/injection_signatures.json` + 全局级 `<用户 home>/.heagent/injection_signatures.json`，两级均在进程内缓存一次（改文件需重启进程）；合并语义 = 全局作底、**同名 `pattern` 由项目级覆盖**，条目校验逐条报错并**带来源**（global / project），缺文件是合法空载。判据 `tests/test_mcp_mapping.py`（加载 / 覆盖 / 缺失零噪声 / 来源归因四例）+ 变异 3/3 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）；签名围栏的边界地位见 §4.19 |
-| 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.19 |
-| Web 工具注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（机制出自 Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
-| 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.19（见 4.12 approval.py） |
-| 文件安全与凭证防护非边界 | path_safety 凭证 deny / scrub_sensitive_env 均为 defense-in-depth 启发式层（2026-08-24），边界地位见 §4.19 |
-| 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.19（机制见 `docs/sandbox.md`） |
-| 沙箱后端分级 | `SandboxTier`（FR-2，2026-08-26）container 档首个实现后端 `DockerRunner` 已落地（Epic 53 期一，2026-10-21；仅 shell 路径、默认链路未启用）；审批降级（`can_relax_approval`）已于 Epic 53 期二（Story 53-4，2026-11-03）接入 `PolicyEngine`，仅当「真进沙箱 + 容器档 + 后端可用」时放松、弱后端一律维持原审批要求——分级的边界地位见 §4.19 |
-| 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，边界地位见 §4.19 |
-| SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.19；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
-| WebSocket 入口非安全边界（Epic 54 / Epic 56 / Epic 58） | 四条 WS 端点（提交 /api/runs/ws、订阅 /api/runs/{run_id}/ws、旁路 /api/cli/ws、通知流 /api/notifications/ws）的边界地位见 §4.19（要素 3–5）。本行的缺口事实：对外模式的凭证机制是静态 token（只读用户级 ~/.heagent/setting.md）+ 握手前常量时间比较 + 按来源失败限速，且只走握手头 ⇒ 不支持浏览器直连；**对外能提交 run ⇒ 容器沙箱档（--sandbox docker）从建议升级为强烈建议**（仍默认未启用） |
-| HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（入口层隔离第三方代码的既有决策）：入口的边界地位见 §4.19，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
+| MCP / engine sandbox 安全边界 | 三层非边界与 OS 级兜底立场见 §4.18；本行的缺口事实是 shell 路径的兜底实施项 = container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，须显式 --sandbox docker / env 选择） |
+| MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.18（容器档非绝对边界）。历史裁定正文见 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
+| 用户可配置 MCP 签名入口 | **两级都生效**（2026-11-18 起，活动台账 A36 闭合）：项目级 `.heagent/injection_signatures.json` + 全局级 `<用户 home>/.heagent/injection_signatures.json`，两级均在进程内缓存一次（改文件需重启进程）；合并语义 = 全局作底、**同名 `pattern` 由项目级覆盖**，条目校验逐条报错并**带来源**（global / project），缺文件是合法空载。判据 `tests/test_mcp_mapping.py`（加载 / 覆盖 / 缺失零噪声 / 来源归因四例）+ 变异 3/3 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）；签名围栏的边界地位见 §4.18 |
+| 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.18 |
+| Web 工具注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（机制出自 Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.18），dreamer 的兜底要求见 4.6 dream.py |
+| 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.18（见 4.12 approval.py） |
+| 文件安全与凭证防护非边界 | path_safety 凭证 deny / scrub_sensitive_env 均为 defense-in-depth 启发式层（2026-08-24），边界地位见 §4.18 |
+| 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.18（机制见 `docs/sandbox.md`） |
+| 沙箱后端分级 | `SandboxTier`（FR-2，2026-08-26）container 档首个实现后端 `DockerRunner` 已落地（Epic 53 期一，2026-10-21；仅 shell 路径、默认链路未启用）；审批降级（`can_relax_approval`）已于 Epic 53 期二（Story 53-4，2026-11-03）接入 `PolicyEngine`，仅当「真进沙箱 + 容器档 + 后端可用」时放松、弱后端一律维持原审批要求——分级的边界地位见 §4.18 |
+| 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，边界地位见 §4.18 |
+| SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.18；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
+| WebSocket 入口非安全边界（Epic 54 / Epic 56 / Epic 58） | 四条 WS 端点（提交 /api/runs/ws、订阅 /api/runs/{run_id}/ws、旁路 /api/cli/ws、通知流 /api/notifications/ws）的边界地位见 §4.18（要素 3–5）。本行的缺口事实：对外模式的凭证机制是静态 token（只读用户级 ~/.heagent/setting.md）+ 握手前常量时间比较 + 按来源失败限速，且只走握手头 ⇒ 不支持浏览器直连；**对外能提交 run ⇒ 容器沙箱档（--sandbox docker）从建议升级为强烈建议**（仍默认未启用） |
+| HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（入口层隔离第三方代码的既有决策）：入口的边界地位见 §4.18，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
 | HTTP 会话/事件无持久化（2026-11-18 A35 部分改判） | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。**读侧已补**：`EVENTS_ROLLOUT_ENABLED=true` 时旧 run 的 `GET /api/runs/<id>/events` 从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` **一次性回放**（粗粒度：工具输出未落盘 ⇒ 标注、文本增量未落盘 ⇒ 以一条 `done` 交付完整答案；响应头 `x-heagent-replay: rollout`；进程内仍有记录时以内存为准），未开 rollout 或文件缺失仍 404。写侧（在途 run 跨进程续跑、事件缓冲持久化）仍不做 |
-| 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——边界地位与兜底要求见 §4.19；另遵守「不要把凭证写进命令或路径」 |
-| 控制台「回环来源」不等于安全（**评审 F9**，2026-09-24） | 写通道 / 项目登记 / 项目移除要求**回环来源**（`_loopback_error`），该闸门的边界地位见 §4.19（要素 3）；本行的缺口事实是跨站写入的实际防线只有 4.17 的 `Origin` / `Host` 校验（AD-6）。文档不得把回环门写成信任依据 |
-| 控制台「只读」不是安全边界 | 面板上的「只读 / 只读原因」是**用户体验标记**（`classify()` 的划分），不是访问控制：白名单之外的键照样能被任何能改 `.env` 的进程改动（边界地位见 §4.19）。写通道的 fail-closed 校验同样只作用于这条通道 |
+| 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——边界地位与兜底要求见 §4.18；另遵守「不要把凭证写进命令或路径」 |
+| 控制台「回环来源」不等于安全（**评审 F9**，2026-09-24） | 写通道 / 项目登记 / 项目移除要求**回环来源**（`_loopback_error`），该闸门的边界地位见 §4.18（要素 3）；本行的缺口事实是跨站写入的实际防线只有 4.16 的 `Origin` / `Host` 校验（AD-6）。文档不得把回环门写成信任依据 |
+| 控制台「只读」不是安全边界 | 面板上的「只读 / 只读原因」是**用户体验标记**（`classify()` 的划分），不是访问控制：白名单之外的键照样能被任何能改 `.env` 的进程改动（边界地位见 §4.18）。写通道的 fail-closed 校验同样只作用于这条通道 |
 | 配置改动无热生效（**有意**） | 写成功后只丢该项目运行时缓存 ⇒ **下一次 run** 才用新值，在途 run 继续用旧快照（响应 `applied=next_run`）。没有「立即生效」通道；要即时生效只能新起一次 run |
 | 用户层 `~/.heagent/setting.md` 永久只读 | 写入通道**只写项目 `.env`**（I4）；用户层那份（`heagent init` 生成 / 旧 `.env` 一次性迁移、对所有项目生效）只能手工编辑，网页改不到 |
-| 备份与审计仍在宿主文件系统上 | 两者都在项目状态根内、已进内部状态读拒集合（工具读不到、也无任何网页下载端点），但**没有加密**：备份是写入前的**原样配置**（可能含凭证），审计含键名与值的哈希。兜底要求见 §4.19（另需磁盘权限） |
-| 跨项目并发默认无全局上限（**D9 已裁定**） | 默认（`HTTP_MAX_TOTAL_INFLIGHT=0`）在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.18。**2026-09-27 起**可选设 `HTTP_MAX_TOTAL_INFLIGHT=N` 得到**服务级**总额（跨项目共享，超限 409 `total_inflight_limit`）；它**不改写**上面这条按项目语义，只是叠加一层 |
-| 非回环运行姿态（**裁定：维持现状**） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。**裁定维持现状**理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 入口的边界地位见 §4.19；③ 添加回环门会破坏既有端点契约。冻结边界：不得把闸门表述为安全边界 |
+| 备份与审计仍在宿主文件系统上 | 两者都在项目状态根内、已进内部状态读拒集合（工具读不到、也无任何网页下载端点），但**没有加密**：备份是写入前的**原样配置**（可能含凭证），审计含键名与值的哈希。兜底要求见 §4.18（另需磁盘权限） |
+| 跨项目并发默认无全局上限（**D9 已裁定**） | 默认（`HTTP_MAX_TOTAL_INFLIGHT=0`）在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.17。**2026-09-27 起**可选设 `HTTP_MAX_TOTAL_INFLIGHT=N` 得到**服务级**总额（跨项目共享，超限 409 `total_inflight_limit`）；它**不改写**上面这条按项目语义，只是叠加一层 |
+| 非回环运行姿态（**裁定：维持现状**） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。**裁定维持现状**理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 入口的边界地位见 §4.18；③ 添加回环门会破坏既有端点契约。冻结边界：不得把闸门表述为安全边界 |
 | 控制台 UI 无自动化回归 | `tests/fixtures/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；install 步骤只装 `.[dev,gui,http]`（lint job）与 `.[dev,http]`（test / coverage / benchmark / goal-smoke）） ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略。**裁定：保持手动**（2026-09-28）——冻结边界禁止为它给 dev 依赖加 playwright/puppeteer；「真实模型 → SSE → 流式渲染」这条链的前端侧由 node 探针覆盖、服务端由 Epic 49 用例覆盖，本机无可用 provider 时不升级为门禁 |
 | `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli/http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli/http.py` 计入总量）。若将来拆分，口径随模块走并在此更新。**2026-09-26 补充**：交互式 CLI 主体现位于 `cli/console.py`（原 `cli.py`）+ `cli/interactive.py`（REPL 与斜杠命令族，自 cli.py 拆出），与 `cli/goal/` 子包、`cli/display.py` 一并列入覆盖率 omit（`pyproject.toml`）；`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、`cli/dialogs.py` 仍计入总量（实测 `http.py` 83% / `http_console.py` 93% / `composition.py` 92%） |
-| 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；其边界地位见 §4.19。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
+| 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；其边界地位见 §4.18。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
 | 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③默认即 `--dialog-backend none`（禁用；2026-09-27 起，须显式传 `auto` / `tkinter` / `powershell` 才启用）。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
 | 网页侧读取结果收敛是**展示策略**，不是数据边界（Story 50-8 R5 + `content_search` / `file_edit`） | 只是「网页事件流不放结果**正文**」——`file_read` / `file_edit` 成功时**整份置空**（对话区只留「工具名 → 作用对象」），`content_search` 成功时**折叠成去重的命中文件清单**（`cli.http_console._matched_files`；未命中消息与超大文件跳过行属诊断，原样保留）；同一份内容仍写进**会话文件**与 `rollout.jsonl`（审计 / 回放需要），模型侧也照旧收到全文；失败消息靠 `Error:` 前缀约定识别（内置工具的既有约定，若将来改结构化错误，该判据可退化为只看 `is_error`）。**已知限制（裁定：收紧规格）**：正文以 `Error:` 开头的文件（日志/错误报告/栈转储）成功读取时，整份正文会照旧显示在网页对话区——AC9「成功只显示文件名」与「失败消息可见」在该输入类上互斥。冻结边界：不得收敛失败消息（那会让诊断从页面消失） |
 | 配置掩码域是后缀制（**裁定：维持现状**） | 掩码域只认 `*_API_KEY` / `*_API_KEYS` 后缀（`config/catalog/masking.py::is_secret_key`），而 `*_BASE_URL` 走排除组模式 ⇒ 把中转站 token 写进 base URL（如 `https://user:token@relay/v1`）的值会**原样回显**。`GET /api/projects/{id}/config` 无回环门 ⇒ 任何能连到服务的客户端都能读到。**裁定维持现状**理由：① URL 本身不以凭证命名；② 部分掩码会破坏诊断用途（"为什么连不上"需要完整 URL）；③ 同仓 `safe_logging` 已对 URL userinfo 脱敏，口径分场景。冻结边界：不得对 URL 做部分掩码（破坏诊断），不得给只读 GET 加回环门（与 49/50 姿态冲突） |
-| 路径级审批分级（**裁定：维持条件性**，2026-09-28） | 审批粒度是**工具级**（`PolicyEngine.approval_tools` ∪ MCP `schema.annotations.destructiveHint`），**不看路径**；而 workspace 围栏（`evaluate_tool_call` 第 4 步 `_validate_paths`）对越界路径一律**硬阻断** ⇒ 今天**不存在**「被批准的 workspace 外写」这个对象，故本项**无触发场景**。**触发条件**：引入「非 workspace 的受控写」能力（如经审批向 workspace 外写）——届时改法 = 让第 4 步的越界结果按**声明式路径策略**在 `allow / ask / deny` 之间分级（未配置 = 现状逐字节不变；默认仍 fail-closed）。**若实现，判据要求**：越界且未声明 ⇒ 仍 `BLOCKED`；声明 `ask` ⇒ `APPROVAL_REQUIRED` 且拒绝后不落盘；凭证 basename 与内部状态目录**永远 deny**（不可被审批放行）；`..`／符号链接／短名按**解析后真实路径**分级（复用 `path_safety.resolve_under_root` 同一算法）；不得改变 `sandbox_mode` 语义。**冻结边界**：分级只是 `PolicyEngine` 的 defense-in-depth 标记（边界地位见 §4.19），不得放松 workspace 围栏默认值。证据见 `_bmad-output/retrospective-all-cycles.md` §三「跨周期勘察与裁定索引」A1 / A6 行 |
+| 路径级审批分级（**裁定：维持条件性**，2026-09-28） | 审批粒度是**工具级**（`PolicyEngine.approval_tools` ∪ MCP `schema.annotations.destructiveHint`），**不看路径**；而 workspace 围栏（`evaluate_tool_call` 第 4 步 `_validate_paths`）对越界路径一律**硬阻断** ⇒ 今天**不存在**「被批准的 workspace 外写」这个对象，故本项**无触发场景**。**触发条件**：引入「非 workspace 的受控写」能力（如经审批向 workspace 外写）——届时改法 = 让第 4 步的越界结果按**声明式路径策略**在 `allow / ask / deny` 之间分级（未配置 = 现状逐字节不变；默认仍 fail-closed）。**若实现，判据要求**：越界且未声明 ⇒ 仍 `BLOCKED`；声明 `ask` ⇒ `APPROVAL_REQUIRED` 且拒绝后不落盘；凭证 basename 与内部状态目录**永远 deny**（不可被审批放行）；`..`／符号链接／短名按**解析后真实路径**分级（复用 `path_safety.resolve_under_root` 同一算法）；不得改变 `sandbox_mode` 语义。**冻结边界**：分级只是 `PolicyEngine` 的 defense-in-depth 标记（边界地位见 §4.18），不得放松 workspace 围栏默认值。证据见 `_bmad-output/retrospective-all-cycles.md` §三「跨周期勘察与裁定索引」A1 / A6 行 |
 
 ---
 
@@ -1997,7 +2005,7 @@ heagent http-server（同一入口；console 由入口层装配后注入 HttpSer
 
 其余 Story 50-8 的体验约束（会话列表只渲染最近 **10** 条 / 侧栏**一列** / 对话区**占满所在列**（R7，撤销 48rem
 限宽阅读列，2026-09-24） / 会话规模与展开控件置于面板最上面（R8） / 设置面板瘦身 / 网页侧读取结果收敛）
-见 4.18 表格末三行与 4.18 的安全声明段——它们**不新增路由**，只改前端渲染与网页桥的收敛判据。
+见 4.17 表格末三行与 4.17 的安全声明段——它们**不新增路由**，只改前端渲染与网页桥的收敛判据。
 
 写通道（`config/write.apply_config_write`，**10 步 + 1 项生效语义**；任一步失败即拒绝且文件不变）：
 
@@ -2035,7 +2043,7 @@ PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
 
 Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
-本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format、mypy 和 bandit（`-ll`，与 CI lint job 同参数——本地门缺这一步时「本地绿 / CI 红」无从察觉）；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 的边界地位见 §4.19。
+本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format、mypy 和 bandit（`-ll`，与 CI lint job 同参数——本地门缺这一步时「本地绿 / CI 红」无从察觉）；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 的边界地位见 §4.18。
 
 ### 8.2 Goal/Epic/Story 产物契约
 
@@ -2059,11 +2067,3 @@ Canonical 工程纪律（评审与实现共用判据；2026-11-06 自 dsh AGENTS
 2. **常量≠配置**：部署可变项必须是可校验 Config 字段；`DEFAULT_*` 常量不算可配置——这是「用户声明优于代码立场」的判定线。
 3. **空 catch 必须具名**：`except Exception:` 后空处理（或仅 pass）必须注释写明吞掉的是什么错误、为什么安全；匿名吞错违反显性失败准则。
 4. **不解释的对称破缺暗示漏提取**：并行值/对称结构出现无理由差异时先怀疑漏提取；有理由的不对称必须在差异处留注释（先例：workflow_runner 串行/批两路闩置位 AD-18 刻意不对称并留注）。
-
-## 九、历史与迁移
-
-参考实现来源和迁移索引已移至 [迭代历程 §3.3 架构沿革与参考来源](iteration.md)。本页保留当前行为、兼容约束和测试入口。
-
-### 工作区状态路径（Story 50-1）
-
-`WorkspacePaths` 从构造时解析的项目根派生运行状态路径；HTTP 装配与 CLI loop 优先使用已注入 engine 的根，不在每次请求时重读 cwd。GUI 继续保留 `context_dir=None` 的既有语义，本次不改变其上下文发现行为。路径围栏仍是 defense-in-depth 层（边界地位见 §4.19）。
