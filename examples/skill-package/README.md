@@ -69,4 +69,4 @@ cp -r examples/skill-package/release-notes .heagent/skills/
 
 - 技能匹配阈值与自动注入预算：`SKILL_MATCH_THRESHOLD` / `SKILL_MAX_AUTO_INVOKE` /
   `SKILL_MAX_AUTO_INVOKE_TOKENS`（三个键的默认值与注释在 `.env.example` 的「技能 / 记忆 / 上下文」节）。
-- `/goal` 声明式工作流的技能包契约更严（还要 `workflow.md` 等），见 [`docs/goal-workflow.md`](../../docs/goal-workflow.md)。
+- `/goal` 声明式工作流的技能包契约更严（还要 `workflow.md` 等），见 [`docs/framework.md` §4.13](../../docs/framework.md#413-goal-驱动工作流-goal)。

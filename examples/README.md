@@ -36,7 +36,7 @@ python -c "from heagent.skills.skill_store import SkillStore; print(SkillStore('
 ## 这里**没有**覆盖什么
 
 - HTTP / WS 入口的定制（那是 `network/` 的事，见 [`README.md`](../README.md) 的入口章节）。
-- `/goal` 声明式工作流的作者视角（见 [`docs/goal-workflow.md`](../docs/goal-workflow.md)）。
+- `/goal` 声明式工作流的作者视角（见 [`docs/framework.md` §4.13](../docs/framework.md#413-goal-驱动工作流-goal)）。
 - MCP server 的接入（改 `.mcp.json` 即可，见 [`docs/faq.md`](../docs/faq.md)）。
 - 中间件 / 重试策略的组合（`Agent(middlewares=[my_middleware])`，本仓无现成示例）。
 

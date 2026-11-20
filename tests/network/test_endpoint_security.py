@@ -134,7 +134,7 @@ _HTTP_CASES: dict[_RouteKey, _HttpRouteCase] = {
         # 确认闸门之后仍有回环门与未知 id：畸形（不存在的）id 只得到 404，不触碰文件系统。
         malformed=_Probe("DELETE", f"{_PROJECT}?confirm=true", 404, HttpErrorCode.UNKNOWN_PROJECT),
     ),
-    # 重命名：**刻意没有**回环门（frame.md 已知缺口有裁定）⇒ 越权面只剩「能调什么方法」。
+    # 重命名：**刻意没有**回环门（framework.md 已知缺口有裁定）⇒ 越权面只剩「能调什么方法」。
     ("http", ("PATCH",), "/api/projects/{project_id}"): _HttpRouteCase(
         boundary=_Probe("GET", _PROJECT, 405, _NOT_ALLOWED),
         malformed=_Probe(

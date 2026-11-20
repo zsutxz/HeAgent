@@ -53,7 +53,7 @@ _ENTRYPOINT_MODULES = (
     "heagent.cli",
     "heagent.gui",
 )
-# goal/ 是入口层**域模块**（cli/goal/ 子包的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
+# goal/ 是入口层**域模块**（cli/goal/ 子包的装载/文档层，framework.md 六）：与组合根同属「下层不得反向
 # 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过
 # （AST 实测运行期只有 cli/goal/ 子包导入 goal/）。
 # housekeeping 是启动期维护模块（自 cli/ 迁回顶层）：与 goal 同档位——下层不得反向
@@ -240,7 +240,7 @@ def test_no_reverse_dependency_on_agent() -> None:
 def test_tools_providers_edge_is_pinned_to_retry() -> None:
     """tools→providers 唯一声明边：仅 ``web_search_engine.py → providers.retry``（容错分类判据复用）。
 
-    frame.md DAG 规则「providers 与 tools 互不依赖」的唯一声明例外，在此钉死唯一性——
+    framework.md DAG 规则「providers 与 tools 互不依赖」的唯一声明例外，在此钉死唯一性——
     边扩散时本测试先红，届时裁定扩例或下沉 ``pub/``。
     """
     allowed = {"tools/builtins/web_search_engine.py"}
@@ -733,7 +733,7 @@ def test_cli_package_shell_stays_thin() -> None:
 
 
 def test_cli_package_layout_is_pinned() -> None:
-    """布局即契约：新增/重命名入口子模块必须同步本表与 frame.md 的目录树。"""
+    """布局即契约：新增/重命名入口子模块必须同步本表与 framework.md 的目录树。"""
     actual = sorted(path.stem for path in (SRC / "cli").glob("*.py") if path.stem != "__init__")
     assert actual == [
         "audit_cmd",
@@ -790,7 +790,7 @@ def test_shared_layer_layout_is_pinned() -> None:
     2026-09-26 同日：``projects``（网页控制台项目注册表）自顶层迁入 ``pub/``——它零运行栈依赖，
     本就是数据面；network 侧仍**显式**禁导 ``heagent.pub.projects``（见下表 network 条目）。
     ``heagent.config`` 的名字**刻意保持不变**（模块 → 包）——``from heagent.config import Settings``
-    这条最大宗的导入面因此零改动。新增/搬移模块必须同步本表与 ``docs/frame.md`` 的目录树。
+    这条最大宗的导入面因此零改动。新增/搬移模块必须同步本表与 ``docs/framework.md`` 的目录树。
     2026-11-11：``config/catalog`` 由单文件拆成子包（E3 绞杀者），仍在 ``heagent.config.catalog``
     这个公共名下 re-export 全部符号；此处只把「平铺模块清单」与「子包清单」分开断言。
     """
@@ -872,7 +872,7 @@ _TCP_RESIDUE_TOKENS_EXACT = ("TCP_",)
 def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     """TCP 入口删除后，活文件里不得再出现它的模块名 / 子命令 / 设置键。
 
-    为什么需要这条：`4217b5d` 只清了 `docs/frame.md`，而 `README.md`（整节使用说明）、
+    为什么需要这条：`4217b5d` 只清了 `docs/framework.md`，而 `README.md`（整节使用说明）、
     `CLAUDE.md`（常用命令表）、`.env.example`（8 个已不存在的 `TCP_*` 键）与十来处 docstring
     仍在大面积宣告一个不存在的入口——2026-09-27 实测全仓扫出 493 处命中，其中非历史面 40 余处。
     **没有判据的清理会在下一次改文档时静默漂回去**。
@@ -882,7 +882,7 @@ def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     targets += [root / name for name in ("README.md", "AGENTS.md", "CLAUDE.md", ".env.example")]
     # 显式列举而非 `docs/*.md`：`docs/news.md` 是**生成物**（且被 gitignore），新闻正文里出现
     # `tcp` 完全正常，把它扫进来只会产生假红；`docs/iteration.md` 是历史历程，按「历史不动」豁免。
-    targets += [root / "docs" / name for name in ("README.md", "frame.md", "design.md", "goal-workflow.md")]
+    targets += [root / "docs" / name for name in ("README.md", "framework.md", "design.md")]
     offenders: dict[str, list[str]] = {}
     for path in targets:
         if not path.exists():
@@ -1197,19 +1197,19 @@ def test_ws_entry_docs_stay_in_sync() -> None:
     第二 listener（`WS_EXTERNAL_*`）已随 Epic 72 退役：文档里不得再把它当可用配置介绍
     （`doctor` 的退役键表与迁移说明除外）。
     """
-    frame = (TARGET_ROOT / "docs/frame.md").read_text(encoding="utf-8")
+    frame = (TARGET_ROOT / "docs/framework.md").read_text(encoding="utf-8")
     agents = (TARGET_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     deploy = (TARGET_ROOT / "deploy/README.md").read_text(encoding="utf-8")
     example = (TARGET_ROOT / ".env.example").read_text(encoding="utf-8")
 
-    for name, text in (("docs/frame.md", frame), ("deploy/README.md", deploy), (".env.example", example)):
+    for name, text in (("docs/framework.md", frame), ("deploy/README.md", deploy), (".env.example", example)):
         assert "WS_LAN_NO_AUTH" in text, name
         # 退役键不得再被当作可用配置介绍（墓志铭式的「已退役」叙述可以提 `WS_EXTERNAL_*` 通配，
         # 但完整键名出现在文档里就等于还在教用户去配它）。
         assert "WS_EXTERNAL_HOST" not in text, name
         assert "WS_EXTERNAL_TLS_CERT_FILE" not in text, name
     # 端点可见性不变量必须在「安全声明」与「部署说明」两处都写明（只写在代码注释里等于没写）。
-    for name, text in (("AGENTS.md", agents), ("deploy/README.md", deploy), ("docs/frame.md", frame)):
+    for name, text in (("AGENTS.md", agents), ("deploy/README.md", deploy), ("docs/framework.md", frame)):
         assert "/api/cli/ws" in text, name
     assert "WS_LAN_NO_AUTH" in agents
     assert "只挂" in deploy

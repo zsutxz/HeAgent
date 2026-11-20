@@ -1,6 +1,6 @@
 """单次 loop run 的持久化快照（store）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。``RunStore`` 把一次 run
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。``RunStore`` 把一次 run
 的完整可恢复状态写到 ``.heagent/runs/<run_id>.json``：context / prompt / system /
 messages / results / final_answer / error。AgentLoop 在 ``run()`` 中经 ``start()`` 起始、
 迭代中经 ``checkpoint()`` 持续落盘，使崩溃 / resume 成为可能。
@@ -15,7 +15,7 @@ messages / results / final_answer / error。AgentLoop 在 ``run()`` 中经 ``sta
 在全新 run 启动时触发一次（与 ledger 同构）。
 
 > 注意：与 ``context/session.py``（``.heagent/sessions/``，跨轮**对话历史**）用途不同——
-> RunStore 是**单次 run 的可恢复快照**（见 frame.md 4.5 / 4.12）。
+> RunStore 是**单次 run 的可恢复快照**（见 framework.md 4.5 / 4.12）。
 """
 
 from __future__ import annotations

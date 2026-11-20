@@ -144,7 +144,7 @@ def install_logging_fault_guard() -> bool:
     ``logging`` 的 ``Handler.handle`` **不**捕获 ``emit`` 抛出的异常（与
     ``logging.raiseExceptions`` 无关，实测），故第三方/自定义 handler 一旦在 ``emit``
     中抛错，**任何** ``logger.*`` 调用都会向上抛——一次 run 里的进度日志就能把
-    成功的运行变成失败（``docs/frame.md`` 五「运行栈日志非观测故障免疫」）。
+    成功的运行变成失败（``docs/framework.md`` 五「运行栈日志非观测故障免疫」）。
 
     本函数把 ``Handler.handle`` 换成 :func:`_guarded_handler_handle`：handler 失败时
     走 stdlib 的 ``handleError``（照旧打印诊断、照旧尊重 ``raiseExceptions``），

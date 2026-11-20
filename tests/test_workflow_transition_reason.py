@@ -269,8 +269,8 @@ _MATRIX_END = "<!-- S-3:transition-matrix:end -->"
 
 
 def _matrix_block() -> str:
-    frame = (Path(__file__).resolve().parents[1] / "docs" / "frame.md").read_text(encoding="utf-8")
-    assert _MATRIX_START in frame and _MATRIX_END in frame, "docs/frame.md 缺少 S-3 矩阵标记"
+    frame = (Path(__file__).resolve().parents[1] / "docs" / "framework.md").read_text(encoding="utf-8")
+    assert _MATRIX_START in frame and _MATRIX_END in frame, "docs/framework.md 缺少 S-3 矩阵标记"
     return frame.split(_MATRIX_START, 1)[1].split(_MATRIX_END, 1)[0]
 
 

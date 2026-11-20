@@ -42,7 +42,7 @@ def _loopback_error(responses: Any, request: Any) -> Any | None:
 
     适用面：项目登记 / 移除（Story 50-2）与**配置写入**（Story 50-5 流水线第 2 步——那一步
     留在传输层，因为网络层不认识 ``Settings``，见 ``heagent.config.write`` 的模块 docstring）。
-    **重命名无回环门**——frame.md「已知缺口」有裁定维持现状，勿据旧文补门。
+    **重命名无回环门**——framework.md「已知缺口」有裁定维持现状，勿据旧文补门。
     """
     client = getattr(request, "client", None)
     host = getattr(client, "host", "") if client is not None else ""

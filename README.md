@@ -165,7 +165,7 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 - 事件带从 1 开始的单调 `id`；断线重连带 `Last-Event-ID: N` 即可续读，越过缓存窗口会得到 `409 resync_required`（页面会自动拉会话快照重新同步，**不**伪造连续流）。
 - 断线**不会**取消运行；要停止必须显式 `DELETE`。空闲事件流每 15 秒一条心跳（SSE 注释帧）。
 
-> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/framework.md](docs/framework.md) 的「安全口径（canonical）」（§4.18）；本文件不重复论证。
 
 - 页面不加载任何第三方脚本、带严格 CSP、提示词与 Agent 输出**按纯文本渲染**（不注入 HTML）。
 - 网络入口**不连接** `.mcp.json` 的 MCP server、**不安装** stdin 审批处理器（需要审批的工具按既有 fail-safe 语义阻断）。
@@ -225,7 +225,7 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 #   客户端信任锚 = SPKI-SHA256 pin（heagent tls fingerprint 查看；重签叶证书不改 pin，rotate-key 才改）
 ```
 
-> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/framework.md](docs/framework.md) 的「安全口径（canonical）」（§4.18）；本文件不重复论证。
 
 经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 非回环入口（`lan` / `external`）能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
 
@@ -247,7 +247,7 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 /goal auto [cron]     注册定时推进；off 注销
 ```
 
-运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[「Goal 工作流」专题文档](docs/goal-workflow.md)。
+运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见 [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal)。
 
 ### `/loop`（v7，当前主力）
 
@@ -301,12 +301,12 @@ HOOKS_ENABLED=false
 
 HeAgent 能执行 shell、读写文件、调用外部 API，并把工具返回内容再次送入模型上下文。请始终假定不可信网页、文件、MCP server 和工具输出可能含 prompt injection。
 
-> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/framework.md](docs/framework.md) 的「安全口径（canonical）」（§4.18）；本文件不重复论证。
 
 - `firejail` 仅适用于 Linux；不可用时回退到 `passthrough`。Windows `winjob` 仅做进程级约束，不隔离文件系统。
 - Hooks 以当前用户权限执行本地命令，默认关闭；启用前必须确认仓库可信。
 
-MCP 从 `.mcp.json` 加载，密钥应保存在环境变量中而非配置文件里。详细安全边界、工具链和已知缺口见 [架构参考](docs/frame.md) 与 [部署说明](deploy/README.md)。
+MCP 从 `.mcp.json` 加载，密钥应保存在环境变量中而非配置文件里。详细安全边界、工具链和已知缺口见 [架构参考](docs/framework.md) 与 [部署说明](deploy/README.md)。
 
 ## Python API
 
@@ -359,9 +359,9 @@ python scripts/quality_gate.py
 
 | 目标 | 文档 |
 | --- | --- |
-| 当前架构、数据流、工具与已知缺口 | [架构参考](docs/frame.md) |
+| 当前架构、数据流、工具与已知缺口 | [架构参考](docs/framework.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
-| `/goal` 工作流、产物与维护规则 | [「Goal 工作流」专题](docs/goal-workflow.md) |
+| `/goal` 工作流、产物与维护规则 | [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal) |
 | `/loop` 工作流（v7 主力） | [`.heagent/skills/loop/workflow.md`](.heagent/skills/loop/workflow.md)（契约）与 [同包 `SKILL.md`](.heagent/skills/loop/SKILL.md)（执行总则） |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
 | 历史规划与验收证据 | [_bmad-output/README.md](_bmad-output/README.md) |

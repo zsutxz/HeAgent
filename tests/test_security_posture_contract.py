@@ -2,14 +2,14 @@
 
 两组判据：
 
-- **G1 文档口径**：`docs/frame.md` 的 `### 4.19 安全口径（canonical）` 段与 `AGENTS.md` 的
+- **G1 文档口径**：`docs/framework.md` 的 `### 4.18 安全口径（canonical）` 段与 `AGENTS.md` 的
   「⚠️ 安全声明」派生副本，逐要素做**正向包含**断言（只查「该说的话还在」，不匹配任何否定句），
   并守 canonical 段在真源里只出现一次——派生副本可以改措辞，但六个要素一个都不能少、不能软化。
 - **G2 配置默认值**：用 `Settings.model_fields` 反射收网全部安全相关字段，按谓词组逐条覆盖
   （回环绑定 / 安全侧布尔 / 有界正数 / 有记录的 0=不限 / TLS 成对 / 敏感档位 / 只读凭证不变量）。
   不 pin 易变字面量：后端档位名只要求「显式具名」，档位只做「不是最危险档」的相对断言。
 
-失败信息一律点明「哪个文件 / 哪个字段 / 缺什么」，便于回溯到 `docs/frame.md` 4.19 真源。
+失败信息一律点明「哪个文件 / 哪个字段 / 缺什么」，便于回溯到 `docs/framework.md` 4.18 真源。
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ from heagent.config import WS_AUTH_TOKEN_KEY, Settings
 from heagent.config.catalog import USER_ONLY_SETTING_KEYS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FRAME_DOC = REPO_ROOT / "docs" / "frame.md"
+FRAME_DOC = REPO_ROOT / "docs" / "framework.md"
 AGENTS_DOC = REPO_ROOT / "AGENTS.md"
 
 #: canonical 段标题（含 `### ` 前缀：避免命中目录 / 交叉引用行）。
-CANONICAL_HEADING = "### 4.19 安全口径（canonical）"
+CANONICAL_HEADING = "### 4.18 安全口径（canonical）"
 #: 段落终止判据：同级或更高级标题（`"### ".startswith("## ")` 为 False，二者互不吞并）。
 _SECTION_STOP_PREFIXES = ("### ", "## ")
 _NUMBERED_ITEM = re.compile(r"^(\d)\.\s")
@@ -39,7 +39,7 @@ _NUMBERED_ITEM = re.compile(r"^(\d)\.\s")
 # G1：文档口径（真源 + 派生副本）
 # ---------------------------------------------------------------------------
 
-# 要素号 → 该要素在 canonical 段里必须仍在的短语（正向包含，取自 4.19 原文）。
+# 要素号 → 该要素在 canonical 段里必须仍在的短语（正向包含，取自 4.18 原文）。
 FRAME_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     1: ("SafetyGuard", "PolicyEngine", "defense-in-depth"),
     2: ("默认链路未启用", "MCP stdio"),
@@ -132,7 +132,7 @@ def _assert_element_phrases(
     missing = [phrase for phrase in phrases if phrase not in section]
     assert not missing, (
         f"{doc_name} 第 {lineno} 行起的「要素 {element}」缺失短语 {missing}："
-        "安全口径被删改即视为倒退，请回滚或先改 4.19 真源再同步派生副本"
+        "安全口径被删改即视为倒退，请回滚或先改 4.18 真源再同步派生副本"
     )
 
 
@@ -142,11 +142,11 @@ def _assert_element_phrases(
     ids=[f"frame-element-{element}" for element in sorted(FRAME_ELEMENT_PHRASES)],
 )
 def test_frame_canonical_section_keeps_the_six_elements(element: int, phrases: tuple[str, ...]) -> None:
-    """守 G1-a：`docs/frame.md` 4.19 canonical 段的 6 要素措辞不得删改（只做正向包含断言）。"""
+    """守 G1-a：`docs/framework.md` 4.18 canonical 段的 6 要素措辞不得删改（只做正向包含断言）。"""
     section, start_lineno = _frame_canonical_section()
     line_numbers = _element_line_numbers(section, start_lineno)
     _assert_element_phrases(
-        "docs/frame.md",
+        "docs/framework.md",
         section,
         element,
         phrases,
@@ -173,10 +173,10 @@ def test_agents_derived_section_keeps_the_six_elements(element: int, phrases: tu
 
 
 def test_canonical_heading_appears_exactly_once() -> None:
-    """守「唯一真源」：canonical 段在 frame.md 里只能出现一次，复制出第二份即口径分裂。"""
+    """守「唯一真源」：canonical 段在 framework.md 里只能出现一次，复制出第二份即口径分裂。"""
     occurrences = _read_doc(FRAME_DOC).count(CANONICAL_HEADING)
     assert occurrences == 1, (
-        f"docs/frame.md 中 {CANONICAL_HEADING!r} 出现 {occurrences} 次，期望恰好 1 次：安全口径唯一真源不得复制出第二份"
+        f"docs/framework.md 中 {CANONICAL_HEADING!r} 出现 {occurrences} 次，期望恰好 1 次：安全口径唯一真源不得复制出第二份"
     )
 
 
@@ -220,10 +220,10 @@ _SAFETY_SIDE_BOOL: tuple[tuple[str, bool], ...] = (
 # 有记录的产品默认（不是「安全侧」断言）：只要求仍是显式布尔，防止退化成 None / 三态。
 _DOCUMENTED_BOOL_DEFAULTS: tuple[str, ...] = (
     # 回环主 listener 也强制 Bearer 认证：True 更严，但显式选择「默认关」——
-    # 本机消费者（含终端旁路）不必带 token，开启后全部端点统一要 token（见 docs/frame.md 4.19 要素 3）。
+    # 本机消费者（含终端旁路）不必带 token，开启后全部端点统一要 token（见 docs/framework.md 4.18 要素 3）。
     "ws_local_auth_enabled",
     # 非回环主 listener 免 token（内网免认证模式）：**默认关才是安全侧**（关 = 非回环强制 token、缺 token
-    # 拒绝启动）；开启须绑私有地址字面量，属显式选择（见 docs/frame.md 4.19 要素 4）。
+    # 拒绝启动）；开启须绑私有地址字面量，属显式选择（见 docs/framework.md 4.18 要素 4）。
     "ws_lan_no_auth",
 )
 
@@ -249,7 +249,7 @@ _PREDICATE_GROUPS: dict[str, tuple[str, ...]] = {
         "http_port_auto_find_attempts",
         "ws_port",
     ),
-    # 0 = 不限：`http_max_total_inflight` 见 docs/frame.md 4.18 D9（有记录的显式选择），
+    # 0 = 不限：`http_max_total_inflight` 见 docs/framework.md 4.17 D9（有记录的显式选择），
     # 其余三项（请求超时 / 内存 / CPU 秒数 / 进程数）同理——**不是**安全默认，故只断言 >= 0。
     "unlimited-zero": (
         "http_max_total_inflight",
@@ -290,7 +290,7 @@ def _default(field_name: str) -> Any:
     if field is None:
         pytest.fail(
             f"{field_name!r} 不在 Settings.model_fields 中：反射收网映射已过期（字段改名/删除），"
-            "请同步 _PREDICATE_GROUPS 与 docs/frame.md 4.19"
+            "请同步 _PREDICATE_GROUPS 与 docs/framework.md 4.18"
         )
     return field.get_default(call_default_factory=True)
 
@@ -370,8 +370,8 @@ def test_bounded_limits_are_positive(field_name: str) -> None:
 def test_unlimited_knobs_are_non_negative(field_name: str) -> None:
     """守「0 = 不限」的有记录项：只要求 >= 0。
 
-    这几项默认 0 表示不限，是 `docs/frame.md` 与台账里**记录过的显式选择**（如
-    `http_max_total_inflight` 见 4.18 D9），**不是安全默认**；故本守卫不得把它们改成 > 0 的断言。
+    这几项默认 0 表示不限，是 `docs/framework.md` 与台账里**记录过的显式选择**（如
+    `http_max_total_inflight` 见 4.17 D9），**不是安全默认**；故本守卫不得把它们改成 > 0 的断言。
     """
     value = _default(field_name)
     assert _is_number(value) and value >= 0, f"Settings.{field_name} 默认值 {value!r}，要求 >= 0"
@@ -492,12 +492,12 @@ def _window_from_anchor(lines: list[str], anchor: str, span: int) -> str:
 
 
 def test_mcp_annotation_conversion_declares_self_declared_and_untrusted() -> None:
-    """判据 1：``_mcp_annotations_to_heagent`` 及其后 30 行内声明「自声明 / 不可信」并指向 §4.19。"""
+    """判据 1：``_mcp_annotations_to_heagent`` 及其后 30 行内声明「自声明 / 不可信」并指向 §4.18。"""
     window = _window_from_anchor(_mcp_mapping_lines(), "def _mcp_annotations_to_heagent", 30)
-    for keyword in (*MCP_ANNOTATION_HINT_KEYWORDS, "§4.19"):
+    for keyword in (*MCP_ANNOTATION_HINT_KEYWORDS, "§4.18"):
         assert keyword in window, (
             f"{MCP_MAPPING_SRC} 的 _mcp_annotations_to_heagent 附近缺少关键词 {keyword!r}；"
-            "应声明 Tool.annotations 为 server 自声明 / 不可信，并指向 docs/frame.md §4.19"
+            "应声明 Tool.annotations 为 server 自声明 / 不可信，并指向 docs/framework.md §4.18"
         )
 
 
@@ -521,7 +521,7 @@ def test_mcp_annotations_passthrough_marks_residual_exposure() -> None:
 
 
 def test_mcp_canonical_section_points_back_to_the_stdio_gap() -> None:
-    """判据 3：canonical §4.19 反向指向 MCP stdio 的沙箱口径（代码 → canonical 双向在场）。
+    """判据 3：canonical §4.18 反向指向 MCP stdio 的沙箱口径（代码 → canonical 双向在场）。
 
     2026-11-03（Story 53-5）闭合 D53-1：关键词随之由「未闭合」改为实施 story 53-5 + 降级语义。
     """

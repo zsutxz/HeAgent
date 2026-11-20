@@ -204,7 +204,7 @@ async def test_non_loopback_clients_cannot_register_or_remove_projects(tmp_path:
     **范围说明（如实）**：story 的 T2 点名的是「写通道 / 项目登记 / 项目移除」三处，本用例只测这三处。
     同一路径上的 **重命名**（`PATCH /api/projects/{id}`）与四个**会话**写操作、项目内运行入口**当前没有**
     回环门 —— 那是台账里已登记的「非回环运行姿态（intent_gap，**blocked 待人裁决**）」条目，本 story 不
-    擅自扩大裁定范围，也不在此把现状钉成断言（真要被绕过，影响面已在台账与 frame.md 五写明）。
+    擅自扩大裁定范围，也不在此把现状钉成断言（真要被绕过，影响面已在台账与 framework.md 五写明）。
     """
     workspace = _workspace(tmp_path)
     target = _project(tmp_path / "target")

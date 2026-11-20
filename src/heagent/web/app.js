@@ -1,6 +1,6 @@
 /* HeAgent 内置网页脚本（Epic 49 的对话页 + Epic 50 的项目 / 会话 / 设置面板）。
  *
- * 约束（改这里前先读 docs/frame.md 4.17）：
+ * 约束（改这里前先读 docs/framework.md 4.16）：
  *   - 纯原生 JS：不加载、不依赖任何第三方脚本（严格 CSP 下也只允许同源 /app.js）；
  *   - 提示词、回答、工具名与工具输出、**配置值**一律按纯文本渲染（createTextNode / textContent），
  *     绝不使用 innerHTML —— Agent 输出与工作区里的 `.env` 都是不可信内容，HTML 注入会变成页面内

@@ -4,7 +4,7 @@
 
 ## ⚠️ 安全声明
 
-> **派生副本，真源 = [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）。** 要素条目与真源
+> **派生副本，真源 = [`docs/framework.md`](docs/framework.md) 的「安全口径（canonical）」（§4.18）。** 要素条目与真源
 > 一一对应、不增不删；两者不一致时以真源为准。本段不承载独立论证，不得在此扩写要素正文。
 
 HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP server**；工具返回内容直接进入模型上下文。
@@ -16,14 +16,14 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂回环（`local`）listener，`lan` / `external` 恒不注册；只读通知流 `/api/notifications/ws` 随 listener 注册，`lan` / `external` 上同样可见（`external` 在 token 之后、`lan` 上无认证）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
 6. **已知缺口与台账**：清单落 `_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三），本节不复述。
 
-落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；非回环入口（`lan` / `external`）能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
+落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/framework.md` 4.16 与 4.16.1；非回环入口（`lan` / `external`）能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
 <!-- bmad:context -->
 <!-- Verified 2026-11-03 against 31cf7cb. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
 ## 文档布局
 
-**架构权威 = `docs/frame.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。docs/ 全目录索引见 `docs/README.md`。
+**架构权威 = `docs/framework.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。docs/ 全目录索引见 `docs/README.md`。
 
 | 路径 | 用途 |
 |------|------|
@@ -31,13 +31,12 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 | `docs/iteration.md` | 迭代历程与迭代方法 |
 | `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
 | `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
-| `docs/goal-workflow.md` | /goal 声明式工作流导读——改 `goal/` 或 `.heagent/skills/he-goal/` 前先读 |
 | `_bmad-output/epic-overview.md` | 当前状态总览 + epic 总目录（文档地图；2026-11-15 自 consolidated-overview.md 重组定名） |
 | `_bmad-output/open-items.md` | 已知缺口活动台账（「活动（未闭合）条目」节；闭合历史见 `retrospective-all-cycles.md` §三） |
 
 ## 架构骨架
 
-HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**完整数据流、模块详解、调用链见 `docs/frame.md`。**
+HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**完整数据流、模块详解、调用链见 `docs/framework.md`。**
 
 ### 模块依赖 DAG
 
@@ -166,7 +165,7 @@ WS/TLS 排障工具链（`scripts/`，细节见各脚本头注释）：TLS 签�
 
 ## 工程纪律指针
 
-工程纪律四条款（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）的 canonical 在 [`docs/frame.md`](docs/frame.md) §8.4；本文件只留指针不承载正文——纳管块内条目会随 /bmad-project-context refresh 被替换，纪律条款必须置于块外才能存活。
+工程纪律四条款（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）的 canonical 在 [`docs/framework.md`](docs/framework.md) §8.4；本文件只留指针不承载正文——纳管块内条目会随 /bmad-project-context refresh 被替换，纪律条款必须置于块外才能存活。
 
 ## 文档站与发版契约（块外手工区，2026-11-12 /init 核验补入）
 
@@ -182,8 +181,8 @@ WS/TLS 排障工具链（`scripts/`，细节见各脚本头注释）：TLS 签�
 
 ## 已知缺口
 
-完整清单见 `docs/frame.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
+完整清单见 `docs/framework.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
-核心立场：三层非边界 / OS 级沙箱兜底 / 本地与非回环（`lan` / `external` 两档）入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
+核心立场：三层非边界 / OS 级沙箱兜底 / 本地与非回环（`lan` / `external` 两档）入口模式 / 端点可见性的口径见 [`docs/framework.md`](docs/framework.md) 的「安全口径（canonical）」（§4.18）；本段不重复论证。
 
 活动缺口：MCP stdio server 子进程**已进容器**（Epic 53 期二 53-5，2026-11-03；`SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起，不可用时显性降级 + 每次 WARNING）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

@@ -7,8 +7,8 @@
 
 它依次施加两个变异体、跑对应的判据子集、断言**必须变红**，然后无论成败都还原原文件：
 
-- M1 删掉 `docs/frame.md` 4.19 canonical 段的**第 3 要素**（本地模式口径）⇒ G1 必须红，
-  且失败信息里要出现 `docs/frame.md` + `要素 3` + 缺失短语 + 行号。
+- M1 删掉 `docs/framework.md` 4.18 canonical 段的**第 3 要素**（本地模式口径）⇒ G1 必须红，
+  且失败信息里要出现 `docs/framework.md` + `要素 3` + 缺失短语 + 行号。
 - M2 把 `Settings.ws_cli_bypass_enabled` 的默认值改成 `True` ⇒ G2 的安全侧布尔判据必须红，
   且失败信息里要出现 `ws_cli_bypass_enabled`。
 
@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FRAME = ROOT / "docs" / "frame.md"
+FRAME = ROOT / "docs" / "framework.md"
 CONFIG = ROOT / "src" / "heagent" / "config" / "__init__.py"
 TEST = "tests/test_security_posture_contract.py"
 BACKUP_DIR = ROOT / ".heagent" / "tmp" / "mutate-security-posture"
@@ -63,7 +63,7 @@ def _write(path: Path, text: str) -> None:
 def _backup() -> None:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     # 只拷内容，不拷元数据：本机 `/workspace` 是 9p 挂载，copystat 的 utime 会 EPERM。
-    shutil.copyfile(FRAME, BACKUP_DIR / "frame.md.bak")
+    shutil.copyfile(FRAME, BACKUP_DIR / "framework.md.bak")
     shutil.copyfile(CONFIG, BACKUP_DIR / "config.bak")
 
 
@@ -74,7 +74,7 @@ def _restore() -> list[str]:
     """
     errors: list[str] = []
     for bak, target in (
-        (BACKUP_DIR / "frame.md.bak", FRAME),
+        (BACKUP_DIR / "framework.md.bak", FRAME),
         (BACKUP_DIR / "config.bak", CONFIG),
     ):
         try:
@@ -129,12 +129,12 @@ def main() -> int:
             result = _pytest_subset("frame_canonical or numbers_six")
             out = (result.stdout or "") + (result.stderr or "")
             red = result.returncode != 0
-            named = "docs/frame.md" in out and "要素 3" in out
+            named = "docs/framework.md" in out and "要素 3" in out
             print(f"[M1 删第 3 要素] red={red} named={named}")
             if not red:
                 failures.append("M1 没有变红：G1 未能守住要素缺失")
             elif not named:
-                failures.append("M1 变红了但失败信息没点名 docs/frame.md + 要素 3")
+                failures.append("M1 变红了但失败信息没点名 docs/framework.md + 要素 3")
         restore_errors += _restore()
 
         ok, why = _mutate_backend_default()

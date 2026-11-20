@@ -7,7 +7,7 @@
 两条贯穿全 Epic 的协议纪律：
 
 - **稳定错误码**：``HttpErrorCode`` 是客户端可见的封闭集合；新增语义要加成员并同步
-  ``docs/frame.md`` 4.17 的错误码表，不能悄悄复用别的码「凑合」。
+  ``docs/framework.md`` 4.16 的错误码表，不能悄悄复用别的码「凑合」。
 - **文案有界且脱敏**：客户端只收到 :func:`sanitize_message` 收敛后的单行文本（折叠空白 +
   截断），不含 traceback、异常类名、绝对路径或凭据；诊断细节只进服务端日志（AD-9）。
 """
@@ -56,7 +56,7 @@ GENERIC_ERROR_MESSAGE = "request failed"
 
 
 class HttpErrorCode(StrEnum):
-    """客户端可见的稳定错误码（封闭集合，见 ``docs/frame.md`` 4.17 的错误码表）。
+    """客户端可见的稳定错误码（封闭集合，见 ``docs/framework.md`` 4.16 的错误码表）。
 
     语义分组（同一分组内的码可被客户端用同一套文案处理）：
 
@@ -145,7 +145,7 @@ class HealthResponse(BaseModel):
     schema_version: Literal["1"] = "1"
 
 
-# 宿主绝对路径的掩码（协议承诺：客户端文案不含绝对路径，见 ``docs/frame.md`` 4.17）。
+# 宿主绝对路径的掩码（协议承诺：客户端文案不含绝对路径，见 ``docs/framework.md`` 4.16）。
 #
 # 刻意只认「几乎不可能是自然语言」的形态——宁可漏网，也不误伤正常文案：
 #

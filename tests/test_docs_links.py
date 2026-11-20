@@ -1,6 +1,6 @@
 """仓库内文档链接与页内锚点的守卫（**仓库读者口径**，不是 mkdocs 站点口径）。
 
-为什么需要这层守卫：`docs/frame.md` 的大目录与跨文档引用都是**手写** Markdown 链接，而
+为什么需要这层守卫：`docs/framework.md` 的大目录与跨文档引用都是**手写** Markdown 链接，而
 `mkdocs.yml` 的 `validation.links.anchors` 已 ignore（中文标题 + 反引号在 python-markdown 与
 GitHub 的 slug 算法下结果不同，站点侧必然报「no such anchor」）。于是「标题改了、TOC 没跟」
 这类漂移机器无从发现：标题补后缀、跨文件链接的相对路径多写一层 `../`，链接都会静默失效。
@@ -121,13 +121,13 @@ def test_cross_file_links_and_anchors_resolve() -> None:
     assert not bad, "跨文件链接失效:\n" + "\n".join(bad)
 
 
-def test_frame_toc_entries_match_its_headings() -> None:
-    """`docs/frame.md` 的手写目录必须与正文标题一一对得上（本仓最大的手写 TOC）。"""
-    frame = ROOT / "docs" / "frame.md"
+def test_framework_toc_entries_match_its_headings() -> None:
+    """`docs/framework.md` 的手写目录必须与正文标题一一对得上（本仓最大的手写 TOC）。"""
+    frame = ROOT / "docs" / "framework.md"
     text = _FENCE.sub("", frame.read_text(encoding="utf-8"))
     heads = _headings(frame)
     toc = text.split("\n## 一、项目定位")[0]
     entries = [m.group(1) for m in _LINK.finditer(toc) if m.group(1).startswith("#")]
-    assert entries, "frame.md 的目录区没有任何锚点链接"
+    assert entries, "framework.md 的目录区没有任何锚点链接"
     missing = [e for e in entries if e[1:] not in heads]
-    assert not missing, "frame.md 目录锚点与标题不一致:\n" + "\n".join(missing)
+    assert not missing, "framework.md 目录锚点与标题不一致:\n" + "\n".join(missing)

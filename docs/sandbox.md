@@ -1,8 +1,8 @@
 # 沙箱机制导读
 
 > **定位**：导读，不是权威。运行行为以 `src/` 为准；架构权威与配置表在
-> [`frame.md`](frame.md)（DockerRunner 段、配置表 `sandbox_*`、已知缺口）。
-> 本文补三件 `frame.md` 未成篇的内容：**端到端调用链**、**四档后端的行为差异**、
+> [`framework.md`](framework.md)（DockerRunner 段、配置表 `sandbox_*`、已知缺口）。
+> 本文补三件 `framework.md` 未成篇的内容：**端到端调用链**、**四档后端的行为差异**、
 > **`container` 档（2026-10-21）相对旧形态的变化**。
 >
 > **维护触发**：改沙箱后端、档位分级、容器旗标、会话目录约定时同步本文。
@@ -13,7 +13,7 @@
 - 默认后端 = `PassthroughRunner`：直接 `create_subprocess`，**零隔离**。
 - 要真隔离必须换后端：`firejail`（本机 namespace，Linux/macOS）或 `docker`（每命令一次性容器）。
 - **所有后端都只覆盖 `shell` 路径**——文件工具、HTTP 工具、MCP 子进程都不在其中。
-- 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见同目录 [`frame.md`](frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+- 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见同目录 [`framework.md`](framework.md) 的「安全口径（canonical）」（§4.18）；本文件不重复论证。
 
 ## 1. 端到端调用链
 
@@ -129,7 +129,7 @@ MCP stdio 不放松）；② 后端 `tier.can_relax_approval` 为真；③ 后�
 - 降级（用户 2026-11-03 裁定 = **显性降级**）：CLI 缺席 / daemon 不应答 / 探测抛错 ⇒ 仍按原样
   在**宿主**拉起 server，但**每次连接**都打 WARNING，绝不静默假装已隔离（探测本身按 30s TTL 复用）。
 - 已知边界：镜像里没有的二进制（典型 `npx` / node）会显性失败——镜像供给属配置面职责；
-  容器档仍**不是绝对边界**（宿主内核 / daemon 逃逸面见 §4.19）。判据 `tests/test_mcp_stdio_sandbox.py`；
+  容器档仍**不是绝对边界**（宿主内核 / daemon 逃逸面见 §4.18）。判据 `tests/test_mcp_stdio_sandbox.py`；
   整链探针 `scripts/mcp_stdio_container_probe.py`（`--mode fake` 走替身 docker CLI 打通 argv→握手→工具调用；
   `--mode docker` 需在**宿主**跑，容器沙箱内无 docker CLI / socket）。
 
@@ -212,7 +212,7 @@ MCP stdio 不放松）；② 后端 `tier.can_relax_approval` 为真；③ 后�
 
 ## 9. 配置键
 
-不在此重复。见 [`frame.md`](frame.md) 配置表：`sandbox_backend` / `sandbox_mode` /
+不在此重复。见 [`framework.md`](framework.md) 配置表：`sandbox_backend` / `sandbox_mode` /
 `sandbox_network` / `sandbox_enforce` / `sandbox_firejail_path` / `sandbox_docker_image` /
 `sandbox_docker_digest` / `sandbox_session_workspace` / `sandbox_session_keep` /
 `sandbox_dir_retention_days` / `sandbox_memory_limit_mb` / `sandbox_cpu_seconds` /

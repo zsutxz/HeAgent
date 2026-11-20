@@ -3,7 +3,7 @@
 本区按**包**组织，全部由 docstring 自动生成（`mkdocstrings` + `show_submodules`）：每个包页展开该包的
 公开子模块，渲染公开类 / 函数 / 方法的签名与说明。
 
-覆盖口径与 `docs/frame.md` 的架构模块一致（12 个核心包）；入口层（`cli/`、`gui/`）不在内——
+覆盖口径与 `docs/framework.md` 的架构模块一致（12 个核心包）；入口层（`cli/`、`gui/`）不在内——
 它们的可读性由 CLI 输出与测试覆盖（模块边界见 `tests/test_api_docstrings.py`）。
 
 判据：`tests/test_api_docs_pages.py` 钉住「每个核心包都有生成页 + nav 已登记」；站点构建由

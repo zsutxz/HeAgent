@@ -22,7 +22,7 @@ Phase 2 起（façade 化）本模块只保留**依赖注入装配 + 公共入�
   - :meth:`AgentLoop.resume` / ``resume_stream`` —— 按 run_id 恢复未完成的运行；
   - :meth:`AgentLoop.pause` / ``unpause`` / ``is_paused`` —— 协作式暂停/恢复当前循环。
 
-完整数据流 / 调用链见 ``docs/frame.md``。
+完整数据流 / 调用链见 ``docs/framework.md``。
 """
 
 from __future__ import annotations

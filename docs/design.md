@@ -1,6 +1,6 @@
 # HeAgent 设计说明
 
-> 这份文档解释 HeAgent 想解决什么问题、刻意不解决什么问题，以及做设计取舍时遵循的原则。代码级实现细节见 [frame.md](frame.md)。
+> 这份文档解释 HeAgent 想解决什么问题、刻意不解决什么问题，以及做设计取舍时遵循的原则。代码级实现细节见 [framework.md](framework.md)。
 
 ## 定位
 
@@ -63,7 +63,7 @@ HeAgent 是一个面向学习、实验和原型验证的 AI Agent 框架。项�
 - 新增工具或 Provider 时，不需要重写 `AgentLoop`。
 - 阅读 `src/heagent/` 可以顺着模块边界理解系统。
 - 一次运行的上下文、工具执行和子任务结果能被追踪。
-- 用户可以从 `README` 上手，从 `frame.md` 理解实现。
+- 用户可以从 `README` 上手，从 `framework.md` 理解实现。
 
 ## 当前成熟度
 

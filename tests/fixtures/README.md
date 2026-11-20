@@ -9,7 +9,7 @@
 |------|------|------------------|
 | `ws_tls/` | 自签 TLS 证书/私钥（**测试专用，非凭证**；CN=localhost） | `tests/network/test_ws_e2e.py`、`test_ws_auth.py`、`test_ws_server.py`；详情见 `ws_tls/README.md` |
 | `contract_baselines/` | 四份契约基线 JSON（public_exports / transport_routes / exception_types / transport_errors） | `scripts/contract_snapshot.py --check`（CI 直跑）+ `tests/test_contract_baselines.py`；再生：`python scripts/contract_snapshot.py --write` |
-| `js/` | node 探针（最小 DOM 替身）与真浏览器验收驱动 | `tests/test_http_web_ui.py`（探针进 CI）；`console_acceptance.mjs` 仅手动跑（裁定见 `docs/frame.md` §已知缺口） |
+| `js/` | node 探针（最小 DOM 替身）与真浏览器验收驱动 | `tests/test_http_web_ui.py`（探针进 CI）；`console_acceptance.mjs` 仅手动跑（裁定见 `docs/framework.md` §已知缺口） |
 
 ## 约定
 

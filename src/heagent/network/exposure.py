@@ -84,7 +84,7 @@ def is_private_address(host: str) -> bool:
     - CGNAT 段（``100.64.0.0/10``）：既非 ``is_private`` 也非 ``is_global``，按「不是私有」处理。
 
     这是准入白名单，不是安全边界——私有地址只说明「同一局域网内可见」，不说明对面可信
-    （边界地位见 ``docs/frame.md`` §4.19）。
+    （边界地位见 ``docs/framework.md`` §4.18）。
     """
     candidate = _unbracket(host)
     if not candidate:

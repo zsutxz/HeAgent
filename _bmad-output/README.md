@@ -1,6 +1,6 @@
 # `_bmad-output/` 导航
 
-本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/`、[`docs/frame.md`](../docs/frame.md) 和根目录 [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（已归档）为准。
+本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/`、[`docs/frame.md`](../docs/framework.md) 和根目录 [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（已归档）为准。
 
 ## 先看什么
 

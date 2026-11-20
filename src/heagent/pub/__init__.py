@@ -1,6 +1,6 @@
 """HeAgent 公共层（``pub/``）：零运行栈依赖的基础设施。
 
-层次契约（见 ``docs/frame.md`` 三、``tests/test_architecture_contracts.py``）：
+层次契约（见 ``docs/framework.md`` 三、``tests/test_architecture_contracts.py``）：
 
 - 本包内模块**只**依赖标准库、Pydantic 与同层公共模块——不依赖 ``providers`` / ``tools`` /
   ``context`` / ``engine`` / ``agent`` / ``network``，也不依赖任何入口层模块。

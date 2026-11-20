@@ -28,7 +28,7 @@ _HTML = read_web_asset("index.html").decode("utf-8")
 _APP_JS = read_web_asset("app.js").decode("utf-8")
 
 # 三段式版本号（可带 v 前缀）：``"0.10.0"`` / ``'v1.2.3'`` 这类常量一律不许出现在页面脚本里。
-# 中文注释里的 ``4.17``（文档小节号）只有两段，且注释已先被遮掉，不会误伤。
+# 中文注释里的 ``4.16``（文档小节号）只有两段，且注释已先被遮掉，不会误伤。
 _VERSION_LITERAL = re.compile(r"v?\d+\.\d+\.\d+")
 
 

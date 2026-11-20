@@ -64,7 +64,7 @@ _FRESH_BODY = """
 ## 说明
 
 本文件是全机默认值，单个项目可在自己的 `.env` 里覆盖同名键。
-逐键含义见 `.env.example` 与 `docs/frame.md`；改完可跑 `heagent doctor` 复核。
+逐键含义见 `.env.example` 与 `docs/framework.md`；改完可跑 `heagent doctor` 复核。
 """
 
 #: 有效值来源的中文文案（与 ``config.catalog`` 的 ``ConfigSource`` 一一对应）。

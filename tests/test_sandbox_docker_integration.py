@@ -1,6 +1,6 @@
 """Epic 53 期一 Story 53-2：DockerRunner 真实 daemon 链路（``integration`` 标记）。
 
-CI 无 docker（frame.md 五：控制台 UI 同款限制），常规 ``pytest`` 跳过；本机跑：
+CI 无 docker（framework.md 五：控制台 UI 同款限制），常规 ``pytest`` 跳过；本机跑：
 ``pytest -m integration tests/test_sandbox_docker_integration.py``。镜像缺失时用例自行
 构建（默认基座 digest，直连不可达时回退 daocloud 镜像源——见 docker/sandbox/Dockerfile）。
 """

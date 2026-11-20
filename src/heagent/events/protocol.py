@@ -84,7 +84,7 @@ def _now_iso() -> str:
 
 
 # error_kind 封闭映射：「败为何」的高频查询面，未匹配一律 ``exception``
-# 不猜（显性兜底）。映射表与 docs/frame.md 事件契约表同源——改这里须同步文档。
+# 不猜（显性兜底）。映射表与 docs/framework.md 事件契约表同源——改这里须同步文档。
 ERROR_KIND_TIMEOUT = "timeout"
 ERROR_KIND_CANCELLED = "cancelled"
 ERROR_KIND_POLICY_DENIED = "policy_denied"

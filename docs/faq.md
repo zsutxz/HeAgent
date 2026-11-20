@@ -2,7 +2,7 @@
 
 本页面向**已经动手、卡在某一处**的使用者：每条以问句开头，答案首句给结论，随后是可直接
 执行的命令或可粘贴的配置片段。机制与设计动机不在本页展开——需要原理时见
-[架构参考](frame.md)、[沙箱机制](sandbox.md)、[Goal 工作流](goal-workflow.md)。
+[架构参考](framework.md)、[沙箱机制](sandbox.md)。
 
 分三栏：[配置](#一配置) · [使用](#二使用) · [故障排查](#三故障排查)。
 
@@ -339,7 +339,7 @@ heagent run --resume <session-id> "…"       # 指定会话
 ```
 
 产物在 `_he-output/goals/<goal-id>/`。工作流契约见 `.heagent/skills/he-goal/workflow.md`，
-导读见[「Goal 工作流」专题](goal-workflow.md)。
+导读见 [`framework.md` §4.13](framework.md#413-goal-驱动工作流-goal)。
 
 ### `/loop` 怎么用，产物在哪？
 

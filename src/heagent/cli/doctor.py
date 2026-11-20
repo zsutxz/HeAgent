@@ -557,7 +557,7 @@ def _check_tools(settings: Settings, registered: set[str]) -> list[Finding]:
                 code="doctor.approval_tools_unknown",
                 severity=Severity.WARNING,
                 message=f"APPROVAL_TOOLS lists tools that are not registered: {', '.join(unknown)}.",
-                fix="fix the names to match registered tools (see the tool list in docs/frame.md), or remove them",
+                fix="fix the names to match registered tools (see the tool list in docs/framework.md), or remove them",
             )
         )
     if "shell" in settings.safety_blocked_tools:

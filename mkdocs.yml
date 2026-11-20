@@ -44,7 +44,7 @@ plugins:
 
 nav:
   - 首页: README.md
-  - 架构: frame.md
+  - 架构: framework.md
   - 设计理念: design.md
   - 迭代历程: iteration.md
   - 测试与门禁: testing.md
@@ -52,7 +52,6 @@ nav:
   - 错误索引: errors.md
   - 性能调优: performance.md
   - 沙箱机制: sandbox.md
-  - goal 工作流: goal-workflow.md
   - API 参考:
       - 索引: api/index.md
       - heagent.agent: api/agent.md
@@ -83,7 +82,7 @@ validation:
     # ③ `../` 跨目录链接：指向 `docs_dir` 之外（`../AGENTS.md`、`../src/...`、
     #    `../_bmad-output/...`）。Step 04 裁决：不改文档结构、不动 `../` 链接，只配 validation。
     not_found: ignore
-    # ④ 锚点口径差异：`docs/frame.md` 的页内 TOC 是**手写**锚点，按 GitHub 的 slug 规则拼
+    # ④ 锚点口径差异：`docs/framework.md` 的页内 TOC 是**手写**锚点，按 GitHub 的 slug 规则拼
     #    （去 ASCII 与全角标点、空格转 `-`）；mkdocs 走 python-markdown 的 slug 算法，对中文标题
     #    + 反引号 + 括号的处理不同 ⇒ 绝大多数「no such anchor」属于渲染器口径差异。
     #    ⚠ 但这层 ignore 会**连带放过真漂移**：标题里补了后缀（如 `(\`config/\`)` → `(\`config/\` 包)`、

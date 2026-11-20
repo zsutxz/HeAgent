@@ -1,6 +1,6 @@
 """调度 / 长时任务的幂等与租约账本（ledger）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。``ExecutionLedger`` 以
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。``ExecutionLedger`` 以
 **幂等键**为粒度防止同一工作被重复执行，并把进行中的执行以**租约**（lease）占位，避免并发
 重复。记录写到 ``.heagent/ledger/<sha1(key)>.json``。
 

@@ -38,7 +38,7 @@ mkdocs build --strict                  # CI 文档门：动 docs/ 后本地先 s
 
 ## 架构骨架
 
-单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**架构权威 = `docs/frame.md`**（完整数据流/模块详解/调用链）——改 `agent/`、`providers/`、`tools/`、`engine/` 前先读它；门禁红了的分诊手册在 `docs/testing.md`；沙箱机制在 `docs/sandbox.md`。
+单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**架构权威 = `docs/framework.md`**（完整数据流/模块详解/调用链）——改 `agent/`、`providers/`、`tools/`、`engine/` 前先读它；门禁红了的分诊手册在 `docs/testing.md`；沙箱机制在 `docs/sandbox.md`。
 
 ```
 依赖方向（下层禁止反向导入）：
@@ -51,7 +51,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 **工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
-**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；2026-11-15 起 BMAD v7 体系）**：**active initiative = `Goal-3/`**（活跃票树 `tickets/` = epic 70-73；v6 规划件/信封/61-69 票树归 `Goal-2-v6/`；ADR 在仓库根 `decisions/`；epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>` 如 `62.1`；**Epic/Story 状态唯一写目标 = 票树 tickets.toml/plan**，原 sprint-status.yaml 与 epics.md 已归档至 `Goal-2-v6/` 根（2026-11-20 自 archive-v6/ 上移，只读））；`epics/`（27 周期目录）与 `implementation-artifacts/` 为只读历史档（67-ID 契约测试钉死，勿动）；根级台账保留：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体）、`migration-v6-v7.md`（迁移记录）。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
+**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；BMAD v7 体系 2026-11-15 起，2026-11-20 三代定名）**：**第一代 `epics/`**（27 周期目录，最早产物，67-ID 契约钉死勿动）；**第二代 `Goal-2-v6/`**（BMad v6 时代归档：规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61-69 含 retrospective，只读）；**第三代 `Goal-3/tickets/`**（goal-3 活跃票树，Epic 70-73 + 根 tickets.toml——**Epic/Story 状态唯一写目标**，entry 引用 `<epic>.<entry>` 如 `62.1`）；ADR 四件在**仓库根 `decisions/`**。根级台账：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体；§二编号位**有意空缺**保 §三 锚点，勿当缺陷修）、`migration-v6-v7.md`（迁移记录）。`implementation-artifacts/` 已整体解除（2026-11-20），勿再引用。`_bmad/custom/config.user.toml` 的 `active_initiative` 尚指旧名（gitignored 用户配置），走 bmad 流程前需同步 `Goal-3`。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
 
 ## 硬约束
 
@@ -64,7 +64,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 - 全异步：库代码无同步 I/O，CLI 经 `asyncio.run()` 桥接；日志 `logging.getLogger(__name__)` 仅标准库
 - **代码注释只写当前不变量与契约，保持简单**；开发历程（story 号、评审过程、日期沿革）不入代码注释——变更史归 git log 与 BMAD 产物文档；存量历史注释不主动回洗，动到哪处顺手净化哪处
 - Windows 开发机：subprocess `text=True` 必须显式 `encoding="utf-8"`，否则中文输出解码炸
-- `_bmad-output` 台账布局与 ID 守恒由契约测试钉死：`tests/test_deferred_id_registry.py`（活动计数诚实性，四站点）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）——动 `open-items.md`/`epic-overview.md`/`retrospective`/周期 `deferred-work.md` 前先读测试头部注释，改台账路径须同步 `cli/display.py::_DEFERRED_LEDGER` 回退链
+- `_bmad-output` 台账布局与 ID 守恒由契约测试钉死：`tests/test_deferred_id_registry.py`（活动计数诚实性，三站点 = open-items / epic-overview / _bmad-output README）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）——动 `open-items.md`/`epic-overview.md`/`retrospective`/周期 `deferred-work.md` 前先读测试头部注释，改台账路径须同步 `cli/display.py::_DEFERRED_LEDGER` 回退链
 
 ## 扩展与测试
 
@@ -75,7 +75,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 ## 安全口径
 
-Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证；WS 绑非回环分两档——`external`（默认）强制 Bearer token 且缺 token 拒绝启动，配齐 `WS_TLS_*` 即 `wss`（「加密 + token」才是生产形态，客户端信任锚是 SPKI-SHA256 pin，重签叶证书不改 pin）；`lan`（显式 `WS_LAN_NO_AUTH=true` + 私有地址）无认证、无 TLS、同网段可驱使代理、每次启动 WARNING，且与 TLS 互斥；**非回环入口能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
+Canonical 在 `docs/framework.md` §4.18：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证；WS 绑非回环分两档——`external`（默认）强制 Bearer token 且缺 token 拒绝启动，配齐 `WS_TLS_*` 即 `wss`（「加密 + token」才是生产形态，客户端信任锚是 SPKI-SHA256 pin，重签叶证书不改 pin）；`lan`（显式 `WS_LAN_NO_AUTH=true` + 私有地址）无认证、无 TLS、同网段可驱使代理、每次启动 WARNING，且与 TLS 互斥；**非回环入口能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 ## Git
 
