@@ -51,7 +51,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 **工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
-**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；2026-11-15 起 BMAD v7 体系）**：**active initiative = `initiative-heagent/`**（信封 + `tickets/` 票树；epic 全局编号 **61–69**，entry 引用 `<epic>.<entry>` 如 `62.1`；**Epic/Story 状态唯一写目标 = 票树 tickets.toml/plan**，原 sprint-status.yaml 已归档至 `initiative-heagent/archive-v6/`）；`epics/`（27 周期目录）与 `implementation-artifacts/` 为只读历史档（67-ID 契约测试钉死，勿动）；根级台账保留：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体）、`migration-v6-v7.md`（迁移记录）。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
+**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；2026-11-15 起 BMAD v7 体系）**：**active initiative = `initiative-heagent/`**（信封 + `tickets/` 票树；epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>` 如 `62.1`；**Epic/Story 状态唯一写目标 = 票树 tickets.toml/plan**，原 sprint-status.yaml 已归档至 `initiative-heagent/archive-v6/`）；`epics/`（27 周期目录）与 `implementation-artifacts/` 为只读历史档（67-ID 契约测试钉死，勿动）；根级台账保留：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体）、`migration-v6-v7.md`（迁移记录）。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
 
 ## 硬约束
 
