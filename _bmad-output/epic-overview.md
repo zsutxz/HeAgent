@@ -1,6 +1,6 @@
 # HeAgent Epic 总览
 
-> **生成与维护**：2026-08-18 建立（原 `consolidated-overview.md`），按代码与 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）持续校正；**2026-11-15 重组拆分**——周期详解与台账归档迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§二–§五），活动台账独立为 [`open-items.md`](open-items.md)。本文保留当前口径：状态、缺口、路线图、待完成索引与文档地图（epic 总目录）；未闭合问题清单见 [`open-items.md`](open-items.md)。
+> **生成与维护**：2026-08-18 建立（原 `consolidated-overview.md`），按代码与 `Goal-2-v6/sprint-status.yaml`（已归档）持续校正；**2026-11-15 重组拆分**——周期详解与台账归档迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§二–§五），活动台账独立为 [`open-items.md`](open-items.md)。本文保留当前口径：状态、缺口、路线图、待完成索引与文档地图（epic 总目录）；未闭合问题清单见 [`open-items.md`](open-items.md)。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 1.1 当前状态（截至 2026-11-15）
 
-- **规划产物**：v6 `sprint-status.yaml` 已归档（64 个 epic 键，2026-11-15 实测）；Epic/Story 状态自 2026-11-15 起以 `initiative-heagent/tickets/tickets.toml` 票树为唯一写目标（Epic 61-73 现全部 closed）；16 个 epic 的 retrospective `optional` 已裁定不再补做（§1.4-C）。产物整理沿革（`patches/` 解散、deferred 台账重组、story 按 Epic 分组）见 retrospective。
+- **规划产物**：v6 `sprint-status.yaml` 已归档（64 个 epic 键，2026-11-15 实测）；Epic/Story 状态自 2026-11-15 起以 `Goal-3/tickets/tickets.toml` 票树为唯一写目标（Epic 61-73 现全部 closed）；16 个 epic 的 retrospective `optional` 已裁定不再补做（§1.4-C）。产物整理沿革（`patches/` 解散、deferred 台账重组、story 按 Epic 分组）见 retrospective。
 - **架构优化周期（2026-09-21~22 交付，非 BMad 流程、无 epic 归属）**：6 阶段全部 done——组合根收敛（`ResolvedRuntimeConfig`）/ loop façade（策略五模块 + `mark_terminal`）/ workflow 解耦（`goal/application.py`）/ 三域拆分（`tools/sandbox/` 包、MCP `client`+`registry_bridge`、skills 四文件）/ 子进程监督统一 / safe-open 单点 / **事件契约 v2**（`duration_ms`/`error_kind` + workflow_step_* 事件）+ benchmark 基建。周期速览见 retrospective §一 12.7；`implementation-artifacts/arch-optimization-cycle/` 档案 **2026-11-20 裁定删除**（仅存 git 历史）。
 - **2026-10-27~11-15 交付批（125 提交）**：Epic 58/59/60 交付、A51 发布缺口部分闭合（CHANGELOG 载体 + 版本真源守卫 `0.8.4→0.9.0` + mkdocs strict CI 门）、斜杠命令 `/provider`/`/model` 改名、`config/catalog.py` 拆 9 子模块、全库审查 P2-P4 修复、A54 网络族单源化、台账重组收口（本文件拆分定名）。明细逐条见 git log 与各周期产物。
 - **测试基线**：全量 `pytest` **5610 passed / 0 failed**、覆盖率 **93%**（2026-11-19 实测，Epic 73 门禁；gate 87）；`scripts/quality_gate.py` **六门**（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy / **bandit `-ll`**，与 CI lint job 同参数）；deselect = integration + benchmark + 本机 WSL2 恒红 3 条端口断言；代码量 `src/` 47,525 行 + `tests/` 65,014 行（2026-11-15 实测）。
@@ -29,10 +29,10 @@
 
 > 完整清单（活动台账项——当前 18 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
-- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `initiative-heagent/decisions/adr-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 与 `.env` 姿态切换挂 **A76**；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
+- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `decisions/adr-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 与 `.env` 姿态切换挂 **A76**；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
 - ✅ **Epic 72 WS 内网明文接入（第一步，2026-11-19 交付）**：5/5 `done`——`lan` 档免 token（三准入 + 每启动 WARNING）、第二 listener 退役（`WS_EXTERNAL_*` 五键 + 9301 + setup_ws_external.py 全删）、doctor `ws_lan_*` 三查、安全口径双档化、容器内端到端取证；retro `accepted-with-open-items`；残差 **A75**。
 - ✅ **Epic 61 Web 检索工具周期（已闭合，2026-11-16）**：61.1 引擎层 `66a5b9f` + 61.2 工具面 `1877250` + 61.3 文档收口，三票 done；真实密钥冒烟经用户裁定跳过，挂账 **A55**（等 WEB_SEARCH_API_KEY）。
-- ✅ **Epic 63 测试体系增强（已收口，2026-11-18）**：63.1–63.8 全 finished（7 done + 63.4 dropped）、`src/` 零改动；CI 基准强制门禁、fixtures 单一宿、参数化 78%；retro `accepted`，三条 ADR 落 `initiative-heagent/decisions/`。
+- ✅ **Epic 63 测试体系增强（已收口，2026-11-18）**：63.1–63.8 全 finished（7 done + 63.4 dropped）、`src/` 零改动；CI 基准强制门禁、fixtures 单一宿、参数化 78%；retro `accepted`，三条 ADR 落 `decisions/`。
 - ✅ **Epic 64 用户体验优化（已收口，2026-11-18）**：14/14 `done`；retro `accepted`；残差 **A56**（进度跨进程不可见）。
 - ✅ **Epic 65 工程自动化（已收口，2026-11-18）**：9/9 `done`（CI↔本地门禁映射契约、PR 触发面守卫、release 失败摘要、`.devcontainer/`、结构化日志 `LOG_FORMAT`、`DEBUG_MODE`、`scripts/profile_run.py`）；retro `accepted`；残差 A58 同日闭合。
 - ✅ **Epic 66 性能优化（已收口，2026-11-18）**：5/5 `done`——元数据缓存 LRU（接线四类 provider）、技能匹配索引+缓存、技能包 entry 单读、SDK 延迟导入；retro `accepted`；残差 **A59**。
@@ -49,7 +49,7 @@
 
 ### 1.4 待完成工作（2026-09-24 整理）
 
-> **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
+> **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `Goal-2-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
 #### A. 活动台账未闭合条目（18 条——A34/A41/A54/A55/A56/A59/A62/A65–A73、A75/A76，**索引**）
 
@@ -73,7 +73,7 @@
   **裁定（2026-11-19）：不再补做**——retro 的唯一产出是行动项，这些周期的行动项已进
   `open-items.md` / `retrospective-all-cycles.md`；键值住已归档只读的 v6 yaml，不再驱动任何流程；
   且触发时的现场证据（会话、评审记录）多数已不可复现。回退口 = 用户指定某一 epic 要正式 retro 时按
-  v7 形态补到 `initiative-heagent/tickets/<epic>/`。
+  v7 形态补到 `Goal-3/tickets/<epic>/`。
 - **Epic 60 结构精简未登记 yaml**（2026-11-15 发现）：批次 9 五卡已于 2026-11-06~07 全部交付
   （`epics/epic-60-结构精简周期/` 5 份 spec frontmatter 均 `done`）。**裁定（2026-11-19）`retired`**：
   v6 yaml 已归档只读，补键没有消费方；交付事实由周期目录 spec frontmatter 与本文件 §1.3 承载。
@@ -113,7 +113,7 @@
 | `_bmad-output/epic-overview.md` | **本文——当前状态与导航 + epic 总目录**（2026-11-15 自 consolidated-overview.md 重组定名；周期详解与台账归档已迁 retrospective-all-cycles.md） |
 | `_bmad-output/open-items.md` | **唯一活动台账**（未闭合问题清单，2026-11-15 定名） |
 | `_bmad-output/retrospective-all-cycles.md` | **历史记录唯一载体**（2026-11-15 四并二：周期回顾/详解 + deferred 闭合台账 §三 + review 闭合索引 §五） |
-| `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml` | **sprint 状态单一权威**（全 15 周期；2026-11-15 归档） |
+| `_bmad-output/Goal-2-v6/sprint-status.yaml` | **sprint 状态单一权威**（全 15 周期；2026-11-15 归档） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线周期原始产物（Epic 1-10） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
 | `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/` | Sandbox 硬化（Epic S1-S4） |
@@ -137,7 +137,9 @@
 | `_bmad-output/epics/epic-59-MEMORY语义压缩周期/` | MEMORY 语义压缩（Epic 59，2026-10-29 立项 → 11-03 收口；`fact_compact` + dream 接线） |
 | `_bmad-output/epics/epic-60-结构精简周期/` | 结构精简批次 9（2026-11-06~07 五卡交付；**yaml 未登记键**，见 §1.4-C） |
 | `_bmad-output/epics/epic-61-Web检索周期/` | Web 检索工具（Epic 61，2026-11-13 立项，2026-11-16 交付闭合；SPEC.md + 票树 3 story 全 done，冒烟残差挂账 A55） |
-| `_bmad-output/initiative-heagent/` | 项目改进计划 initiative（规划四件套 + v7 票树 + archive-v6；2026-11-11 立项，2026-11-15 迁移） |
+| `_bmad-output/Goal-2-v6/` | **第二代** BMad v6 时代归档（规划四件套 + 信封 initiative-heagent.md + sprint-status.yaml + 票树 Epic 61–69 含 retrospective；2026-11-11 立项，2026-11-20 定名归档） |
+| `_bmad-output/Goal-3/tickets/` | **第三代 goal-3 活跃票树**（Epic 70–73 + 根 tickets.toml；Epic/Story 状态唯一写目标） |
+| 仓库根 `decisions/` | ADR 决策记录（4 ADR + README；2026-11-18 起，2026-11-20 上移仓库根） |
 | `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/arch-optimization-cycle/` | ~~架构优化周期档案~~ **2026-11-20 用户裁定删除**（非 BMad 流程、无 epic 归属；周期速览在 retrospective §一 12.7，仅存 git 历史） |

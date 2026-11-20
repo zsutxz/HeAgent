@@ -1,6 +1,6 @@
 # `_bmad-output/` 导航
 
-本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/`、[`docs/frame.md`](../docs/frame.md) 和根目录 [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（已归档）为准。
+本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/`、[`docs/frame.md`](../docs/frame.md) 和根目录 [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（已归档）为准。
 
 ## 先看什么
 
@@ -8,27 +8,24 @@
 | ------ | ------ |
 | 了解全周期与编号 + 活动台账 | [`open-items.md`](open-items.md)（2026-11-15 由 consolidated-overview.md 并入活动台账后定名） |
 | 查历史记录与跨周期教训 | [`retrospective-all-cycles.md`](retrospective-all-cycles.md) |
-| 查已定型的系统决策（ADR） | [`initiative-heagent/decisions/`](initiative-heagent/decisions/)（2026-11-18 起） |
+| 查已定型的系统决策（ADR） | [`decisions/`](../decisions/)（仓库根，2026-11-18 起；2026-11-20 上移） |
 | 查看未闭合遗留项 | [`open-items.md`](open-items.md) 的「活动（未闭合）条目」节（**活动项 18 条**：A34/A41/A65/A68 `frozen`；A54/A55/A56/A59/A62/A66/A67/A69–A73、A75/A76 `active`） |
-| 查看单一状态来源 | [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（已归档） |
+| 查看单一状态来源 | [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（已归档） |
 | 深入某个周期 | `epics/<周期>/` 下的 `brief.md`、`prd.md`、`architecture.md`、`epics.md` 和 `stories/` |
 
 ## 目录结构
 
 ```text
 _bmad-output/
-├── open-items.md                     当前状态、路线图、文档地图 + **唯一活动台账**（2026-11-15 由 consolidated-overview.md 与 implementation-artifacts/open-items.md 合并定名）
-├── retrospective-all-cycles.md       **历史记录唯一载体**（周期回顾/详解 + deferred 闭合台账 + review 闭合索引）
-├── initiative-heagent/                v7 initiative：规划四件套 + 票树；sprint-status.yaml 归档于 archive-v6/
-│   └── decisions/                     ADR 决策记录（2026-11-18 起；一条一文件，索引见该目录 README）
-├── implementation-artifacts/
-│   └── README.md                     实现产物目录索引（活动台账已上移根目录 open-items.md）
-├── epics/                             周期产物（活跃与已归档同目录混排）
-│   ├── epic-11-18-MCP集成周期/
-│   ├── epic-51-goal-workflow优化周期/
-│   └── …（共 27 个周期目录，Epic 01–61 + S1–S4——2026-11-15 archive/ 已并入）
-└── specs/                             quick-dev 本地工作件（通常 gitignored）
+├── open-items.md                     **唯一活动台账** + 当前状态入口（2026-11-15 定名）
+├── retrospective-all-cycles.md       **历史记录唯一载体**（周期详解 §一 + deferred 闭合台账 §三 + review 索引 §五）
+├── epic-overview.md                  当前状态总览 + epic 总目录 + 文档地图
+├── migration-v6-v7.md                v6→v7 迁移记录（2026-11-15）
+├── epics/                            第一代：最早周期产物（27 个周期目录，Epic 01–61 + S1–S4，活跃与已归档混排）
+├── Goal-2-v6/                        第二代：BMad v6 时代归档（规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61–69 含 retrospective；只读）
+└── Goal-3/                           第三代：goal-3 活跃票树（Epic 70–73 + 根 tickets.toml）
 ```
+（ADR 决策记录在仓库根 `decisions/`，不属本目录。）
 
 ## 归档规则
 
@@ -42,6 +39,6 @@ _bmad-output/
 > 当前状态见 [`epic-overview.md`](epic-overview.md)；活动项条数与 ID 的真值见 [`open-items.md`](open-items.md)
 > 「活动（未闭合）条目」节（上表与本节之外，本文不再另行声明计数——旧快照里的数字不作为现值）。
 
-Epic 1–56 与 S1–S4 均已交付（Epic 53 于 2026-10-24 walkthrough 收口；54/55/56 随 `98ef6d8` 入库并随 0.8.2 发布）；**Epic 57 retro 遗留清理在途**（2026-10-26 立项，4 story 已 done）。Epic 48 已于 2026-09-27 从代码删除（`4217b5d`），历史见 `epics/epic-48-TCP网络接口周期/`。当时的完整状态以 [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（v6，已归档）为准。
+Epic 1–56 与 S1–S4 均已交付（Epic 53 于 2026-10-24 walkthrough 收口；54/55/56 随 `98ef6d8` 入库并随 0.8.2 发布）；**Epic 57 retro 遗留清理在途**（2026-10-26 立项，4 story 已 done）。Epic 48 已于 2026-09-27 从代码删除（`4217b5d`），历史见 `epics/epic-48-TCP网络接口周期/`。当时的完整状态以 [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（v6，已归档）为准。
 
 2026-11-13：立项 Epic 61 Web 检索工具周期（backlog，spec 见 `epics/epic-61-Web检索周期/`）；同批复盘的 ② 多模态图像输入经用户裁定不做，③ 用户可配置 hooks 经核 Epic 32 已交付、撤销立项（残差转台账 A52/A53）。

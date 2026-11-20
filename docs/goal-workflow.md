@@ -23,9 +23,9 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 | 需求文档文件名（`brief.md`；存量 goal 回落 `require.md` / `GOAL.md`） | `src/heagent/goal/document.py` 的 `_goal_document_path()` | 解析出的文件名经 prompt 的 `Goal document` 行（占位符 `{goal_document}`）注入；workflow.md 散文与模板都不写文件名，改名只动代码一处 |
 | Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
-| 全仓库 Epic/Story 状态 | `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`（v6，已归档） | 规划历史的状态记录；不是 `/goal` 运行时状态。v7 起状态真源换成 `_bmad-output/initiative-heagent/tickets/` 票树 |
+| 全仓库 Epic/Story 状态 | `_bmad-output/Goal-2-v6/sprint-status.yaml`（v6，已归档） | 规划历史的状态记录；不是 `/goal` 运行时状态。v7 起状态真源换成 `_bmad-output/Goal-3/tickets/` 票树 |
 
-**`sprint-status.yaml` 的写权限**：该文件现位于 `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`
+**`sprint-status.yaml` 的写权限**：该文件现位于 `_bmad-output/Goal-2-v6/sprint-status.yaml`
 （v6 归档、只读）。`/goal` 的步骤 06 在正文与 `Never` 列表里明令不得写入；`bmad-build`（显式调用时）本会经
 `sync-sprint-status.md` 推进 Story 状态（`in-progress` → `review`）并把父 Epic 从 `backlog` 抬起，
 本项目已在 `_bmad/custom/bmad-build.toml` 用一条 `persistent_facts` 覆盖该子步骤，使它同样跳过写入

@@ -5,7 +5,7 @@
 > 基准: **3765 passed / 50 skipped / 28 deselected**（2026-10-23 实测）、ruff / mypy clean、覆盖率 **92.47%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
-> **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 / 50 有正式回顾；Epic 49 依据交付记录与评审产物摘录，状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准。
+> **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 / 50 有正式回顾；Epic 49 依据交付记录与评审产物摘录，状态以 `Goal-2-v6/sprint-status.yaml`（已归档）为准。
 
 ---
 
@@ -718,7 +718,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 #### 12.8 网络入口三周期（Epic 48–50）· 2026-09-22 – 2026-09-27
 
-> **来源（逐条可查，不做推测式回顾）**：Epic 48 按其正式回顾摘录；Epic 49 / 50 依据各自周期目录的交付与评审产物摘录。Epic 50 的评审已合并为 `epics/epic-50-网页控制台周期/reviews.md`，其回顾见同目录 `retrospective-epic-50.md`（2026-09-27 补做）。状态口径以 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准。
+> **来源（逐条可查，不做推测式回顾）**：Epic 48 按其正式回顾摘录；Epic 49 / 50 依据各自周期目录的交付与评审产物摘录。Epic 50 的评审已合并为 `epics/epic-50-网页控制台周期/reviews.md`，其回顾见同目录 `retrospective-epic-50.md`（2026-09-27 补做）。状态口径以 `Goal-2-v6/sprint-status.yaml`（已归档）为准。
 
 | 维度 | 要点 |
 |------|------|
@@ -801,7 +801,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 十五、统一编号体系与状态矩阵
 
-#### 15.1 Epic 状态矩阵（权威 = `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`，2026-09-24 复核；2026-11-15 归档）
+#### 15.1 Epic 状态矩阵（权威 = `_bmad-output/Goal-2-v6/sprint-status.yaml`，2026-09-24 复核；2026-11-15 归档）
 
 | Epic | 主题 | Stories | 状态 |
 |------|------|---------|------|
@@ -958,7 +958,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | A42 | 违规写无补救语义（2026-11-05 闭合） | 条目原文要求「人工清理指引**或**回滚工具」，本轮交付指引面：判负时把越集路径 + 基线 revision 写进 `workflow_write_audit` 事件留档（闩后串行重跑的新基线已含旧违规 ⇒ 该事件是唯一持久记录），reason 内给 `git diff <base> -- <path>` / `git restore --source=<base> -- <path>`（新建路径改为删除）。判据 `::test_violation_event_records_paths_base_and_remediation` + 变异 M2 / M3。残余 = 自动回滚未做（需会话前快照，属 AD-20 层，非本条目要求） |
 | A43 | `_host_artifact_relpath` 参照系（2026-11-05 闭合） | 旧记载的两条前提经实测**否证**：`Path.relative_to` 在 Windows flavour 大小写不敏感、唯一调用点 `_goal_verify_workspace` 已 `.resolve()`。真实残量 = 三源参照系不同（`git diff --name-only` = 仓库根相对、`git ls-files --others` = cwd 相对、产物 = 工作区相对）；收窄 = `_git_toplevel` + `_repo_relpath` 把产物换算成仓库根相对后并入 tracked 豁免，untracked 侧维持 cwd 相对（同根部署为恒等变换）。判据 `::test_repo_relpath_reference_system_branches` / `::test_subdir_workspace_excludes_host_artifact` / `::test_subdir_workspace_untracked_artifact_not_warned` + `scripts/mutation/mutate_write_audit_reference.py` 4/4 红。**2026-11-05 用户裁定：残余可读作已足够**（`GIT_DIR` 重定向 / 走不到 `.git` 时退回旧语义，方向是多判负、不漏判）⇒ 本轮闭合，不另立收窄周期 |
 | A51 | 发布缺口：无 CHANGELOG 载体、无「版本号 ↔ git tag」守卫（origin=新增，2026-11-11 S-14 落账） | `CHANGELOG.md` 建立（Keep a Changelog 形态：`## [Unreleased]` 常驻 + `## [0.9.0] - 2026-11-11` 首节，并写明 0.9.0 之前的历史未逐条回填及追溯命令）。版本真源守卫 = `tests/test_release_workflow_contract.py` 共 6 例：两处真源相等（ast 取 `__version__` + tomllib 取 `project.version`）/ 版本纯 `X.Y.Z` / HEAD 带 `v*` tag 时 tag == 版本 / CHANGELOG 有 `Unreleased` 段 / CHANGELOG 有当前版本节且带日期 / CHANGELOG 标题格式合法且 `Unreleased` 不带日期。变异 **6/6 红**（改 pyproject 单侧 / 写成 `0.9` / 副本打 `v1.0.0` / 删 `Unreleased` / 版本节改名 / `Unreleased` 带日期）。`pyproject.toml` 的 `[project.urls]` 增 `Changelog` 指向 CHANGELOG.md。2026-11-11 闭合 |
-| A57 | Story 62.1 收口时登记的三条 defer（v7 工具链契约面） | **origin=新增（2026-11-18 Epic 62/64 收口回填；同日三条全部闭合）**。① `workflow.md` 的 `pull` 契约失真 → 文档对齐代码：改 `pull <dir> <id>` 并注明 `dir` 必填、不回落 active initiative；判据 `tickets.py pull 62.1` 实测 `error: the following arguments are required: id`（`tickets.py:1838-1840` 确为必填 `dir` + `id`）。② `70f1484`（`/loop` v7 重写）无票树 coverage → 裁定**不建追认票、也不立 ADR**：该提交只改 `.heagent/skills/loop/` 的 `SKILL.md` / `workflow.md` / 三份模板，无 `src/` 代码与可执行判据，追认票会造出「有票无 verify 无 build 记录」的假凭据（与 Epic 62 retro V4「票态凭据不对称」同病）；`decisions/README.md` 的 ADR 门槛要求「仓库内无既有记录」，而 v7 口径已记在 `AGENTS.md` / `CLAUDE.md` 的「BMAD v7 产物体系」节。溯源落点 = `initiative-heagent/initiative-heagent.md` Notes 末行（票树根文件即达）。③ `sync_roles.py` 悬空引用 → repo-wide 实测 `sync_roles` 零命中，现行入口是 `scripts/sync_bmad_role_skills.py`。**2026-11-19 补修**：①的修复当时只覆盖语法说明行，`workflow.md:351` 的散文仍写 `tickets.py pull <ref>` ⇒ 已改为 `pull <epic-dir> <id>` 并注明参数含义 |
+| A57 | Story 62.1 收口时登记的三条 defer（v7 工具链契约面） | **origin=新增（2026-11-18 Epic 62/64 收口回填；同日三条全部闭合）**。① `workflow.md` 的 `pull` 契约失真 → 文档对齐代码：改 `pull <dir> <id>` 并注明 `dir` 必填、不回落 active initiative；判据 `tickets.py pull 62.1` 实测 `error: the following arguments are required: id`（`tickets.py:1838-1840` 确为必填 `dir` + `id`）。② `70f1484`（`/loop` v7 重写）无票树 coverage → 裁定**不建追认票、也不立 ADR**：该提交只改 `.heagent/skills/loop/` 的 `SKILL.md` / `workflow.md` / 三份模板，无 `src/` 代码与可执行判据，追认票会造出「有票无 verify 无 build 记录」的假凭据（与 Epic 62 retro V4「票态凭据不对称」同病）；`decisions/README.md` 的 ADR 门槛要求「仓库内无既有记录」，而 v7 口径已记在 `AGENTS.md` / `CLAUDE.md` 的「BMAD v7 产物体系」节。溯源落点 = `Goal-2-v6/initiative-heagent.md` Notes 末行（票树根文件即达）。③ `sync_roles.py` 悬空引用 → repo-wide 实测 `sync_roles` 零命中，现行入口是 `scripts/sync_bmad_role_skills.py`。**2026-11-19 补修**：①的修复当时只覆盖语法说明行，`workflow.md:351` 的散文仍写 `tickets.py pull <ref>` ⇒ 已改为 `pull <epic-dir> <id>` 并注明参数含义 |
 | A35 | HTTP 入口会话/事件持久化（读侧回放） | **origin=新增（2026-11-05）**；**2026-11-18 用户裁定改判：做读侧回放**（原裁定「不做」，触发条件未到）。实现：`cli/run_history.py` 从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 读回引擎事件（复用 `events.sink.read_rollout`）并映射成 `RunEventPayload`，经 `build_http_app(history=...)` 注入；`GET /api/runs/<id>/events` 在**进程内无该记录**时一次性回放（响应头 `x-heagent-replay: rollout`），支持 `Last-Event-ID` 断点，未注入来源或文件缺失维持 404。粗粒度且如实标注：rollout 不记工具输出原文 ⇒ 结果行标「未记入 rollout」；文本增量未落盘 ⇒ `assistant_message` 以一条 `done` 交付完整答案；尾部无终态则补 `cancelled` 说明。run_id 过白名单（`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`）+ `resolve()` 越界校验（挡住 `../`、绝对路径、超长名）。判据 `tests/network/test_http_run_history_replay.py`（16 例：映射 / 失败保留错误 / 缺终态补说明 / 越界 run_id / 截断行容错 / 端点回放 / Last-Event-ID / 两种 404）。**不做**：写侧持久化（在途 run 跨进程续跑、事件缓冲落盘） |
 | A36 | 全局级 MCP 注入签名配置入口 | **origin=新增（2026-11-05）**；**2026-11-18 用户裁定改判：做**（原裁定「保留 = 只告警不加载」）。现语义：项目级 `.heagent/injection_signatures.json` + 全局级 `<用户 home>/.heagent/injection_signatures.json` **两级都加载**，全局作底、同名 `pattern` 由项目级覆盖，条目校验逐条报错并**带来源**（global / project），缺文件是合法空载；两级仍在进程内缓存一次。判据 `tests/test_mcp_mapping.py`（`test_global_signature_file_is_loaded` / `test_project_signature_overrides_global_same_pattern` / `test_missing_global_signature_file_stays_silent` / `test_global_bad_entry_logs_its_source`）+ 变异 3/3 全红（`scripts/mutation/mutate_mcp_signature_hint.py` 已按新语义重写）。边界地位不变：签名围栏仍是启发式、须 OS 沙箱兜底 |
 | A53 | PostToolUse hook stdout 不进对话上下文 | **origin=新增（2026-11-13）**；**2026-11-18 用户裁定：做**。PostToolUse 的**非空 stdout 进对话上下文**：`HookManager.run_post_tool` 返回文本（每条 ≤2000 / 单次调用累计 ≤4000 字符，超限打 `…[hook output truncated]`），`agent/tool_execution` 以 `[PostToolUse hook output]` 附注追加到**工具结果**（不改正文、不落成 USER 消息——hook 输出不该获得用户指令权重），且注入点在 ledger 记账**之后**（幂等缓存只存原始工具输出）。判据 `tests/test_hooks.py`（4 例单元：透传 / 空输出 / matcher / 两级截断；2 例端到端：附注落地 / 静默 hook 不改结果） |
@@ -1118,7 +1118,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 52-3 AC1（端到端围栏贯通冒烟） | **已闭合**（2026-10-26，Epic 57-3）：真实注册表 `file_write` handler 经 `policy.evaluate_tool_call → executor.execute` 全链贯通 | `tests/test_write_allowlist.py::test_e2e_chain_*`（2 例）；附带发现见 archive 已归档表 |
 | A52（2026-11-16 交付） | **已闭合**：`HookManager.load` 坏配置 fail-fast——坏 JSON/顶层非对象/`hooks` 非数组/单条非法均显性报错（指明文件与条目序号），文件不存在保持合法空载；matcher-on-session 告警语义不变 | `src/heagent/engine/hooks.py::load`；`tests/test_hooks.py`（3 例翻转 + 2 例新增） |
 
-当前实现状态以源码、测试、`docs/frame.md` 和 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准；本文件不重复复制完整验收报告。
+当前实现状态以源码、测试、`docs/frame.md` 和 `Goal-2-v6/sprint-status.yaml`（已归档）为准；本文件不重复复制完整验收报告。
 
 
 ---

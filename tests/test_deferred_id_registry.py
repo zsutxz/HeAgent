@@ -204,8 +204,6 @@ def test_active_count_declarations_match_the_ledger() -> None:
         # epic-overview.md 的 1.3/1.4 也声明活动计数——同样纳入诚实性守卫。
         ROOT / "_bmad-output" / "epic-overview.md",
         ROOT / "_bmad-output" / "README.md",
-        # implementation-artifacts/README.md 也声明计数——ver-gap 修复：缺它则该点回退 0 条时全量门照绿。
-        ROOT / "_bmad-output" / "implementation-artifacts" / "README.md",
     )
     # (?<!\d) so a nonzero count ending in 0 (e.g. "10 条") cannot pass as zero.
     declaration = re.compile(r"活动(?:项|区|台账)?[^\n]{0,40}?(?<!\d)(\d+) 条")

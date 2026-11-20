@@ -2045,7 +2045,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 > Epic/Story 列表存放在工作流自己的 `epics.md`。工作流能力面校验由
 > `goal/workflow_support.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
 
-模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`（v6，已归档）维护（BMad 外部工具写入，src 内无路径校验；v7 的状态真源换成 `initiative-heagent/tickets/` 票树）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
+模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/Goal-2-v6/sprint-status.yaml`（v6，已归档）维护（BMad 外部工具写入，src 内无路径校验；v7 的状态真源换成 `Goal-3/tickets/` 票树）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
 
 ### 8.3 声明式敏捷流程收口
 

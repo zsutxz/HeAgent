@@ -7,7 +7,7 @@
 **BMAD v7 是规划与实现的唯一正本。** 本工作流不再自建 epic/story 清单：规划产物（initiative 信封、
 epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 **active initiative 的票树**，
 由 `_bmad/method/scripts/tickets.py` 读写。v6 的 `epics.md` 与 `_bmad-output/sprint-status.yaml`
-**已废弃**（前者随 v6 归档在 `initiative-*/archive-v6/`），任何步骤都不得再写、也不得再以它们为
+**已废弃**（前者随 v6 归档在 `initiative-*/` 根，2026-11-20 自 archive-v6/ 上移），任何步骤都不得再写、也不得再以它们为
 story 清单。
 
 本工作流产出的**持久性非代码产物**：规划文档（PRD、架构 spine、epic 文件、`tickets.toml`、plan）

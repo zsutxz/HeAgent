@@ -175,8 +175,8 @@ WS/TLS 排障工具链（`scripts/`，细节见各脚本头注释）：TLS 签�
 
 ## BMAD v7 产物体系与读范围（块外手工区，2026-11-15 migration-1 后接线）
 
-- **Active initiative = `_bmad-output/initiative-heagent/`**（`_bmad/custom/config.user.toml` 的 `active_initiative`；epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py）。**日常规划/实现/评审读取范围钉在 initiative 内**：信封 + 当前 epic 文件 + entry 的 plan；历史档是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
-- **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 build 62.1）；独立 intent 落 `_bmad-output/initiative-heagent/backlog/`；被替代的旧文档归档进同目录 `archive/`；`archive-v6/` 是 v6 追踪源归档（epics.md + sprint-status.yaml），台账多处活性引用仍指向它，勿删。
+- **Active ticket store = `_bmad-output/Goal-3/tickets/`**（epic 70-73 活跃票；61-69 已归档进 `Goal-2-v6/tickets/`；`_bmad/custom/config.user.toml` 的 `active_initiative` 仍指旧名，bmad 流程使用前需同步）。epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py。**日常规划/实现/评审读取范围钉在活跃票树内**：当前 epic 文件 + entry 的 plan；历史档（`Goal-2-v6/`、`epics/`）是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
+- **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 build 62.1）；独立 intent 走 bmad 立项流程进票树（新 epic 或既有 epic 的 entry）；v6 追踪源归档两件（`epics.md` + `sprint-status.yaml`）已上移 `Goal-2-v6/` 根（2026-11-20，只读）。
 - **根级台账职能**（v7 无对应物，保留）：`epic-overview.md`（状态总览）、`open-items.md`（未闭合条目——安全声明第 6 条与「已知缺口」节指向的锚点）、`retrospective-all-cycles.md`（历史唯一载体）、`README.md`（文档地图）。
 - **迁移记录**：`_bmad-output/migration-v6-v7.md`（v6→v7 migration-1，status: done，含 14 项 checklist 回填）。
 

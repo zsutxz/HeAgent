@@ -24,16 +24,16 @@ to: "7"
 
 | v6 源 | v7 目标 | 处理 |
 |---|---|---|
-| `planning-artifacts/`（目录整体） | `initiative-heagent/` | 目录更名，未识别文件随迁 |
-| `planning-artifacts/prd.md` | `initiative-heagent/prd-heagent/prd-heagent.md` | 平文件入同名文件夹、主文件随文件夹名；frontmatter 补 `type: prd`（title/created 已有） |
-| `planning-artifacts/project-improvement-report.md` | `initiative-heagent/project-improvement-report/project-improvement-report.md` | 同上，补 `type: report` |
-| `planning-artifacts/story-estimates.md` | `initiative-heagent/story-estimates/story-estimates.md` | 同上，补 `type: report` |
-| `planning-artifacts/epics.md` | 票树（见 §三）→ `initiative-heagent/archive-v6/epics.md` | 转写后原样归档，不改内容 |
-| `_bmad-output/sprint-status.yaml` | `initiative-heagent/archive-v6/sprint-status.yaml` | 原样归档（action_items 见 §五） |
+| `planning-artifacts/`（目录整体） | `Goal-2-v6/` | 目录更名，未识别文件随迁 |
+| `planning-artifacts/prd.md` | `Goal-2-v6/prd-heagent/prd-heagent.md` | 平文件入同名文件夹、主文件随文件夹名；frontmatter 补 `type: prd`（title/created 已有） |
+| `planning-artifacts/project-improvement-report.md` | `Goal-2-v6/project-improvement-report/project-improvement-report.md` | 同上，补 `type: report` |
+| `planning-artifacts/story-estimates.md` | `Goal-2-v6/story-estimates/story-estimates.md` | 同上，补 `type: report` |
+| `planning-artifacts/epics.md` | 票树（见 §三）→ `Goal-2-v6/epics.md` | 转写后原样归档，不改内容 |
+| `_bmad-output/sprint-status.yaml` | `Goal-2-v6/sprint-status.yaml` | 原样归档（action_items 见 §五） |
 
 ## 三、票树（The ticket tree）
 
-- Initiative 信封 `initiative-heagent/initiative-heagent.md`：Title=HeAgent 项目改进计划；Description/Outcome 取 PRD §一（背景+四目标）；Requirements = **R1–R16（FR1–FR16 一行一条）+ R17–R23（NFR1–7，横切、无 epic covers）**；Constraints = PRD §四（架构 3/测试 3/性能 2/安全 2）；Done when = PRD §六五组验收指标；`sources:` prd-heagent/；`companions:` 无；References 列三个文档文件夹；Notes 记 action item（见 §五）。
+- Initiative 信封 `Goal-2-v6/initiative-heagent.md`：Title=HeAgent 项目改进计划；Description/Outcome 取 PRD §一（背景+四目标）；Requirements = **R1–R16（FR1–FR16 一行一条）+ R17–R23（NFR1–7，横切、无 epic covers）**；Constraints = PRD §四（架构 3/测试 3/性能 2/安全 2）；Done when = PRD §六五组验收指标；`sources:` prd-heagent/；`companions:` 无；References 列三个文档文件夹；Notes 记 action item（见 §五）。
 - 8 个 epic（slug 取标题、covers 取 FR Coverage Map→R 映射）：epic-代码架构重构(covers R1,R3) / epic-测试体系增强(R5,R6) / epic-用户体验优化(R7,R9,R10,R11) / epic-工程自动化(R12,R13) / epic-性能优化(R4) / epic-安全增强(R14,R15,R16) / epic-文档与API(R8) / epic-异常体系完善(R2)。Epic 文件：Description/Outcome 取 epics.md 各 Epic 目标行；Requirements 为所辖 R 行；`parent: initiative-heagent`；**全部 backlog 不写 status 行**。
 - **59 个 `[[entry]]`** 与 epics.md `### Story N.M:` 一一对应（title 取原 Story 标题；description=「我想要」句改写为完成时态；verify=验收标准蒸馏一行；after=[]；hitl=false；risk=low；v6_key=`N-M-<slug>`）。covers 映射：
 
@@ -71,7 +71,7 @@ to: "7"
 
 | 文件 | 位置 | 改写 |
 |---|---|---|
-| `epic-overview.md` | :3、:11、:13、:41、:52、:53 权威性提法；:90、:114 文档地图行 | `sprint-status.yaml` → `initiative-heagent/archive-v6/sprint-status.yaml`；`planning-artifacts/` → `initiative-heagent/`（地图行路径与说明更新） |
+| `epic-overview.md` | :3、:11、:13、:41、:52、:53 权威性提法；:90、:114 文档地图行 | `sprint-status.yaml` → `Goal-2-v6/sprint-status.yaml`；`planning-artifacts/` → `Goal-2-v6/`（地图行路径与说明更新） |
 | `README.md` | :3、:12、:21、:41 及目录树块 | 同上两路径改写 + 树中 planning-artifacts 行更新 |
 | `retrospective-all-cycles.md` | :8、:147、:163 口径提法 | sprint-status.yaml 权威口径注明已归档至新路径 |
 | `open-items.md` | 无命中（已核） | 不动 |
@@ -81,7 +81,7 @@ to: "7"
 ## 七、配置与清理（Configuration and cleanup）
 
 - `_bmad/custom/config.user.toml` `[core]` 写入 `active_initiative = "initiative-heagent"`（文件新建）。**注意**：该文件被 `_bmad/custom/.gitignore`（`*.user.toml`）忽略，属个人配置不入库——本地生效、不随仓库分发，此为 installer 设计。
-- 删除清空后的 `planning-artifacts/`；新建空目录 `initiative-heagent/backlog/`、`initiative-heagent/archive/` 各补 `.gitkeep`（initiative/tickets 均有内容无需 gitkeep）。
+- 删除清空后的 `planning-artifacts/`；新建空目录 `Goal-2-v6/backlog/`、`Goal-2-v6/archive/` 各补 `.gitkeep`（initiative/tickets 均有内容无需 gitkeep）。
 - `_bmad/` 除上述 config.user.toml 外零改动（bmad setup 管辖）。
 
 ## 八、提交序列（guide 要求逐步提交、永不提交备份）
@@ -98,7 +98,7 @@ to: "7"
 
 | # | 项 | 结果 |
 |---|---|---|
-| 1 | 源文件全归属 | ✓ planning 4 文件入 initiative（epics.md→archive-v6）；implementation 8 文件原地保留（§五） |
+| 1 | 源文件全归属 | ✓ planning 4 文件入 initiative（epics.md→archive-v6）；implementation 8 文件原地保留（§五）。**2026-11-20**：archive-v6/ 目录解除，两档上移 `Goal-2-v6/` 根（本文 archive-v6/ 路径均指当时布局） |
 | 2 | 文档夹保名保内容+主文件随夹名 | ✓ prd-heagent/ project-improvement-report/ story-estimates/；backlog/ archive/ 含 .gitkeep |
 | 3 | 版本对齐全 | ✓ 无日期/编号版本对 |
 | 4 | tickets.py exit 0 + 计数一致 | ✓ exit 0；total 59 = 归档 epics.md 59 Story（58 planned + 1 done backlog 单列）；归档 sprint-status 追踪历史 61 epic（63 done + 1 backlog），与票树无关（§一已声明） |

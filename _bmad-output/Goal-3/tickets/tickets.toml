@@ -1,0 +1,92 @@
+# Initiative 的 epic 分解，构建顺序即表顺序。
+[[epic]]
+id = 61
+slug = "epic-61-web-search"
+title = "Web 检索工具周期"
+description = "web_search 内建工具：Tavily 默认引擎、引擎可插拔、安全面与 web_fetch 同构，密钥缺失显性报错。"
+covers = []
+
+[[epic]]
+id = 62
+slug = "epic-62-代码架构重构"
+title = "代码架构重构"
+description = "超过 800 行的大文件全部拆分完成，复杂热点消除，单文件均低于 1000 行。"
+covers = ["R1", "R3"]
+
+[[epic]]
+id = 63
+slug = "epic-63-测试体系增强"
+title = "测试体系增强"
+description = "边界、错误路径与性能基准测试补齐，fixture 与测试数据集中管理，参数化消除重复。"
+covers = ["R5", "R6"]
+
+[[epic]]
+id = 64
+slug = "epic-64-用户体验优化"
+title = "用户体验优化"
+description = "FAQ、错误索引、调优指南、示例库齐备，错误信息友好、进度可见、帮助上下文化。"
+covers = ["R7", "R9", "R10", "R11"]
+
+[[epic]]
+id = 65
+slug = "epic-65-工程自动化"
+title = "工程自动化"
+description = "质量门禁与 PR 全量测试全自动，版本、CHANGELOG、发布流程自动化，开发环境一键就绪。"
+covers = ["R12", "R13"]
+
+[[epic]]
+id = 66
+slug = "epic-66-性能优化"
+title = "性能优化"
+description = "元数据与技能匹配缓存、批量预计算与懒加载全部落地，冷启动显著降低。"
+covers = ["R4"]
+
+[[epic]]
+id = 67
+slug = "epic-67-安全增强"
+title = "安全增强"
+description = "输入验证统一，审计与敏感操作留痕完整，密钥管理增强，端点与沙箱逃逸测试覆盖，依赖精简并锁定。"
+covers = ["R14", "R15", "R16"]
+
+[[epic]]
+id = 68
+slug = "epic-68-文档与API"
+title = "文档与 API"
+description = "MkDocs API 文档覆盖全部公开 API 并自动部署。"
+covers = ["R8"]
+
+[[epic]]
+id = 69
+slug = "epic-69-异常体系完善"
+title = "异常体系完善"
+description = "统一异常层次与错误码体系覆盖全部核心模块，错误可程序化处理。"
+covers = ["R2"]
+
+[[epic]]
+id = 70
+slug = "epic-70-web-console-api-panels"
+title = "Web 控制台 API 面板"
+description = "把 9101 已提供但网页端未消费的能力搬上界面（任务进度、服务状态与进程会话快照），补同源 API 探索器，并用契约测试钉住「后端路由 ↔ 前端消费」覆盖关系。"
+covers = ["R10"]
+
+[[epic]]
+id = 71
+slug = "epic-71-web-server-status"
+title = "Web 端服务器状态面板"
+description = "网页端可见服务器运行状态：经新只读端点 GET /api/status 暴露运行态（在途 run / 上限、run 终态分布、WS 连接数、后台任务）、部署面（绑定与模式、TLS、沙箱后端、写入闸门、provider 池档位名）、依赖态（uptime、cron 作业与 last_run、技能与记忆计数）、资源（RSS / 线程 / CPU，stdlib 采样）与请求计数（状态码分桶、延迟 p50/max、稳定错误码），前端以顶栏徽标 + 懒加载面板消费。"
+covers = ["R10", "R13"]
+
+
+[[epic]]
+id = 72
+slug = "epic-72-ws-lan-plaintext"
+title = "WS 内网明文接入（第一步）"
+description = "按 docs/tls-connect-guide.md 的第一步把 WS 入口变成「内网调试入口」：新增 lan 监听身份（绑私有 IPv4 + 显式 WS_LAN_NO_AUTH 免 token + 保留 Host/Origin 防线 + 每次启动告警），退役 9301 双监听与 WS_EXTERNAL_* 配置族，同步安全口径真源（frame §4.19）与派生副本、doctor 自检与端到端取证。"
+covers = []
+
+[[epic]]
+id = 73
+slug = "epic-73-ws-tls-install-trust"
+title = "WS TLS 安装期信任（第二步）"
+description = "让客户端不导证书也能安全连 wss：服务端固定长期身份密钥（叶证书重签复用密钥，SPKI 恒定）、`heagent tls` 命令族（init/issue/rotate-key/fingerprint/verify）、启动与 doctor 自检（到期/SAN/链）、`/api/status` 暴露 SPKI 指纹，最后恢复 Bearer token 并起 wss、回收第一步明文放行。客户端改造属 aihome-client 仓库，本 epic 只定契约。"
+covers = []

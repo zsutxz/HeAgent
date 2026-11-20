@@ -1,7 +1,7 @@
 # 文档索引
 
 本文档目录按架构、开发、测试、部署、设计、迁移和历史资料组织。代码事实以 `src/` 为准；
-`_bmad-output/` 不是当前运行时配置——它分两区：`initiative-heagent/` 是**活动**规划区（票树 `tickets/`
+`_bmad-output/` 不是当前运行时配置——它分两区：`Goal-2-v6/` 是**活动**规划区（票树 `tickets/`
 是 Epic/Story 状态的唯一写目标），其余目录是历史规划与验收证据。
 
 ## 当前事实
@@ -81,7 +81,7 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 ## 规划归档
 
 - [`_bmad-output/README.md`](../_bmad-output/README.md)：Epic、Story、spec、retrospective 和 patch 的归档导航。
-- [`_bmad-output/initiative-heagent/tickets/`](../_bmad-output/initiative-heagent/tickets/)：v7 票树，Epic/Story 状态的唯一写目标；v6 的 `sprint-status.yaml` 已归档到 [`archive-v6/`](../_bmad-output/initiative-heagent/archive-v6/)（只读历史，不再是状态真源）。
+- [`_bmad-output/Goal-3/tickets/`](../_bmad-output/Goal-3/tickets/)：v7 票树，Epic/Story 状态的唯一写目标；v6 的 `sprint-status.yaml` 已归档到 [`Goal-2-v6/`](../_bmad-output/Goal-2-v6/) 根（`sprint-status.yaml`，2026-11-20 自 archive-v6/ 上移；只读历史，不再是状态真源）。
 - [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 收口）。
 - [BMad 设计记录](../_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md)：工作流设计的历史背景和当前实现指针；不作为待办清单。
 
@@ -89,7 +89,7 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 1. 运行行为：`src/`。
 2. 配置默认值和 CLI 入口：`src/heagent/config/__init__.py`、`src/heagent/cli/console.py`、`pyproject.toml`。
-3. 当前工作流：`/goal` 见 `.heagent/skills/he-goal/workflow.md`（v6 口径）；`/loop` 见 `.heagent/skills/loop/workflow.md`（v7 口径，规划真源是 `_bmad-output/initiative-heagent/tickets/` 票树）。
+3. 当前工作流：`/goal` 见 `.heagent/skills/he-goal/workflow.md`（v6 口径）；`/loop` 见 `.heagent/skills/loop/workflow.md`（v7 口径，规划真源是 `_bmad-output/Goal-3/tickets/` 票树）。
 4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。
