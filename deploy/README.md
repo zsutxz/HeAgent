@@ -189,11 +189,11 @@ WS_AUTH_TOKEN: <随机长串，建议 openssl rand -hex 32 生成>
 
 ```bash
 # 打与 pyproject.toml 一致的版本 tag 触发 CI release（PyPI + GHCR + Docker Hub）
-git tag v0.9.0
-git push origin v0.9.0
+git tag v<X.Y.Z>
+git push origin v<X.Y.Z>
 ```
 
-`v0.9.0` 是当前待创建的发布 tag；发布前应确认它与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
+`v<X.Y.Z>` 必须与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致；发布 = 两处真源同步 bump + CHANGELOG 的 `Unreleased` 内容落成版本节（`tests/test_release_workflow_contract.py` 钉死）。当前状态：`0.10.0` 已于 2026-11-18 发布，`Unreleased` 已积累 Epic 72/73（含破坏性变更，按 0.x「minor 即破坏性变更」口径下版为 `0.11.0`）。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
 
 CI release job 自动：
 1. `twine check` → PyPI（Trusted Publisher OIDC）

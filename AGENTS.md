@@ -131,7 +131,7 @@ powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再�
 
 异步测试由 `pytest-asyncio` 自动驱动；provider 测试放在 `tests/providers/`。
 
-WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_ws_external.py` 配置对外 listener → `gen_ws_cert.py` 签发/轮换 TLS → `ws_manual_probe.py` 真实客户端手测（配 `tls_ws_stub.py` 自证握手）→ `cleanup_orphan_containers.ps1` 清理孤儿沙箱容器。
+WS/TLS 排障工具链（`scripts/`，细节见各脚本头注释）：TLS 签发/轮换走 `heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口；`scripts/gen_ws_cert.py` 保留为迁移期薄包装，文件头指向新命令；`setup_ws_external.py` 已随 Epic 72 退役删除）→ `ws_manual_probe.py` 真实客户端手测（配 `tls_ws_stub.py` 自证握手）→ `cleanup_orphan_containers.ps1` 清理孤儿沙箱容器。
 
 ## 代码规范
 
@@ -175,7 +175,7 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 ## BMAD v7 产物体系与读范围（块外手工区，2026-11-15 migration-1 后接线）
 
-- **Active initiative = `_bmad-output/initiative-heagent/`**（`_bmad/custom/config.user.toml` 的 `active_initiative`；epic 全局编号 **61–69**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py）。**日常规划/实现/评审读取范围钉在 initiative 内**：信封 + 当前 epic 文件 + entry 的 plan；历史档是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
+- **Active initiative = `_bmad-output/initiative-heagent/`**（`_bmad/custom/config.user.toml` 的 `active_initiative`；epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py）。**日常规划/实现/评审读取范围钉在 initiative 内**：信封 + 当前 epic 文件 + entry 的 plan；历史档是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
 - **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 build 62.1）；独立 intent 落 `_bmad-output/initiative-heagent/backlog/`；被替代的旧文档归档进同目录 `archive/`；`archive-v6/` 是 v6 追踪源归档（epics.md + sprint-status.yaml），台账多处活性引用仍指向它，勿删。
 - **根级台账职能**（v7 无对应物，保留）：`epic-overview.md`（状态总览）、`open-items.md`（未闭合条目——安全声明第 6 条与「已知缺口」节指向的锚点）、`retrospective-all-cycles.md`（历史唯一载体）、`README.md`（文档地图）。
 - **迁移记录**：`_bmad-output/migration-v6-v7.md`（v6→v7 migration-1，status: done，含 14 项 checklist 回填）。
@@ -184,6 +184,6 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
-核心立场：三层非边界 / OS 级沙箱兜底 / 本地与对外两种入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
+核心立场：三层非边界 / OS 级沙箱兜底 / 本地与非回环（`lan` / `external` 两档）入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
 
 活动缺口：MCP stdio server 子进程**已进容器**（Epic 53 期二 53-5，2026-11-03；`SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起，不可用时显性降级 + 每次 WARNING）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

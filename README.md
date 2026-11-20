@@ -105,12 +105,13 @@ heagent init --project
 | `heagent [PROMPT]` | 直接执行 prompt；无 prompt 时进入交互模式 |
 | `heagent run [PROMPT]` | 显式运行入口 |
 | `heagent init [--project] [--interactive]` | 初始化用户配置（`--interactive` 为逐项向导）；`--project` 额外创建项目上下文模板 |
-| `heagent doctor` | 只读配置诊断（25 个诊断码；有 error 级 finding 时退出码 1） |
+| `heagent doctor` | 只读配置诊断（30 个诊断码；有 error 级 finding 时退出码 1） |
 | `heagent cron status` | 定时任务状态：never／running／success／failed + 最后与下次执行 + 失败原因 |
 | `heagent audit list\|export\|verify` | 审计 JSONL（工具执行 + 敏感操作）：列最近条目／导出／校验 prev-digest 哈希链（含归档段） |
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
-| `heagent http-server` | 实验性网页入口（内置聊天页 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
+| `heagent tls init\|issue\|rotate-key\|fingerprint\|verify` | WS TLS 材料签发与校验（本地 CA + 长期身份密钥，SPKI-SHA256 可作客户端 pin）；Epic 73 起唯一签发入口 |
+| `heagent http-server` | 实验性网页入口（内置聊天页 + 任务/服务状态面板 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
 
 常用 `run` 选项：
 
@@ -147,7 +148,7 @@ heagent http-server --host 0.0.0.0                       # ⚠ 对外暴露：�
 heagent http-server --model deepseek-v4-pro --sandbox firejail
 ```
 
-网页里可以提交提示词、逐步看到回答与**工具调用/结果**、停止在途运行、刷新后恢复进程内历史。
+网页里可以提交提示词、逐步看到回答与**工具调用/结果**、停止在途运行、刷新后恢复进程内历史；顶栏徽标与懒加载面板提供**任务进度**与**服务器状态**（`GET /api/status`：在途 run / 部署面与 TLS / 依赖态 / 资源 / 请求计数，面板展开才轮询）。
 
 API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","message"}}`）：
 
@@ -158,6 +159,8 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 | `GET /api/runs/{id}/events` | SSE：`text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out` |
 | `DELETE /api/runs/{id}` | 取消指定运行（协作式；不触碰其它运行） |
 | `GET /api/session` | 当前进程内会话快照（历史 + 运行状态） |
+| `GET /api/status` | 服务器运行状态：在途 run / WS 连接数 / 部署面（绑定与 TLS、沙箱、provider 档位）/ 依赖态（uptime、cron、技能与记忆计数）/ 资源采样 / 请求计数 |
+| `GET /api/tasks`（及 `/api/tasks/{task_id}`） | 进程内后台任务进度（当前生产者：上下文压缩；跨进程不可见） |
 
 - 事件带从 1 开始的单调 `id`；断线重连带 `Last-Event-ID: N` 即可续读，越过缓存窗口会得到 `409 resync_required`（页面会自动拉会话快照重新同步，**不**伪造连续流）。
 - 断线**不会**取消运行；要停止必须显式 `DELETE`。空闲事件流每 15 秒一条心跳（SSE 注释帧）。
@@ -199,26 +202,32 @@ ws://127.0.0.1:9201/api/runs/ws          # → {"command":"run","prompt":"写一
 ws://127.0.0.1:9201/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"command":"cancel"} 等价 DELETE
 ```
 
-**两种模式，按绑定地址自动切换**（`WS_HOST`）：
+**三种监听姿态，按绑定地址与显式开关切换**（`WS_HOST` / `WS_LAN_NO_AUTH` / `WS_TLS_*`）：
 
-| | 本地模式（回环绑定，默认） | 对外模式（非回环绑定） |
-|---|---|---|
-| 认证 | 无 | **强制** `Authorization: Bearer <token>`（握手前校验，失败 1008/HTTP 403） |
-| token 来源 | — | **只认** `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`（项目 `.env` 无效并告警） |
-| 缺 token | 不适用 | **拒绝启动**（fail-closed，绝不降级成无认证对外） |
-| Origin/Host 防线 | 启用 | 不适用（防线由 token 取代） |
-| TLS | 可选 | 可选：`WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE` 配齐即 wss；不配 = 明文 + 启动告警 |
+| | 本地模式（回环绑定，默认） | `lan` 档（显式 `WS_LAN_NO_AUTH=true` + 私有地址） | `external` 档（非回环绑定，默认） |
+|---|---|---|---|
+| 认证 | 无；`WS_LOCAL_AUTH_ENABLED=true` 可也强制 Bearer token | 无 | **强制** `Authorization: Bearer <token>`（握手前校验，失败 1008/HTTP 403） |
+| token 来源 | 同 `external` | — | **只认** `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`（项目 `.env` 无效并告警） |
+| 缺 token | 不适用（默认无认证） | 不适用 | **拒绝启动**（fail-closed，绝不降级成无认证对外） |
+| Origin/Host 防线 | 启用 | **保留**（同网段只读防线，不取代认证） | 不适用（防线由 token 取代） |
+| TLS | 可选 | 无 TLS，**与 TLS 互斥**（`wss` + `WS_LAN_NO_AUTH=true` 拒绝启动） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE` 配齐即 `wss`；**`wss` 必须与 token 同开**（TLS 开 + 无 token 拒绝启动）；不配 = 明文 + 启动告警 |
+| 启动告警 | 无 | 每次启动一条 WARNING（同网段任何设备都能驱使代理，只能靠网络侧兜底） | 无 TLS 时明文 + 启动告警 |
 
 ```bash
-# 对外模式示例（token 放在用户级配置，不放项目 .env）
+# lan 档示例（内网调试入口，免认证；.env: WS_HOST=192.168.2.226  WS_LAN_NO_AUTH=true）
+heagent http-server --ws-host 192.168.2.226
+
+# external 档示例（生产形态 = wss + token；token 放在用户级配置，不放项目 .env）
 heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 #   ~/.heagent/setting.md:  WS_AUTH_TOKEN: <随机长串>
-#   WS_TLS_CERT_FILE / WS_TLS_KEY_FILE（PEM）配齐即走 wss
+#   TLS 材料经 heagent tls 签发：heagent tls init → issue --san <绑定地址>
+#   .env: WS_TLS_CERT_FILE / WS_TLS_KEY_FILE（PEM）配齐即走 wss（须同时配 token）
+#   客户端信任锚 = SPKI-SHA256 pin（heagent tls fingerprint 查看；重签叶证书不改 pin，rotate-key 才改）
 ```
 
 > 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
 
-经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 对外能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
+经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 非回环入口（`lan` / `external`）能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
 
 ## 工作流（`/goal` 与 `/loop`）
 
