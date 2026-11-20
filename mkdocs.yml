@@ -67,8 +67,6 @@ nav:
       - heagent.pub: api/pub.md
       - heagent.skills: api/skills.md
       - heagent.tools: api/tools.md
-  - 附: bmad/bmad-architecture-SKILL.zh-CN.md
-  - 附: bmad/learning_bmad.md
   - 附: claude-updater/latest.md
   - 附: claude-updater/tips/new_features.md
 

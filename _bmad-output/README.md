@@ -22,8 +22,7 @@ _bmad-output/
 ├── initiative-heagent/                v7 initiative：规划四件套 + 票树；sprint-status.yaml 归档于 archive-v6/
 │   └── decisions/                     ADR 决策记录（2026-11-18 起；一条一文件，索引见该目录 README）
 ├── implementation-artifacts/
-│   ├── README.md                     实现产物目录索引（活动台账已上移根目录 open-items.md）
-│   └── arch-optimization-cycle/       Phase 0–5 架构优化档案
+│   └── README.md                     实现产物目录索引（活动台账已上移根目录 open-items.md）
 ├── epics/                             周期产物（活跃与已归档同目录混排）
 │   ├── epic-11-18-MCP集成周期/
 │   ├── epic-51-goal-workflow优化周期/

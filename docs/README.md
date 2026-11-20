@@ -59,7 +59,7 @@
 - [迭代指南](iteration.md)：如何继续迭代，以及已完成周期的历史索引。
 - [质量门禁脚本](../scripts/quality_gate.py)：冒烟、回归与覆盖率、lint、format 和类型检查的执行入口。
 - [文档站点构建](../scripts/build_docs.py)：`python scripts/build_docs.py` 一条命令跑 `mkdocs build --strict`（产物落 `.heagent/tmp/mkdocs-site`，页脚版本取自 `heagent.__version__`）；`docs/api/` 的 API 参考由 `mkdocstrings` 从 docstring 生成（构建期依赖：`pip install mkdocs "mkdocstrings[python]"`）。
-- [bmad/](bmad/) 与 [claude-updater/](claude-updater/)：外部方法论与外部工具更新的摘录归档（前者是 BMad 技能的中文适配与学习笔记，后者是 Claude 更新摘要）。参考资料，不参与「权威规则」的优先级。
+- [claude-updater/](claude-updater/)：外部工具更新的摘录归档（Claude 更新摘要）。参考资料，不参与「权威规则」的优先级。
 
 ## 性能基准
 

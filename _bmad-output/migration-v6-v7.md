@@ -60,7 +60,7 @@ to: "7"
 |---|---|
 | `epic-overview.md` / `open-items.md` / `README.md` / `retrospective-all-cycles.md`（根级） | 迁移不识别的项目自建台账体系；被契约测试钉死（test_deferred_ledger 67 ID / test_deferred_id_registry 四站点）；用户确认保留。**例外**：其中指向已移动路径的引用行按 §六 改写（仅路径文本，不碰 ID/台账节） |
 | `epics/`（27 周期目录，306 文件，61 个已交付 epic 的 story/retro/spec 归档） | 非两个源文件夹内容；历史档案，用户确认保留。epic-61（唯一 backlog）的 SPEC.md+.memlog.md 一并保留（非 spec-<slug>/ 文件夹形态，不触发预发布折叠） |
-| `implementation-artifacts/`（arch-optimization-cycle/ 7 文件 + README.md） | 实现文件夹中无任何改进计划 story 的 build record，迁移不识别 → 原地保留 |
+| `implementation-artifacts/`（arch-optimization-cycle/ 7 文件 + README.md） | 实现文件夹中无任何改进计划 story 的 build record，迁移不识别 → 原地保留。**2026-11-20 裁定删除 arch-optimization-cycle/ 档案目录**（非 BMad 流程、无 epic 归属，仅存 git 历史） |
 | 根级无其他散文件 | — |
 
 - action_items 唯一 open 项（`epic-52-retro-item-1-真实-llm-全链冒烟…`，owner=tan，epic=52）⇒ 按规则记入 initiative Notes 为 `Action item:` 行（属历史 Epic 52 的 provenance，非本计划 8 epic）；done 项丢弃。

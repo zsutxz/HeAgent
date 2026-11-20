@@ -166,7 +166,7 @@ MCP stdio 不放松）；② 后端 `tier.can_relax_approval` 为真；③ 后�
 **没有变的部分**（别按「已经默认上容器」理解）：
 
 - `sandbox_backend` 默认仍是 `auto`，而 `auto` **只探 firejail**；`docker` 必须显式指定。
-- MCP stdio 子进程仍不经沙箱（Epic 53 期二）。
+- 本节系 2026-10-21 快照；MCP stdio 子进程的容器接入已由期二于 2026-11-03 落地（见 §3.1）。
 - 四档都只覆盖 `shell` 路径。
 
 ## 6. 本机实况（2026-10-21 实测：`container` 档**已在用**）
