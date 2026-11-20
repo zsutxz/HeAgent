@@ -378,7 +378,7 @@ class TestDeployment:
 
         assert payload["listeners"][0]["port"] == 9123
         assert payload["listeners"][0]["port"] != 0
-        # ws 替身的配置端口是 9201、运行期是 9301：读到 9201 就说明是抄配置而不是读 listener。
+        # ws 替身的配置端口与运行期端口不同：读到配置端口就说明是抄配置而不是读 listener。
         assert payload["listeners"][1]["port"] == 9301
 
     async def test_deployment_scalars_come_from_settings(self) -> None:

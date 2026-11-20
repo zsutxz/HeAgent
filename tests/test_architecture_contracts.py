@@ -1194,7 +1194,7 @@ def test_ws_entry_docs_stay_in_sync() -> None:
 
     文档漂移是真实的运维风险（运维按 `deploy/README.md` 配环境；按 `AGENTS.md` 判断暴露面）。
     这条判据只钉「关键事实在场 / 退役事实不在场」，不比较文案措辞——措辞自由，事实不许缺。
-    第二 listener（`WS_EXTERNAL_*` / `9301`）已随 Epic 72 退役：文档里不得再把它当可用配置介绍
+    第二 listener（`WS_EXTERNAL_*`）已随 Epic 72 退役：文档里不得再把它当可用配置介绍
     （`doctor` 的退役键表与迁移说明除外）。
     """
     frame = (TARGET_ROOT / "docs/frame.md").read_text(encoding="utf-8")

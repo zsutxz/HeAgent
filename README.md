@@ -341,7 +341,7 @@ VS Code / Dev Containers 用户可直接「Reopen in Container」，环境自带
 python scripts/quality_gate.py
 ```
 
-容器转发三条 listener 默认端口 9101 / 9201 / 9301，与 `Settings` 默认值一致，
+容器转发两条 listener 默认端口 9101 / 9201，与 `Settings` 默认值一致，
 改默认端口时须同步 `.devcontainer/devcontainer.json`（由 `tests/test_devcontainer_contract.py` 拦下）。
 
 模块依赖、测试与安全约束见 [AGENTS.md](AGENTS.md)。测试、代码、配置与历史文档的权威关系见 [文档索引](docs/README.md)。

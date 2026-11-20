@@ -670,7 +670,7 @@ def _user_setting(tmp_path: Path, token: str = "s3cret") -> Path:
 
 
 def _fixed_settings(**overrides: Any) -> Settings:
-    """端口固定（关自动顺延）的设置替身：断言 9201/9301 时不希望被真实占用影响。"""
+    """端口固定（关自动顺延）的设置替身：断言端口 9201 时不希望被真实占用影响。"""
     return Settings(http_port_auto_find_attempts=0, **overrides)
 
 

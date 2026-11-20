@@ -239,7 +239,7 @@ def build_ws_servers(
 
     返回 ``(servers, hub)``：``servers[0]`` 是唯一的 listener，``hub`` 为 ``None`` 表示旁路未启用
     **或**因 listener 身份被跳过——两种情况对入口层等价（没有可发布的通道）。
-    第二监听器（对外，端口 ``9301``）已随 Epic 72 退役：非回环入口只剩主 listener 一条，
+    对外第二监听器已随 Epic 72 退役：非回环入口只剩主 listener 一条，
     走 ``lan``（内网免认证）或 ``external``（强制 Bearer）。
 
     ``enabled`` 缺省取 ``settings.ws_enabled``；默认 CLI 的 ``--no-ws`` 传 ``False``

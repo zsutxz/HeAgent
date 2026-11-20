@@ -315,7 +315,8 @@ def _ensure_identity(binary: str, session: _Session, *, rotate: bool) -> None:
     if rotate or not session.identity_key.is_file():
         _run(binary, ["genrsa", "-out", "identity.key", "2048"], cwd=session.directory)
         _tighten(session.identity_key)
-    shutil.copy2(session.identity_key, session.leaf_key)
+    # 只复制正文：9p / drvfs 上 copystat(chmod/utime) 必 EPERM，copy2 会让签发在成功后被异常打断。
+    shutil.copyfile(session.identity_key, session.leaf_key)
     _tighten(session.leaf_key)
 
 
@@ -363,7 +364,8 @@ def _backup(session: _Session) -> Path | None:
     target = session.directory / f"backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     target.mkdir(parents=True, exist_ok=True)
     for name in existing:
-        shutil.copy2(session.directory / name, target / name)
+        # 同 _ensure_identity：不带元数据，否则 9p / drvfs 上备份会半途失败。
+        shutil.copyfile(session.directory / name, target / name)
     return target
 
 
