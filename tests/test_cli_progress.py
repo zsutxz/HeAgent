@@ -237,6 +237,16 @@ def test_line_clips_cjk_labels_by_display_columns() -> None:
     assert "…" in line
 
 
+def test_zero_width_markers_are_not_counted_as_columns() -> None:
+    """ZWJ 与变体选择符不占列：算成 1 列会让 emoji 行宽度翻倍、被提前裁掉。"""
+    from heagent.cli.display import char_width
+
+    assert char_width("\u200d") == 0
+    assert char_width("\ufe0f") == 0
+    # ZWJ 序列仍按码位累加（估大 = 多裁几字，安全方向），但零宽标记不得计入。
+    assert display_width("👨\u200d👩\u200d👧") == 6
+
+
 def test_write_line_pads_by_display_columns() -> None:
     """宽字符行按**列**补齐：按码位补会少补一半，``\\r`` 覆盖后留下上一行的残字。"""
     stream = _FakeStream(tty=True)

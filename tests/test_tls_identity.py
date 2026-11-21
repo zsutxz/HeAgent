@@ -134,6 +134,11 @@ class TestSan:
         assert san_covers(CERT, "app.lab.local") is True
         assert san_covers(CERT, "a.b.lab.local") is False
 
+    def test_bracketed_ipv6_is_matched_like_a_bind_address(self) -> None:
+        """``[::1]`` 与 ``::1`` 必须同判：绑定地址在配置面允许方括号写法，SAN 判定不能反而漏掉。"""
+        assert san_covers(CERT, "::1") is True
+        assert san_covers(CERT, "[::1]") is True
+
     def test_certificate_without_san_returns_empty_list(self) -> None:
         assert san_entries(NO_SAN_CERT) == []
         assert san_covers(NO_SAN_CERT, "localhost") is False

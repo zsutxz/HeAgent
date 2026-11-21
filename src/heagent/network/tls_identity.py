@@ -24,6 +24,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from heagent.network.exposure import unbracket_host
+
 __all__ = [
     "TlsCertificateInfo",
     "TlsIdentityError",
@@ -217,7 +219,12 @@ def _tbs_fields(der: bytes) -> list[_Element]:
 def spki_der(cert: str | Path | bytes) -> bytes:
     """证书里 ``SubjectPublicKeyInfo`` 的**原始 TLV**（含 tag 与长度头），与 openssl 输出逐字节一致。"""
     der = load_cert_der(cert)
-    field = _tbs_fields(der)[5]
+    return _spki_from(der, _tbs_fields(der))
+
+
+def _spki_from(der: bytes, fields: list[_Element]) -> bytes:
+    """从已解析的 ``tbsCertificate`` 字段表取 SPKI（:func:`certificate_info` 复用同一次解析）。"""
+    field = fields[5]
     if field.tag != _TAG_SEQUENCE:
         raise TlsIdentityError("证书结构不符（SubjectPublicKeyInfo 不是 SEQUENCE）")
     return der[field.elem_start : field.content_end]
@@ -287,8 +294,9 @@ def _parse_time(tag: int, raw: bytes, what: str) -> datetime:
         raise TlsIdentityError(f"{what} 时间无法解析（{text!r}）") from exc
 
 
-def _validity(der: bytes) -> tuple[datetime, datetime]:
-    field = _tbs_fields(der)[3]
+def _validity_from(der: bytes, fields: list[_Element]) -> tuple[datetime, datetime]:
+    """从已解析的字段表取 ``(notBefore, notAfter)``。"""
+    field = fields[3]
     if field.tag != _TAG_SEQUENCE:
         raise TlsIdentityError("证书结构不符（validity 不是 SEQUENCE）")
     bounds = _children(der, field.content_start, field.content_end)
@@ -302,12 +310,14 @@ def _validity(der: bytes) -> tuple[datetime, datetime]:
 
 def cert_not_after(cert: str | Path | bytes) -> datetime:
     """叶证书到期时刻（UTC）。"""
-    return _validity(load_cert_der(cert))[1]
+    der = load_cert_der(cert)
+    return _validity_from(der, _tbs_fields(der))[1]
 
 
 def cert_not_before(cert: str | Path | bytes) -> datetime:
     """叶证书生效时刻（UTC）。"""
-    return _validity(load_cert_der(cert))[0]
+    der = load_cert_der(cert)
+    return _validity_from(der, _tbs_fields(der))[0]
 
 
 # ---------------------------------------------------------------- SAN
@@ -316,7 +326,12 @@ def cert_not_before(cert: str | Path | bytes) -> datetime:
 def san_entries(cert: str | Path | bytes) -> list[str]:
     """证书的 SAN 项（``IP:`` / ``DNS:`` 前缀，保持 DER 顺序；无扩展返回空表）。"""
     der = load_cert_der(cert)
-    extension = next((field for field in _tbs_fields(der) if field.tag == _TAG_EXTENSIONS), None)
+    return _san_from(der, _tbs_fields(der))
+
+
+def _san_from(der: bytes, fields: list[_Element]) -> list[str]:
+    """从已解析的字段表取 SAN 项（:func:`certificate_info` 复用同一次解析）。"""
+    extension = next((field for field in fields if field.tag == _TAG_EXTENSIONS), None)
     if extension is None:
         return []
     # [3] EXPLICIT 里面先是一层 SEQUENCE OF Extension，逐个 Extension 才是 { OID, [critical], OCTET STRING }。
@@ -346,8 +361,13 @@ def san_entries(cert: str | Path | bytes) -> list[str]:
 
 
 def san_covers(cert: str | Path | bytes, host: str) -> bool:
-    """``host`` 是否被 SAN 覆盖：IP 字面量只比 IP 项，主机名只比 DNS 项（含单层 ``*.`` 通配）。"""
-    target = host.strip()
+    """``host`` 是否被 SAN 覆盖：IP 字面量只比 IP 项，主机名只比 DNS 项（含单层 ``*.`` 通配）。
+
+    ``host`` 允许 ``[::1]`` 这种带方括号的 IPv6 写法（与绑定地址同一口径，见
+    :func:`heagent.network.exposure.unbracket_host`）——否则同一个地址在暴露判定里算 IP、
+    在这里被当成主机名，结果是「证书明明覆盖了却报未覆盖」。
+    """
+    target = unbracket_host(host)
     entries = san_entries(cert)
     try:
         address = ipaddress.ip_address(target)
@@ -449,14 +469,19 @@ def cert_key_matches(cert: str | Path | bytes, key: str | Path | bytes) -> bool:
 
 
 def certificate_info(cert: str | Path | bytes) -> TlsCertificateInfo:
-    """一次读取给出证书身份事实（SPKI 摘要、短指纹、有效期、SAN）——状态面与 CLI 共用这一个源。"""
+    """一次读取给出证书身份事实（SPKI 摘要、短指纹、有效期、SAN）——状态面与 CLI 共用这一个源。
+
+    **只解析一次 DER**：状态端点会反复取这份事实，SPKI / 有效期 / SAN 三项各走一次公开函数
+    等于同一棵树遍历三遍。
+    """
     der = load_cert_der(cert)
-    spki = spki_der(der)
-    not_before, not_after = _validity(der)
+    fields = _tbs_fields(der)
+    spki = _spki_from(der, fields)
+    not_before, not_after = _validity_from(der, fields)
     return TlsCertificateInfo(
         spki_sha256=spki_sha256_of_der(spki),
         short_fingerprint=short_fingerprint_of_der(spki),
         not_before=not_before,
         not_after=not_after,
-        san=tuple(san_entries(der)),
+        san=tuple(_san_from(der, fields)),
     )

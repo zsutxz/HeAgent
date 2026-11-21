@@ -31,11 +31,15 @@ _NON_LOOPBACK_WARNING = (
 )
 
 
-def _unbracket(host: str) -> str:
+def unbracket_host(host: str) -> str:
     """``[::1]`` → ``::1``（URL / CLI 里的 IPv6 字面量写法），并去掉首尾空白。
 
     只对**合法 IPv6 字面量**脱括号：``[localhost]`` 这类写法不是 IPv6 字面量，保留原样
     （随后既不匹配 ``localhost`` 也过不了 :mod:`ipaddress`，按暴露处理——不做特殊放行）。
+
+    绑定地址的方括号写法在配置面、TLS 材料（SAN 覆盖判定）与 CLI 参数上都会出现，故脱括号
+    规则只有这一处实现：三处各写一套时，漏一处的表现是「同一个地址在一处算回环、在另一处
+    被当成主机名」——很难从现象反推。
     """
     stripped = host.strip()
     if len(stripped) >= 2 and stripped.startswith("[") and stripped.endswith("]"):  # noqa: PLR2004
@@ -53,7 +57,7 @@ def is_loopback_host(host: str) -> bool:
 
     非 IP 字面量、非 ``localhost`` 的输入一律返回 ``False``（不解析 DNS，fail-safe）。
     """
-    candidate = _unbracket(host)
+    candidate = unbracket_host(host)
     if not candidate:
         # 空串在多数 socket API 里等价于「所有接口」——按暴露处理。
         return False
@@ -86,7 +90,7 @@ def is_private_address(host: str) -> bool:
     这是准入白名单，不是安全边界——私有地址只说明「同一局域网内可见」，不说明对面可信
     （边界地位见 ``docs/framework.md`` §4.18）。
     """
-    candidate = _unbracket(host)
+    candidate = unbracket_host(host)
     if not candidate:
         return False
     try:
@@ -98,4 +102,4 @@ def is_private_address(host: str) -> bool:
     return address.is_private or address.is_link_local
 
 
-__all__ = ["exposure_warning", "is_loopback_host", "is_private_address"]
+__all__ = ["exposure_warning", "is_loopback_host", "is_private_address", "unbracket_host"]

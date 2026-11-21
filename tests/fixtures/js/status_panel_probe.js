@@ -380,6 +380,24 @@ function check(name, actual, expected) {
   observed.afterWrap = [labels()[0], tablist.children[0].attributes["aria-selected"]];
   check("ArrowRight 从末组回绕到首组", observed.afterWrap, ["在途 run（服务级）", "true"]);
 
+  // ── 场景 1b：`lan` 档（非回环 + 免认证）必须报「对外」——同网段设备能连上，绝不能算「本地」 ──
+  await loadPage(
+    statusPayload({
+      listeners: [
+        {
+          kind: "ws",
+          label: "WS",
+          host: "192.168.2.226",
+          port: 9201,
+          mode: "lan",
+          tls: { enabled: false, spki_sha256: null, short_fingerprint: null, not_after: null, san: null },
+        },
+      ],
+    }),
+  );
+  observed.lanBadge = mustEl("server-status").textContent;
+  check("lan 档（非回环免认证）⇒ 徽标模式为「对外」", observed.lanBadge, "对外 · up 1h2m · run 3 · WS 5");
+
   // ── 场景 2：没有任何 listener ⇒ 模式「未暴露」，部署面没有 listener 行 ──
   await loadPage(statusPayload({ listeners: [] }));
   observed.unexposedBadge = mustEl("server-status").textContent;

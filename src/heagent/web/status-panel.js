@@ -89,7 +89,9 @@
 
   function modeOf(listeners) {
     if (!Array.isArray(listeners) || listeners.length === 0) return "未暴露";
-    return listeners.some((item) => item && item.mode === "external") ? "对外" : "本地";
+    // 三态：只有**全部** listener 都是回环才算「本地」。`lan`（非回环 + 免认证）与 `external`
+    // 都算对外——同网段设备能连上、还不需要 token 的那条，绝不能在暴露面上写成「本地」。
+    return listeners.every((item) => item && item.mode === "local") ? "本地" : "对外";
   }
 
   function totalConnections(ws) {
@@ -355,20 +357,28 @@
     if (loading) return;
     loading = true;
     let result;
+    // 超时既 reject（桩取数不会理会 abort）也真正 abort 底层 fetch（真连接半开时释放套接字）；
+    // 定时器必须在收尾清掉，否则每次取数都留下一个必然会触发的游离定时器。
+    const controller = typeof window.AbortController === "function" ? new window.AbortController() : null;
+    let timeoutId = null;
     try {
       result = await Promise.race([
-        panels.request("GET", STATUS_PATH),
+        panels.request("GET", STATUS_PATH, undefined, controller ? controller.signal : undefined),
         new Promise((_resolve, reject) => {
-          window.setTimeout(() => reject(new Error("status request timed out")), REQUEST_TIMEOUT_MS);
+          timeoutId = window.setTimeout(() => {
+            if (controller) controller.abort();
+            reject(new Error("status request timed out"));
+          }, REQUEST_TIMEOUT_MS);
         }),
       ]);
     } catch (error) {
-      loading = false;
       markOffline("无法连接到服务");
       schedulePoll();
       return;
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      loading = false;
     }
-    loading = false;
     if (!result.ok) {
       markOffline(panels.describeFailure(result));
       schedulePoll();

@@ -169,11 +169,17 @@ def _icon(icon: str, fallback: str, *, encoding: str | None = None) -> str:
 
 
 def char_width(char: str) -> int:
-    """单个字符占用的终端列数：CJK 宽字符（W/F）2 列、组合符 0 列、其余 1 列。
+    """单个字符占用的终端列数：CJK 宽字符（W/F）2 列、组合符 / 变体选择符 / ZWJ 0 列、其余 1 列。
 
     ``len()`` 数的是码位而不是列宽——中文命令按码位裁到 80 列仍可能真占 160 列，终端照样
     折行。活动行的宽度判定一律走本函数（:func:`display_width`）。
+
+    已知偏差：emoji 的 ZWJ 序列（``👨‍👩‍👧``）仍按各码位累加（估成 6 列，实际渲染 2 列）——
+    估宽偏大意味着多裁几个字符，方向是安全的；精确排版需要字素簇切分，不值得为此引依赖。
     """
+    if char == "\u200d" or "\ufe00" <= char <= "\ufe0f":
+        # ZWJ 与变体选择符不占列；不排除它们会让 emoji 行的宽度估成两倍。
+        return 0
     if unicodedata.combining(char):
         return 0
     return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1

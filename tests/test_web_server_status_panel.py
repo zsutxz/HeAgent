@@ -224,6 +224,13 @@ class TestPollingDiscipline:
     def test_groups_are_rendered_lazily(self) -> None:
         assert "if (el.details.open) renderGroups(status);" in _CODE, "收起时不该渲染明细（懒加载）"
 
+    def test_request_timeout_is_cleared_and_aborts_the_connection(self) -> None:
+        """超时定时器必须收尾清掉，且超时要真的 abort 连接（半开连接不能一直挂着）。"""
+        body = _function_body("loadStatus")
+        assert "clearTimeout(timeoutId)" in body, "每次取数都会留下一个未清的游离定时器"
+        assert "AbortController" in body and ".abort()" in body
+        assert "loading = false" in body, "finally 里必须复位 loading（否则轮询永久卡死）"
+
 
 class TestTabLayout:
     """五组事实装进一条横向 tab 条：一次只有一组的行在 DOM 里，切 tab 不额外取数。"""
@@ -319,6 +326,13 @@ class TestBadge:
             assert token in body
         for label in ("本地", "对外", "未暴露"):
             assert label in _CODE
+
+    def test_only_all_loopback_listeners_count_as_local(self) -> None:
+        """`lan`（非回环 + 免认证）必须报「对外」：把暴露面写成「本地」是本面板最不能犯的错。"""
+        body = _function_body("modeOf")
+        assert '"local"' in body, "判定必须以 local 为唯一「本地」条件"
+        assert '"external"' not in body, "只认 external 会让 lan 档漏报成「本地」"
+        assert "every(" in body
 
 
 class TestFieldCoverage:

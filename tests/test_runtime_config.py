@@ -12,6 +12,20 @@ from heagent.pub.types import ToolCall
 pytestmark = pytest.mark.usefixtures("clean_settings")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_auto_backend_report():
+    """启动播报去重是**进程级**状态（CLI 主引擎与内嵌网页 handler 共用）：每个用例前后各清一次。
+
+    不清的话「同值只播一次」会让断言随 pytest 执行顺序漂移——这正是它当初要解决的问题
+    在测试侧的反面。
+    """
+    from heagent.engine import container as container_module
+
+    container_module.reset_auto_backend_report()
+    yield
+    container_module.reset_auto_backend_report()
+
+
 def test_snapshot_detaches_collections_and_credentials():
     settings = Settings(
         _env_file=None,
@@ -173,7 +187,6 @@ def test_auto_backend_resolution_is_reported_once_per_process(monkeypatch, caplo
 
     from heagent.engine import container as container_module
 
-    monkeypatch.setattr(container_module, "_AUTO_BACKEND_REPORTED", set())
     monkeypatch.setattr("shutil.which", lambda name: None)  # auto → passthrough
     settings = _auto_settings()
 
@@ -191,7 +204,6 @@ def test_auto_backend_reports_again_when_resolution_changes(monkeypatch, caplog,
 
     from heagent.engine import container as container_module
 
-    monkeypatch.setattr(container_module, "_AUTO_BACKEND_REPORTED", set())
     monkeypatch.setattr("shutil.which", lambda name: None)
     settings = _auto_settings()
 

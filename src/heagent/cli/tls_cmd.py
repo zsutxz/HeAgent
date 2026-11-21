@@ -16,7 +16,8 @@
 ``chmod`` 必 EPERM，真正的保护是材料目录的访问控制）。任何输出都不含私钥正文，只报路径与指纹。
 
 退出码（与 ``heagent cron`` / ``heagent audit`` 同一约定）：``0`` 成功；``1`` 校验或前提失败；
-``2`` 参数或材料不可用（含缺 ``openssl``）。
+``2`` 参数 / 环境 / 材料不可用（找不到或无法执行 ``openssl``、材料缺失或读不出）。异常自带
+退出码（:class:`TlsCommandError` 的 ``exit_code``），命令体只负责把码交出去。
 
 分层：入口层（``heagent/cli/``），依赖 click + 标准库 + ``heagent.network.tls_identity``（纯 stdlib
 解析）；签发路径用 ``openssl`` 子进程（不在请求路径上）。
@@ -28,6 +29,7 @@ import base64
 import contextlib
 import ipaddress
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -39,6 +41,7 @@ from typing import NoReturn
 
 import click
 
+from heagent.network.exposure import unbracket_host
 from heagent.network.tls_identity import (
     TlsCertificateInfo,
     TlsIdentityError,
@@ -67,7 +70,15 @@ FINGERPRINT_FORMATS = ("text", "json", "pin")
 
 
 class TlsCommandError(RuntimeError):
-    """前提不成立或 ``openssl`` 失败（不猜、不降级、不假装成功）。"""
+    """前提不成立或 ``openssl`` 失败（不猜、不降级、不假装成功）。
+
+    ``exit_code`` 随异常携带：**参数 / 环境 / 材料不可用**是 ``2``（脚本据此区分「环境没装好」
+    与「校验结论不合格」），其余前提失败是 ``1``；模块 docstring 的退出码表就是这张映射。
+    """
+
+    def __init__(self, message: str, *, exit_code: int = EXIT_PROBLEM) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
 
 
 @dataclass(frozen=True)
@@ -111,6 +122,11 @@ def _fail(message: str, *, code: int = EXIT_UNUSABLE) -> NoReturn:
     raise SystemExit(code)
 
 
+def _fail_exit(exc: TlsCommandError | TlsIdentityError) -> NoReturn:
+    """按异常自带的退出码退出（:class:`TlsIdentityError` 无码，落 ``1`` = 前提失败）。"""
+    _fail(str(exc), code=getattr(exc, "exit_code", EXIT_PROBLEM))
+
+
 def _default_directory() -> Path:
     """缺省材料目录：当前工作区根的 ``.heagent/tls``（与其它运行产物同根）。"""
     return Path.cwd() / ".heagent" / "tls"
@@ -120,7 +136,10 @@ def _find_openssl(explicit: str | None) -> str:
     if explicit:
         path = Path(explicit)
         if not path.is_file():
-            raise TlsCommandError(f"--openssl 指向的文件不存在：{explicit}")
+            raise TlsCommandError(f"--openssl 指向的文件不存在：{explicit}", exit_code=EXIT_UNUSABLE)
+        # Windows 没有 POSIX 执行位（扩展名决定可执行性），只在其它平台查一次。
+        if os.name != "nt" and not os.access(path, os.X_OK):
+            raise TlsCommandError(f"--openssl 指向的文件不可执行：{explicit}", exit_code=EXIT_UNUSABLE)
         return str(path)
     found = shutil.which("openssl")
     if found:
@@ -128,14 +147,21 @@ def _find_openssl(explicit: str | None) -> str:
     raise TlsCommandError(
         "找不到 openssl（签发与链校验需要它）。装一个，或用 --openssl <路径> 指定；"
         "宿主 Windows 没有 openssl 时**在容器里执行**（既有先例）："
-        'docker run --rm -v "$PWD:/work" -w /work <含 openssl 的镜像> heagent tls issue'
+        'docker run --rm -v "$PWD:/work" -w /work <含 openssl 的镜像> heagent tls issue',
+        exit_code=EXIT_UNUSABLE,
     )
 
 
 def _run(binary: str, args: list[str], *, cwd: Path) -> str:
     # 参数全部由本模块构造（不含外部拼接），不经 shell。
     completed = subprocess.run(  # nosec B603 - 参数由本模块构造不经命令行壳 # noqa: S603 - 定值参数
-        [binary, *args], cwd=str(cwd), capture_output=True, text=True, check=False
+        [binary, *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
@@ -158,19 +184,33 @@ def _normalize_san(raw: str) -> str:
             raise TlsCommandError(f"{text!r} 缺值")
         if kind.upper() == "IP":
             try:
-                return f"IP:{ipaddress.ip_address(value)}"
+                return f"IP:{ipaddress.ip_address(unbracket_host(value))}"
             except ValueError as exc:
                 raise TlsCommandError(f"{value!r} 不是 IP 字面量") from exc
         return f"DNS:{value}"
+    # `[::1]` 与绑定地址同一口径脱括号（见 exposure.unbracket_host）。
+    candidate = unbracket_host(text)
     try:
-        return f"IP:{ipaddress.ip_address(text)}"
+        return f"IP:{ipaddress.ip_address(candidate)}"
     except ValueError:
         pass
-    if text and set(text) <= set("0123456789abcdefABCDEF:."):
+    if _looks_like_ip_literal(candidate):
         raise TlsCommandError(f"{text!r} 形似 IP 但解析失败（检查是否打错）")
-    if any(ch in text for ch in " \t/\\:@") or text.startswith("-"):
+    if any(ch in candidate for ch in " \t/\\:@[]") or candidate.startswith("-"):
         raise TlsCommandError(f"{text!r} 既不是 IP 也不是主机名")
-    return f"DNS:{text}"
+    return f"DNS:{candidate}"
+
+
+def _looks_like_ip_literal(text: str) -> bool:
+    """是否「形似 IP」：带冒号（IPv6 形状）或点分四段全数字（IPv4 形状）。
+
+    只按形状判：``cafe`` / ``dead.beef`` 这类主机名虽然只由十六进制字符与点组成，却是合法
+    DNS 名，报「形似 IP 但解析失败」会把人引向错误的排查方向。
+    """
+    if ":" in text:
+        return True
+    parts = text.split(".")
+    return len(parts) == 4 and all(part.isdigit() for part in parts)  # noqa: PLR2004 - IPv4 固定四段
 
 
 def _detect_lan_ips() -> list[str]:
@@ -361,8 +401,14 @@ def _backup(session: _Session) -> Path | None:
     existing = [name for name in names if (session.directory / name).is_file()]
     if not existing:
         return None
-    target = session.directory / f"backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-    target.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    target = session.directory / f"backup-{stamp}"
+    index = 1
+    while target.exists():
+        # 同秒内跑两次破坏性命令：``copyfile`` 会静默覆盖同名文件，留底就不再是留底。
+        target = session.directory / f"backup-{stamp}-{index}"
+        index += 1
+    target.mkdir(parents=True)
     for name in existing:
         # 同 _ensure_identity：不带元数据，否则 9p / drvfs 上备份会半途失败。
         shutil.copyfile(session.directory / name, target / name)
@@ -379,12 +425,14 @@ def _require(session: _Session, *paths: Path) -> None:
         if "identity.key" in missing:
             # 旧材料（scripts/gen_ws_cert.py 签出）没有身份密钥；迁移会换 CA，客户端改按 pin 信任。
             hint = "先执行 `heagent tls init --force` 迁移到身份密钥布局（旧材料会留底；CA 会换，客户端改按 pin 信任）"
-        raise TlsCommandError(f"材料目录 {session.directory} 缺少 {', '.join(missing)}；{hint}")
+        raise TlsCommandError(
+            f"材料目录 {session.directory} 缺少 {', '.join(missing)}；{hint}", exit_code=EXIT_UNUSABLE
+        )
 
 
 def _require_leaf(session: _Session) -> None:
     if not session.leaf_cert.is_file():
-        raise TlsCommandError(f"缺少叶证书 {session.leaf_cert}；先执行 `heagent tls issue`")
+        raise TlsCommandError(f"缺少叶证书 {session.leaf_cert}；先执行 `heagent tls issue`", exit_code=EXIT_UNUSABLE)
 
 
 def _identity_spki(session: _Session) -> bytes:
@@ -430,7 +478,10 @@ def _render_report(info: TlsCertificateInfo, *, pin: str) -> str:
 @click.pass_context
 def tls_cmd(ctx: click.Context, material_dir: Path | None, openssl_path: str | None) -> None:
     """WS TLS 身份材料：签发 / 轮换 / 指纹导出 / 一致性校验（客户端 pin 的是身份密钥）。"""
-    ctx.obj = _Session(directory=(material_dir or _default_directory()), openssl=openssl_path)
+    directory = material_dir or _default_directory()
+    # 一律转绝对路径：``verify`` 把路径交给 ``openssl`` 的同时把 cwd 设成该目录，相对路径会被
+    # 解析两次（材料完好却报「叶证书不由此 CA 签发」）；其余子命令只受益于更明确的报错路径。
+    ctx.obj = _Session(directory=Path(os.path.abspath(directory)), openssl=openssl_path)
 
 
 @tls_cmd.command("init")
@@ -456,12 +507,15 @@ def init_materials(session: _Session, force: bool, ca_days: int, no_lan: bool) -
             click.echo(f"旧材料已备份到 {saved}")
         _write_leaf_config(session, _collect_san(session, (), include_lan=not no_lan))
         _create_ca(binary, session, ca_days)
+        # 新 CA 是新密钥签发的：旧序列号文件留着会让新 CA 从旧序列段继续签发，而两者 subject
+        # 相同（CA_SUBJECT 是常量）——等于两张 CA 证书共用一个 serial 前缀，没必要留这个坑。
+        (session.directory / "ca.srl").unlink(missing_ok=True)
         _tighten(session.ca_key)
         _ensure_identity(binary, session, rotate=True)
         pin = spki_sha256_base64_of_der(_identity_spki(session))
         short = _identity_short(session)
     except (TlsCommandError, TlsIdentityError) as exc:
-        _fail(str(exc), code=EXIT_PROBLEM)
+        _fail_exit(exc)
 
     click.echo(f"材料目录 : {session.directory}")
     click.echo(f"CA       : {session.ca_cert.name}（{ca_days} 天）")
@@ -492,7 +546,7 @@ def issue_leaf_cmd(session: _Session, days: int, san_items: tuple[str, ...], no_
             raise TlsCommandError("重签后公钥变了（身份密钥未被复用）——pin 会失效，请检查材料目录")
         pin = spki_sha256_base64(session.leaf_cert)
     except (TlsCommandError, TlsIdentityError) as exc:
-        _fail(str(exc), code=EXIT_PROBLEM)
+        _fail_exit(exc)
 
     click.echo(f"叶证书   : {session.leaf_cert}（{days} 天）")
     click.echo(_render_report(info, pin=pin))
@@ -508,6 +562,10 @@ def issue_leaf_cmd(session: _Session, days: int, san_items: tuple[str, ...], no_
 def rotate_key(session: _Session, yes: bool, days: int, no_lan: bool) -> None:
     """轮换身份密钥（**唯一会改变客户端 pin 的动作**）：打印新旧指纹与双 pin 过渡提示。"""
     try:
+        # 参数先于任何破坏性动作校验：``days`` 不合法时绝不能已经换了密钥（那会让客户端
+        # pin 失效、又拿不到可用证书，两个坏结果同时成立）。
+        if days < 1:
+            raise TlsCommandError("--days 必须是正整数")
         binary = _find_openssl(session.openssl)
         _require(session, session.ca_cert, session.ca_key, session.identity_key)
         old_pin = _identity_pin(session)
@@ -526,7 +584,7 @@ def rotate_key(session: _Session, yes: bool, days: int, no_lan: bool) -> None:
         new_short = _identity_short(session)
         info = certificate_info(session.leaf_cert)
     except (TlsCommandError, TlsIdentityError) as exc:
-        _fail(str(exc), code=EXIT_PROBLEM)
+        _fail_exit(exc)
 
     if new_pin == old_pin:
         _fail("轮换后 pin 未变化（身份密钥没有真的换掉）", code=EXIT_PROBLEM)
@@ -552,7 +610,7 @@ def fingerprint(session: _Session, output_format: str) -> None:
         info = certificate_info(session.leaf_cert)
         pin = spki_sha256_base64(session.leaf_cert)
     except (TlsCommandError, TlsIdentityError) as exc:
-        _fail(str(exc), code=EXIT_PROBLEM)
+        _fail_exit(exc)
 
     if output_format == "pin":
         click.echo(f"sha256/{pin}")
@@ -583,7 +641,7 @@ def verify(session: _Session) -> None:
         _require(session, session.ca_cert, session.ca_key, session.identity_key)
         _require_leaf(session)
     except (TlsCommandError, TlsIdentityError) as exc:
-        _fail(str(exc), code=EXIT_UNUSABLE)
+        _fail_exit(exc)
 
     checks: list[tuple[str, bool, str]] = []
     verified = subprocess.run(  # nosec B603 - 定值参数 # noqa: S603 - 定值参数
@@ -591,6 +649,8 @@ def verify(session: _Session) -> None:
         cwd=str(session.directory),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     lines = (verified.stdout or verified.stderr or "").strip().splitlines()

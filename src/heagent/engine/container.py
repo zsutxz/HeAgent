@@ -56,6 +56,15 @@ def _report_auto_backend(backend: str) -> None:
     logger.info("sandbox backend 'auto' resolved to %r", backend)
 
 
+def reset_auto_backend_report() -> None:
+    """清空「已播报」记录（**测试隔离用**）。
+
+    去重状态是进程级的（CLI 主引擎与内嵌网页 handler 是两个刻意隔离的装配，共享同一进程），
+    因此断言启动播报的用例必须先调它——否则「同值只播一次」会让断言随 pytest 执行顺序假红。
+    """
+    _AUTO_BACKEND_REPORTED.clear()
+
+
 def _resolve_command_runner(
     settings: ResolvedRuntimeConfig, backend: str, workspace_root: str | None
 ) -> CommandRunner | None:

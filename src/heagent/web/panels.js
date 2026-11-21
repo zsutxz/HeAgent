@@ -43,12 +43,14 @@
    * **HTTP 错误也是结果**（不抛）：面板要展示状态码与错误信封，而不是把 4xx 变成一次异常。
    * 网络层失败（连接被拒）仍会抛，由调用方给「无法连接到服务」。
    */
-  async function request(method, path, body) {
+  async function request(method, path, body, signal) {
     const init = { method: method, headers: { accept: "application/json" } };
     if (body !== undefined) {
       init.headers["content-type"] = "application/json";
       init.body = JSON.stringify(body);
     }
+    // 调用方给了中断信号就带上：取数超时 / 面板收起时能把半开的连接真正断掉，而不只是不理它。
+    if (signal !== undefined) init.signal = signal;
     const started = window.performance.now();
     const response = await fetch(path, init);
     const elapsed = Math.round(window.performance.now() - started);

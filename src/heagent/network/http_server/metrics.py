@@ -61,7 +61,11 @@ class RequestMetrics:
         return sorted(self._error_codes.items(), key=lambda item: (-item[1], item[0]))
 
     def latency_p50_ms(self) -> float:
-        """窗口内延迟中位数（毫秒）；无样本为 0。"""
+        """窗口内延迟中位数（毫秒）；无样本为 0。
+
+        偶数样本取**上中位**（较大的那个中间值，不做两值插值）：状态面只要量级，插值出来的
+        小数位只会让人以为精度比实际高。
+        """
         if not self._latencies:
             return 0.0
         ordered = sorted(self._latencies)
@@ -76,6 +80,15 @@ class RequestMetrics:
         return self._classes.get(name, 0)
 
 
+def _header_bytes(value: bytes | str) -> bytes:
+    """ASGI 头的规范形态是 bytes；个别服务器 / 测试替身给 str——统一成 bytes。
+
+    不统一的话 ``bytes("content-type")`` 会抛 ``TypeError``，而这两处解析跑在**响应已发出之后**
+    的收尾路径上：那里的异常会盖住本来的请求结果，只为了让观测字段少一个。
+    """
+    return value if isinstance(value, bytes) else str(value).encode("latin-1", "replace")
+
+
 def error_code_from_body(body: bytes, raw_headers: Iterable[tuple[bytes, bytes]] | None) -> str | None:
     """从非 2xx 响应体里取 ``error.code``；不是 JSON 信封 / 太大 / 解析失败一律 ``None``。
 
@@ -86,8 +99,8 @@ def error_code_from_body(body: bytes, raw_headers: Iterable[tuple[bytes, bytes]]
         return None
     content_type = ""
     for key, value in raw_headers or ():
-        if bytes(key).lower() == b"content-type":
-            content_type = bytes(value).decode("latin-1").lower()
+        if _header_bytes(key).lower() == b"content-type":
+            content_type = _header_bytes(value).decode("latin-1").lower()
             break
     if "json" not in content_type:
         return None
@@ -103,8 +116,8 @@ def error_code_from_body(body: bytes, raw_headers: Iterable[tuple[bytes, bytes]]
 def is_event_stream(raw_headers: Iterable[tuple[bytes, bytes]] | None) -> bool:
     """响应头是否声明了 SSE（``text/event-stream``）——流式响应的耗时不是请求延迟。"""
     for key, value in raw_headers or ():
-        if bytes(key).lower() == b"content-type":
-            return bytes(value).decode("latin-1").lower().startswith("text/event-stream")
+        if _header_bytes(key).lower() == b"content-type":
+            return _header_bytes(value).decode("latin-1").lower().startswith("text/event-stream")
     return False
 
 

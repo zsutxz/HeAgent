@@ -16,6 +16,7 @@ from pydantic import SecretStr, ValidationError
 from heagent.cli.display import _current_version
 from heagent.config import Settings
 from heagent.network.cli_event_hub import CliEventHub
+from heagent.network.exposure import unbracket_host
 from heagent.network.http_server import (
     HttpServerConfig,
 )
@@ -38,7 +39,7 @@ _SECONDS_PER_DAY = 86400.0
 
 def binds_every_interface(host: str) -> bool:
     """绑定地址是否「所有网卡」（``0.0.0.0`` / ``::``，含方括号写法）。"""
-    return host.strip().strip("[]").lower() in _WILDCARD_BINDS
+    return unbracket_host(host).lower() in _WILDCARD_BINDS
 
 
 def format_not_after(moment: datetime) -> str:

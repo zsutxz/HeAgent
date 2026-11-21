@@ -22,6 +22,9 @@ from .metrics import _ERROR_BODY_LIMIT_BYTES, error_code_from_body, is_event_str
 # 4xx/5xx 起算错误面：此后访问日志抬到 WARNING。
 _ERROR_STATUS_MIN = 400
 
+#: 应用未处理异常时客户端实际收到的状态码（服务器生成）。计数按它归桶，日志仍记真实的 0。
+_SERVER_ERROR_STATUS = 500
+
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
@@ -125,6 +128,9 @@ class _AccessLogMiddleware:
         error_body = b""
         headers_seen: Any = ()
         streamed = False
+        # 应用在 ``response.start`` 之前抛错 ⇒ 客户端拿到的是服务器生成的 500（不是「没有响应」）。
+        # 只看 ``status`` 会把它记成 0（四桶之外）并打 INFO，等于把真错误藏起来。
+        failed = False
 
         async def send_with_headers(message: MutableMapping[str, Any]) -> None:
             nonlocal status, error_body, headers_seen, streamed
@@ -144,21 +150,29 @@ class _AccessLogMiddleware:
 
         try:
             await self.app(scope, receive, send_with_headers)
+        except BaseException:
+            failed = True
+            raise
         finally:
             elapsed_ms = (time.perf_counter() - started) * 1000.0
+            # 未处理异常在 ``response.start`` 之前抛出：日志按 ERROR 记（status 仍是真实的 0，
+            # 由 ``outcome`` 点明它代表什么），计数侧按客户端实际收到的 500 归桶。
+            recorded_status = status or (_SERVER_ERROR_STATUS if failed else 0)
+            level = logging.ERROR if failed else (logging.WARNING if status >= _ERROR_STATUS_MIN else logging.INFO)
             safe_log(
                 logger,
-                logging.INFO if status < _ERROR_STATUS_MIN else logging.WARNING,
-                "http event=request request_id=%s method=%s path=%s status=%s elapsed_ms=%d",
+                level,
+                "http event=request request_id=%s method=%s path=%s status=%s outcome=%s elapsed_ms=%d",
                 request_id,
                 scope.get("method"),
                 scope.get("path"),
                 status,
+                "unhandled_exception" if failed and not status else "completed",
                 int(elapsed_ms),
             )
             if self._metrics is not None:
                 self._metrics.record(
-                    status=status,
+                    status=recorded_status,
                     elapsed_ms=elapsed_ms,
                     error_code=error_code_from_body(error_body, headers_seen),
                     streamed=streamed,

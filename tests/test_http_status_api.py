@@ -935,8 +935,12 @@ class TestRequestMetrics:
         assert metrics.status_class("4xx") == 1
         assert metrics.status_class("5xx") == 0
 
-    async def test_aborted_request_is_counted_without_making_the_middleware_raise(self) -> None:
-        """应用在 ``response.start`` 之前抛错（status=0）只计总数与延迟：中间件自己不许再抛。"""
+    async def test_aborted_request_is_counted_as_a_server_error_without_raising(self) -> None:
+        """应用在 ``response.start`` 之前抛错：客户端实际收到的是 500，故按 5xx 归桶。
+
+        中间件自己不许再抛（原异常照旧穿透），也不许把这次失败记成「没有状态」——那会让状态
+        面板的 5xx 恒 0，正是最需要它报警的时候。
+        """
         from heagent.network.http_server.middleware import _AccessLogMiddleware
         from heagent.network.http_server.metrics import RequestMetrics
 
@@ -948,9 +952,9 @@ class TestRequestMetrics:
         with pytest.raises(RuntimeError):
             await middleware({"type": "http", "method": "GET", "path": "/api/x"}, None, None)
 
-        # 原异常照旧穿透；计数只落总数（四个对外分桶不含 status=0）。
         assert metrics.total == 1
-        assert sum(metrics.status_class(name) for name in ("2xx", "3xx", "4xx", "5xx")) == 0
+        assert metrics.status_class("5xx") == 1
+        assert sum(metrics.status_class(name) for name in ("2xx", "3xx", "4xx")) == 0
 
     async def test_streaming_response_is_counted_but_kept_out_of_the_latency_window(self) -> None:
         """SSE 的耗时是连接寿命：只进总数与错误码，不进延迟窗口（否则一条长订阅独占 max）。"""
@@ -1036,6 +1040,14 @@ class TestRequestMetrics:
         assert error_code_from_body(b"plain text", headers) is None
         assert error_code_from_body(b"{" + b'"a": 1,' * 500 + b"}", headers) is None
         assert error_code_from_body(b'{"ok": true}', headers) is None
+
+    def test_string_headers_do_not_blow_up_the_observability_path(self) -> None:
+        """ASGI 规范是 bytes，但 str 头不该让**收尾**路径抛异常（那会盖住本来的请求结果）。"""
+        from heagent.network.http_server.metrics import error_code_from_body, is_event_stream
+
+        str_headers = [("content-type", "application/json")]
+        assert error_code_from_body(b'{"error": {"code": "run_conflict"}}', str_headers) == "run_conflict"
+        assert is_event_stream([("content-type", "text/event-stream; charset=utf-8")]) is True
 
     def test_real_source_maps_real_metrics_without_a_replica(self) -> None:
         """映射由**真实** ``HttpStatusSource._request_metrics`` 完成：复刻映射的替身证明不了它。"""

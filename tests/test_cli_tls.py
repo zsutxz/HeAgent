@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from heagent.cli.tls_cmd import tls_cmd
+from heagent.cli.tls_cmd import TlsCommandError, _normalize_san, tls_cmd
 from heagent.network.tls_identity import (
     cert_key_matches,
     key_spki_der,
@@ -94,6 +94,15 @@ class TestInit:
         assert len(backups) == 1
         assert (backups[0] / "ca.pem").read_bytes() == old_ca
 
+    def test_force_drops_the_previous_ca_serial(self, materials: Path) -> None:
+        """新 CA 换了密钥：旧序列号文件必须丢弃（subject 相同，留着等于两张 CA 共用 serial 段）。"""
+        assert _init(materials).exit_code == 0
+        assert _run(materials, "issue", "--no-lan").exit_code == 0
+        assert (materials / "ca.srl").is_file(), "issue 会建序列号文件"
+
+        assert _init(materials, "--force").exit_code == 0
+        assert not (materials / "ca.srl").exists()
+
 
 class TestIssue:
     def test_leaf_reuses_the_identity_key_so_the_pin_is_stable(self, materials: Path) -> None:
@@ -161,6 +170,19 @@ class TestRotateKey:
         assert (materials / "identity.key").read_bytes() == identity_before
         assert spki_sha256(materials / "cert.pem") == pin_before
 
+    def test_non_positive_days_are_rejected_before_the_key_is_replaced(self, materials: Path) -> None:
+        """参数不合法时绝不能已经换了密钥：那会「pin 失效」与「拿不到可用证书」两个坏结果同时成立。"""
+        assert _init(materials).exit_code == 0
+        assert _run(materials, "issue", "--no-lan").exit_code == 0
+        identity_before = (materials / "identity.key").read_bytes()
+        pin_before = spki_sha256(materials / "cert.pem")
+
+        result = _run(materials, "rotate-key", "--yes", "--no-lan", "--days", "0")
+        assert result.exit_code == 1
+        assert "正整数" in result.output
+        assert (materials / "identity.key").read_bytes() == identity_before
+        assert spki_sha256(materials / "cert.pem") == pin_before
+
 
 class TestFingerprint:
     def test_three_formats_carry_the_same_hash(self, materials: Path) -> None:
@@ -220,6 +242,48 @@ class TestNoOpenSSL:
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda *_args, **_kwargs: None)
         result = CliRunner().invoke(tls_cmd, ["--dir", str(materials), "init", "--no-lan"])
-        assert result.exit_code != 0
+        assert result.exit_code == 2, "环境不可用是 2（脚本据此区分「没装好」与「结论不合格」）"
         assert "openssl" in result.output
         assert "容器" in result.output
+
+    def test_nonexistent_openssl_path_is_also_unusable(self, materials: Path) -> None:
+        result = CliRunner().invoke(tls_cmd, ["--dir", str(materials), "--openssl", "/nope/openssl", "init"])
+        assert result.exit_code == 2
+        assert "--openssl" in result.output
+
+
+class TestMaterialDirectory:
+    def test_relative_directory_is_resolved_before_openssl_runs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """相对 ``--dir``：``verify`` 同时给 openssl 路径与 cwd，路径必须先绝对化。
+
+        不绝对化时路径被解析两次，材料完好却报「叶证书不由此 CA 签发」——一个假 FAIL 比没有
+        校验更糟，它会把运维引去重签。
+        """
+        monkeypatch.setattr("heagent.cli.tls_cmd._ws_host", lambda: None)
+        monkeypatch.chdir(tmp_path)
+        openssl = _openssl()
+        runner = CliRunner()
+        for args in (("init", "--no-lan"), ("issue", "--no-lan")):
+            step = runner.invoke(tls_cmd, ["--dir", "tls", "--openssl", openssl, *args])
+            assert step.exit_code == 0, step.output
+        result = runner.invoke(tls_cmd, ["--dir", "tls", "--openssl", openssl, "verify"])
+        assert result.exit_code == 0, result.output
+        assert "[FAIL]" not in result.output
+
+
+class TestSanInput:
+    def test_names_that_only_look_hexadecimal_are_dns_names(self) -> None:
+        """``cafe`` / ``dead.beef`` 是合法 DNS 名；按「形似 IP」拒绝会指向错误的排查方向。"""
+        for name in ("cafe", "abc", "dead.beef", "myhost"):
+            assert _normalize_san(name) == f"DNS:{name}"
+
+    def test_bracketed_ipv6_is_normalized_like_a_bind_address(self) -> None:
+        assert _normalize_san("[::1]") == "IP:::1"
+        assert _normalize_san("IP:[::1]") == "IP:::1"
+
+    @pytest.mark.parametrize("value", ["1.2.3.999", "::1::", "[localhost]", "a b"])
+    def test_unparseable_or_ip_shaped_input_still_fails_loudly(self, value: str) -> None:
+        with pytest.raises(TlsCommandError):
+            _normalize_san(value)

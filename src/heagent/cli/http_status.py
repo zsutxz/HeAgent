@@ -158,14 +158,14 @@ def _deployment(
 
 
 class _TlsIdentityCache:
-    """按「材料路径 + mtime」缓存证书身份：状态端点可能每 5 秒被轮询一次，不能每次都读盘并解析。
+    """按「材料路径 + 身份特征」缓存证书身份：状态端点可能每 5 秒被轮询一次，不能每次都读盘并解析。
 
-    失败同样入缓存（key 里的 mtime 缺失记 ``-1``）：材料不可读时只记**一次** WARNING，轮询不会把
-    日志刷满；材料被换掉（mtime 变）或文件出现，key 随之变化 ⇒ 下一次请求自动重试。
+    失败同样入缓存（取不到的项记 ``-1``）：材料不可读时只记**一次** WARNING，轮询不会把日志刷满；
+    材料被换掉（mtime / 大小 / inode 任一变化）或文件出现，key 随之变化 ⇒ 下一次请求自动重试。
     """
 
     def __init__(self) -> None:
-        self._key: tuple[str, int] | None = None
+        self._key: tuple[str, int, int, int] | None = None
         self._info: TlsIdentityInfo = TlsIdentityInfo()
 
     def info(self, cert_file: str) -> TlsIdentityInfo:
@@ -176,11 +176,18 @@ class _TlsIdentityCache:
         return self._info
 
     @staticmethod
-    def _key_for(cert_file: str) -> tuple[str, int]:
+    def _key_for(cert_file: str) -> tuple[str, int, int, int]:
+        """缓存键 = 路径 + mtime + 大小 + inode。
+
+        只看 mtime 在粗粒度时间戳的文件系统（FAT / 某些 drvfs 挂载是 2 秒）上会漏掉「同一
+        时间戳内换掉材料」；带上大小与 inode 后，换文件、换内容都能立刻失效。取不到的项记 -1
+        （文件不存在），下一次请求文件出现时键自然改变。
+        """
         try:
-            return (cert_file, Path(cert_file).stat().st_mtime_ns)
+            stat = Path(cert_file).stat()
         except OSError:
-            return (cert_file, -1)
+            return (cert_file, -1, -1, -1)
+        return (cert_file, stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
     @staticmethod
     def _resolve(cert_file: str) -> TlsIdentityInfo:
