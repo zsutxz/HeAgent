@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**17 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 13：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A72 / A73 / A75 / A76）。
+当前活动项：**16 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 12：A54 / A55 / A56 / A62 / A66 / A67 / A69 / A70 / A72 / A73 / A75 / A76）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -18,7 +18,6 @@
 | A56 | Epic 64 收口残差：任务进度跨进程不可见 / `examples/` 不在代码门禁范围 | `active` | **origin=新增（2026-11-18 Epic 64 收口）**，两项均为实测事实：
 ① **跨进程不可见**：`GET /api/tasks` 读的是**进程内**单例注册表（`engine/tasks.py::default_task_registry`），生产者当前只有上下文压缩（`agent/context_runtime.py::maybe_compress` 与 CLI `/compact`）⇒ 同进程的网页/内嵌入口能读到，跨进程（如另起的 `http-server` 实例、cron 子进程）读不到。判据 `tests/test_cli_epic64_wiring.py`（同进程 200）与 `tests/network/test_http_tasks.py`（注入式来源）。闭合动作 = 真需要跨进程时再上 IPC/落盘投影；触发条件 = 出现真实的「网页端看不到别的进程在跑什么」诉求。
 ② ~~**`examples/` 不在门禁范围**~~ → **2026-11-18 已闭合**：`ruff check` / `ruff format --check` 的路径面已加 `examples`（`scripts/quality_gate.py`、`ci.yml`、`.pre-commit-config.yaml`、`docs/testing.md` 同步；`ruff.toml` 为 `examples/**` 只放行 RUF001/002/003 全角标点，其余规则同标准）⇒ 现存 112 条告警清零（修 7 条实质问题、105 条为中文标点）；**`mypy src` 仍不含 examples**（示例是自包含演示脚本，纳入需单独定口径，不属本项闭合范围）。 |
-| A59 | Epic 66 性能面观测缺口：缓存容量只到构造参数、命中率无运行时出口 | `active` | **origin=新增（2026-11-18 Epic 66 评审）**。实测事实：① 元数据缓存容量只到构造参数（`ProviderMetadataCache(max_size=64)`，无 Settings 键）⇒ 66.1 票面「缓存大小可配置」只到代码级；② `hits` / `misses` / `hit_rate` 无运行时出口（只有 `switchable` / `chain` / `router` / `key_rotation` 的 `metadata_cache` 属性可编程读），Epic 66 Done when 的「命中 >80%」目前只有单测合成证据；③ 技能侧 `SkillMatchCache`（32 槽）/ `SkillMatchIndex`（4 槽）同为常量。**2026-11-18 已补**：`RoutingProvider` / `KeyRotatingProvider` 也接入缓存（此前只接 `Switchable` / `Chain`，见同名提交）。触发条件 = 需要线上判断缓存是否真生效，或要一个配置旋钮；闭合动作 = 加缓存容量配置键 + `DEBUG_MODE` 下打命中率 |
 | A62 | 敏感操作留痕只覆盖网页写通道 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。`record_operation` 的接入点 = 会话删除（`context/session.py`）、技能删除/归档（`skills/skill_store.py`）、配置写入（`cli/http_console.py`）；CLI 侧写 `.env` / `setting.md`（`cli/init.py`、`cli/wizard.py`）不入统一审计链。触发条件 = 需要从 CLI 侧追证「谁改了配置」；闭合动作 = 把 CLI 写入路径也接到 `record_operation`（before/after 走 `fingerprint_file`） |
 | A65 | Pages 部署前置设置未验证（**用户裁定暂停**） | `frozen` | **origin=新增（2026-11-18 Epic 68 评审）**。`.github/workflows/docs.yml` 已就绪（触发分支含 `master` / `main` / `feat/module-integration`，`mkdocs.yml` 已配 `site_url`），但仓库 Settings → Pages 的 Source 必须选 “GitHub Actions” 才能部署，且从未跑过一次真实 `workflow_dispatch`。**裁定指针：2026-11-18 用户裁定「暂停」**（不推进 Pages 发布，站点构建门仍在 CI docs step 里照跑）。恢复条件 = 用户决定启用 Pages 时：改仓库设置 → 手动触发一次 → 确认 `page_url` 可访问（判据 = run 绿 + 200） |
 | A66 | 依赖锁与漏洞扫描口径未定 | `active` | **origin=新增（2026-11-18 Epic 67 评审）**。① `requirements.lock`（102 行）由 `pip freeze --exclude-editable` 从**本机全量环境**导出：含 dev/gui/http/mkdocs 工具链（`pytest` / `mypy` / `ruff` / `bandit` / `mkdocs` / `textual` / `uvicorn`）与 `mcp`，不是纯运行时锁；② 无「与 pyproject 漂移」判据（`scripts/lock_requirements.py --check` 只验生成幂等）；③ `ci.yml` 的 pip-audit 已去掉 `continue-on-error`（高危即红），但没有 `--ignore-vuln` 白名单与复核期限 ⇒ 一个新 CVE 会同时红掉所有 PR。触发条件 = 首次因 CVE 变红，或下个发布周期对齐安装面；闭合动作 = 定锁范围（core 6 项 vs 全量）+ 漂移门 + 白名单策略 |
@@ -35,7 +34,7 @@
 ### 速读（按行动姿态分组）
 
 - **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）、A75（用户在宿主真机跑一次 `netstat` 与客户端三处对账）、A76（客户端 pin 就绪后再切 wss + token 生产姿态）
-- **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A59（缓存配置键 + 命中率出口）、A62（CLI 写盘留痕）、A66（依赖锁口径 + 审计白名单）、A67（devcontainer 实测回填）、A69（池内异模型缓存收益）、A70（技能指纹内容哈希）、A72（入口异常收窄）、A73（web_search 边际观察批）
+- **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A62（CLI 写盘留痕）、A66（依赖锁口径 + 审计白名单）、A67（devcontainer 实测回填）、A69（池内异模型缓存收益）、A70（技能指纹内容哈希）、A72（入口异常收窄）、A73（web_search 边际观察批）
 - **等用户裁定 / 恢复**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）、A65（用户裁定暂停 Pages 发布，恢复条件已写明）、A68（release 失败推送是否引入 secret）
 
 ### 维护规则（活动项）

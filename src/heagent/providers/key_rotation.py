@@ -61,6 +61,11 @@ class KeyRotatingProvider:
         return self._providers[self._current_index]
 
     @property
+    def providers(self) -> list[BaseProvider]:
+        """池内全部 provider 的只读副本（观测/调试用；与 ``ProviderChain.providers`` 同形）。"""
+        return list(self._providers)
+
+    @property
     def metadata_cache(self) -> ProviderMetadataCache:
         """元数据缓存实例（观测面：``hits`` / ``misses`` / ``hit_rate``）。"""
         return self._metadata_cache

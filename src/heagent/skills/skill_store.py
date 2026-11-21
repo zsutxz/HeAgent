@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.config import GLOBAL_CONFIG_DIR
+from heagent.config import GLOBAL_CONFIG_DIR, get_settings
 from heagent.pub.audit import fingerprint_dir, record_operation
 from heagent.pub.persist import atomic_update_text, atomic_write_text
 from heagent.skills.skill_catalog import SkillMatchCache
@@ -105,7 +105,13 @@ class SkillStore:
         # 用 ``RLock`` 是因为 ``parse`` → ``load`` 等路径会嵌套获取。
         self._mutation_lock = threading.RLock()
         #: 技能匹配的进程内缓存（结果 + 索引），按技能库指纹失效；构造时**不**扫描技能库。
-        self.match_cache = SkillMatchCache()
+        #: 容量取自 ``SKILL_MATCH_CACHE_ENTRIES`` / ``SKILL_INDEX_CACHE_ENTRIES``（进程级配置，
+        #: 每个 store 实例在构造期快照一次）。
+        settings = get_settings()
+        self.match_cache = SkillMatchCache(
+            results=settings.skill_match_cache_entries,
+            index=settings.skill_index_cache_entries,
+        )
 
     # 拆分兼容面：测试经类名访问这两个改写内核；别名保持类属性访问缝原位。
     _render_skill_md = staticmethod(render_skill_md)

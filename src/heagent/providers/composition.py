@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
+from heagent.providers.metadata_cache import DEFAULT_MAX_SIZE, ProviderMetadataCache
 from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import HeuristicRouter, RoutingProvider
@@ -105,6 +106,16 @@ def _responses_builder(settings: Settings, *, key: str, base_url: str | None) ->
     return build
 
 
+def _cache_size(settings: Settings) -> int:
+    """``PROVIDER_METADATA_CACHE_SIZE``：聚合层元数据缓存的容量（每层各一份）。
+
+    duck-typed 兜底：测试替身没有该字段时回落 ``DEFAULT_MAX_SIZE``，与「调用方不注入缓存
+    时聚合层自建默认容量」同一口径（缓存本身的 ``max_size`` 校验仍在 ``ProviderMetadataCache``）。
+    """
+    size = getattr(settings, "provider_metadata_cache_size", DEFAULT_MAX_SIZE)
+    return size if isinstance(size, int) else DEFAULT_MAX_SIZE
+
+
 def _build_entry(
     entry: str,
     spec: RoutingPoolSpec | None,
@@ -114,6 +125,7 @@ def _build_entry(
     default_base_url: str | None,
     build: ProviderBuilder,
     continuity: bool,
+    cache_size: int = DEFAULT_MAX_SIZE,
 ) -> BaseProvider:
     """构建单个 provider 条目：无池规格 → 单模型条目；有规格 → 按规格构建路由池。
 
@@ -140,7 +152,12 @@ def _build_entry(
         mid_keywords=spec.keyword_list("mid") or None,
         continuity=continuity if spec.reasoning_continuity is None else spec.reasoning_continuity,
     )
-    return RoutingProvider(children, router, default=spec.default_name)
+    return RoutingProvider(
+        children,
+        router,
+        default=spec.default_name,
+        metadata_cache=ProviderMetadataCache(max_size=cache_size),
+    )
 
 
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
@@ -160,6 +177,8 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     named: dict[str, BaseProvider] = {}
     specs = settings.routing_pool_map
     continuity = settings.routing_reasoning_continuity
+    # 元数据缓存容量只在这里读一次：各聚合层各持一份**同容量**的缓存（不在四个构造点各读 settings）。
+    cache_size = _cache_size(settings)
     # 凭据一次性解析（keyring / 环境变量 / .env 的优先级只在 Settings.secret() 一处），
     # 后面各条目的守卫与构建器都复用同一次结果。
     deepseek_key = _secret(settings, "deepseek_api_key")
@@ -190,6 +209,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             default_base_url=default_base_url,
             build=build,
             continuity=continuity,
+            cache_size=cache_size,
         )
 
     if deepseek_key:
@@ -198,7 +218,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         _entry("deepseek", default_model=settings.deepseek_model, default_base_url=url, build=build)
 
     if anthropic_key or settings.anthropic_key_pool:
-        build = _anthropic_pool_builder(settings, primary_key=anthropic_key)
+        build = _anthropic_pool_builder(settings, primary_key=anthropic_key, cache_size=cache_size)
         _entry(
             "claude", default_model=settings.default_model, default_base_url=settings.anthropic_base_url, build=build
         )
@@ -263,13 +283,15 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             next(iter(named.keys())),
         )
         default_name = next(iter(named.keys()))
-    return SwitchableProvider(named, default=default_name)
+    return SwitchableProvider(named, default=default_name, metadata_cache=ProviderMetadataCache(max_size=cache_size))
 
 
 def _build_key_rotated(
     primary_key: str | None,
     pool: list[str],
     factory: Callable[[str], BaseProvider],
+    *,
+    cache_size: int = DEFAULT_MAX_SIZE,
 ) -> BaseProvider | None:
     """Build one provider or a key-rotating provider pool."""
     keys: list[str] = []
@@ -281,13 +303,17 @@ def _build_key_rotated(
     if not keys:
         return None
     providers = [factory(key) for key in keys]
-    return providers[0] if len(providers) == 1 else KeyRotatingProvider(providers)
+    if len(providers) == 1:
+        return providers[0]
+    return KeyRotatingProvider(providers, metadata_cache=ProviderMetadataCache(max_size=cache_size))
 
 
 def _key_rotated_builder(
     primary_key: str | None,
     pool: list[str],
     make: Callable[[str, str, str | None], BaseProvider],
+    *,
+    cache_size: int = DEFAULT_MAX_SIZE,
 ) -> ProviderBuilder:
     """多密钥轮换条目的构建器：同一组密钥在**每个档位**内各自轮换。
 
@@ -295,10 +321,16 @@ def _key_rotated_builder(
         primary_key: 主密钥（可选）。
         pool: 备用密钥池。
         make: ``(api_key, 档位模型, base_url 覆盖) → 单档 provider``。
+        cache_size: 轮换包装层元数据缓存的容量。
     """
 
     def build(tier_model: str, override: str | None) -> BaseProvider:
-        provider = _build_key_rotated(primary_key, pool, lambda key: make(key, tier_model, override))
+        provider = _build_key_rotated(
+            primary_key,
+            pool,
+            lambda key: make(key, tier_model, override),
+            cache_size=cache_size,
+        )
         if provider is None:
             # 调用点已确认存在密钥；此处仅防御内部不一致（不静默造出空 provider）
             raise ProviderConfigError("Error: provider entry requested without credentials.")
@@ -307,7 +339,12 @@ def _key_rotated_builder(
     return build
 
 
-def _anthropic_pool_builder(settings: Settings, *, primary_key: str | None) -> ProviderBuilder:
+def _anthropic_pool_builder(
+    settings: Settings,
+    *,
+    primary_key: str | None,
+    cache_size: int = DEFAULT_MAX_SIZE,
+) -> ProviderBuilder:
     """claude 条目构建器（多密钥池）：``primary_key`` 由调用点经 ``Settings.secret()`` 解析。"""
     return _key_rotated_builder(
         primary_key,
@@ -319,4 +356,5 @@ def _anthropic_pool_builder(settings: Settings, *, primary_key: str | None) -> P
             prompt_caching=settings.anthropic_prompt_caching,
             max_tokens=settings.max_output_tokens or 4096,
         ),
+        cache_size=cache_size,
     )

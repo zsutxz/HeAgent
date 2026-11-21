@@ -66,6 +66,11 @@ RESOURCE_CEILINGS: dict[str, float] = {
     "SUBAGENT_MAX_ITERATIONS": 10_000.0,
     # 上下文窗口 = 16000000（默认值 512000）
     "MAX_CONTEXT_TOKENS": 16_000_000.0,
+    # 缓存槽位 = 1024（自成刻度）：内存内 LRU 的条目上限，默认值 64 / 32 / 4 已是「每个聚合层
+    # provider / 每个技能库指纹」的数十倍占用量级 —— 1024 只挡「手滑多打两个 0」。
+    "PROVIDER_METADATA_CACHE_SIZE": 1024.0,
+    "SKILL_MATCH_CACHE_ENTRIES": 1024.0,
+    "SKILL_INDEX_CACHE_ENTRIES": 1024.0,
     # 归档节流（自成刻度）= 31536000（1 年）：默认值 1 天（86 400 s）比 seconds 族其它键（60–900 s）
     # 高两个量级 —— 套用 604800 会违反「上界 ≥ 10 × 默认值」这条护栏；「禁用节流」用 0 表达。
     "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS": 31_536_000.0,
@@ -78,7 +83,7 @@ RESOURCE_CEILINGS: dict[str, float] = {
 #:
 #: - **弱校验键**（``LOG_LEVEL`` / ``LOG_FILE_LEVEL`` / ``RETRY_*``）：``Settings`` 对它们没有约束
 #:   或只有下界，候选构造（I6）因此是**空门** —— 它们的全部约束只能来自这里；
-#: - **上界**（:data:`RESOURCE_CEILINGS` 合并进来的 21 个键）：字段元数据只给下界，上界由那张表提供。
+#: - **上界**（:data:`RESOURCE_CEILINGS` 合并进来的 24 个键）：字段元数据只给下界，上界由那张表提供。
 #:
 #: 两条边界（改这张表前先读）：
 #:

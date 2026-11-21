@@ -347,6 +347,11 @@ class RoutingProvider:
         return list(self._providers.keys())
 
     @property
+    def providers(self) -> dict[str, BaseProvider]:
+        """``{名称: provider 实例}`` 的只读副本（观测/调试用；与 ``SwitchableProvider.providers`` 同形）。"""
+        return dict(self._providers)
+
+    @property
     def default(self) -> str:
         """兜底 provider 名。"""
         return self._default

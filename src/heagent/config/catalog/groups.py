@@ -66,6 +66,9 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             "SKILL_MAX_AUTO_INVOKE_TOKENS",
             "SKILL_MAX_MANUAL_LOAD_TOKENS",
             "SKILL_CURATOR_STALE_DAYS",
+            # 技能匹配的两处进程内 LRU 槽位（结果 / 索引）：纯性能旋钮，按技能库指纹失效。
+            "SKILL_MATCH_CACHE_ENTRIES",
+            "SKILL_INDEX_CACHE_ENTRIES",
         ),
     ),
     ConfigGroupSpec(
@@ -103,7 +106,9 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="providers",
         label="Provider 行为",
-        keys=("ANTHROPIC_PROMPT_CACHING", "OLLAMA_ENABLED"),
+        # 元数据缓存容量：聚合层（switchable / routing / key-rotation / chain）内部 LRU 的槽位，
+        # 纯性能旋钮（调大只是少重建几份元数据），与 provider 行为同组。
+        keys=("ANTHROPIC_PROMPT_CACHING", "OLLAMA_ENABLED", "PROVIDER_METADATA_CACHE_SIZE"),
     ),
     ConfigGroupSpec(
         id="resilience",

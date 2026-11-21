@@ -368,6 +368,11 @@ async def persist_and_cache(
 
     # 校准读侧：按本 run 实际模型（写键 = note_actual_usage 的 response.model）查系数
     loop.last_context_tokens = count_tokens(state.messages, model=loop.last_model)
+    # DEBUG_MODE：run 收尾探一次 provider 栈的元数据缓存命中率（一次 run 一条，非每轮迭代）。
+    from heagent.config import get_settings
+    from heagent.providers.cache_report import log_metadata_cache_stats
+
+    log_metadata_cache_stats(loop.provider, debug_mode=get_settings().debug_mode)
     if loop.engine.hooks is not None:
         await loop.engine.hooks.run_session(SESSION_END, run_context)
     await loop.engine.close_run(run_context)

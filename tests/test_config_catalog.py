@@ -380,7 +380,8 @@ class TestClassification:
         # + cron 结果推送 2 键 − 死键 shell_timeout 移除（生产读者为零）
         # + 陈旧 running 收尾阈值 RUN_STALE_IDLE_HOURS（close_stale_running 接线）
         # + 日志行格式 LOG_FORMAT / 调试模式 DEBUG_MODE（Epic 65 / R13）
-        assert len(whitelist()) == 53
+        # + 缓存槽位 3 键：PROVIDER_METADATA_CACHE_SIZE / SKILL_MATCH_CACHE_ENTRIES / SKILL_INDEX_CACHE_ENTRIES
+        assert len(whitelist()) == 56
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""
@@ -535,6 +536,10 @@ class TestGuards:
             "SUBAGENT_MAX_ITERATIONS": 10_000.0,
             # 上下文窗口 = 16000000（模型属性量级，自成刻度）
             "MAX_CONTEXT_TOKENS": 16_000_000.0,
+            # 缓存槽位 = 1024（内存内 LRU 条目上限，自成刻度）
+            "PROVIDER_METADATA_CACHE_SIZE": 1024.0,
+            "SKILL_MATCH_CACHE_ENTRIES": 1024.0,
+            "SKILL_INDEX_CACHE_ENTRIES": 1024.0,
             # 归档节流 = 31536000（1 年，自成刻度：默认值 1 天比 seconds 族高两个量级）
             "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS": 31_536_000.0,
         }

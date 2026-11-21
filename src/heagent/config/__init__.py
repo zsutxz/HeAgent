@@ -151,6 +151,12 @@ class Settings(BaseSettings):
     # true = 上轮 pro 的思考痕迹仍在历史时继续走 pro；默认 false = 只按当前请求判定（单池可覆盖）。
     routing_reasoning_continuity: bool = Field(default=False)
 
+    # ---- Provider 元数据缓存 ----
+    # 聚合层（switchable / routing / key-rotation / chain）元数据缓存的 LRU 容量上限，**每层各一份**。
+    # 默认值与 `providers/metadata_cache.DEFAULT_MAX_SIZE` 对齐（一致性由 tests 钉住）；配置面不得
+    # 依赖 providers，故此处是字面量。DEBUG_MODE 下 run 收尾会打一行命中率。
+    provider_metadata_cache_size: int = Field(default=64, ge=1)
+
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     goal_max_iterations: int = Field(default=20, ge=1)
@@ -201,6 +207,10 @@ class Settings(BaseSettings):
     skill_max_auto_invoke_tokens: int | None = Field(default=None, ge=1)
     # skill_load 的完整正文读取预算；超出时显式拒绝，不截断可能含安全约束的 Markdown。
     skill_max_manual_load_tokens: int | None = Field(default=8192, ge=1)
+    # 技能匹配结果缓存 / 索引缓存的 LRU 槽位（按技能库指纹失效）。默认值与
+    # `skills/skill_catalog.py` 的 DEFAULT_MATCH_CACHE_ENTRIES / _INDEX_CACHE_ENTRIES 对齐。
+    skill_match_cache_entries: int = Field(default=32, ge=1)
+    skill_index_cache_entries: int = Field(default=4, ge=1)
 
     # ---- 上下文文件参数 ----
     context_files_enabled: bool = Field(default=True)

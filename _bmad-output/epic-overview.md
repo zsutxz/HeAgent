@@ -27,7 +27,7 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 17 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 16 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `decisions/adr-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 与 `.env` 姿态切换挂 **A76**；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
 - ✅ **Epic 72 WS 内网明文接入（第一步，2026-11-19 交付）**：5/5 `done`——`lan` 档免 token（三准入 + 每启动 WARNING）、第二 listener 退役（`WS_EXTERNAL_*` 五键 + 9301 + setup_ws_external.py 全删）、doctor `ws_lan_*` 三查、安全口径双档化、容器内端到端取证；retro `accepted-with-open-items`；残差 **A75**。
@@ -35,7 +35,7 @@
 - ✅ **Epic 63 测试体系增强（已收口，2026-11-18）**：63.1–63.8 全 finished（7 done + 63.4 dropped）、`src/` 零改动；CI 基准强制门禁、fixtures 单一宿、参数化 78%；retro `accepted`，三条 ADR 落 `decisions/`。
 - ✅ **Epic 64 用户体验优化（已收口，2026-11-18）**：14/14 `done`；retro `accepted`；残差 **A56**（进度跨进程不可见）。
 - ✅ **Epic 65 工程自动化（已收口，2026-11-18）**：9/9 `done`（CI↔本地门禁映射契约、PR 触发面守卫、release 失败摘要、`.devcontainer/`、结构化日志 `LOG_FORMAT`、`DEBUG_MODE`、`scripts/profile_run.py`）；retro `accepted`；残差 A58 同日闭合。
-- ✅ **Epic 66 性能优化（已收口，2026-11-18）**：5/5 `done`——元数据缓存 LRU（接线四类 provider）、技能匹配索引+缓存、技能包 entry 单读、SDK 延迟导入；retro `accepted`；残差 **A59**。
+- ✅ **Epic 66 性能优化（已收口，2026-11-18）**：5/5 `done`——元数据缓存 LRU（接线四类 provider）、技能匹配索引+缓存、技能包 entry 单读、SDK 延迟导入；retro `accepted`；残差 **A59** 已于 2026-11-21 闭合（配置键 + DEBUG_MODE 命中率出口）。
 - ✅ **Epic 67 安全增强（已收口，2026-11-18）**：10/10 `done`——输入验证框架、审计 JSONL + 哈希链、密钥轮换提醒与 keyring、漏洞扫描报告导出、`mcp` 移出核心依赖（7→6）+ `requirements.lock`、端点安全覆盖表 + 沙箱逃逸 7 向量；retro `accepted`；残差 **A60–A63 / A66**（A60/A61/A63 已于 2026-11-19 闭合）。
 - ✅ **Epic 68 文档与 API（已交付，2026-11-18）**：3/3 `done`——`scripts/build_docs.py` + docs.yml Pages 部署（含触发分支修正）、docstring 覆盖 99 处清零；retro `accepted-with-open-items`；残差 **A64 已闭合**（docs/api/ 13 页 mkdocstrings 生成）/ **A65**（`frozen`：用户裁定暂停 Pages 发布）。
 - ✅ **Epic 69 异常体系完善（已收口，2026-11-18）**：3/3 `done`——异常三层 + 4 类 14 专用异常 + 码表与 `docs/errors.md` 同步（26→29 类）；retro `accepted`。
@@ -51,7 +51,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `Goal-2-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（17 条——A34/A41/A54/A55/A56/A59/A62/A65–A70、A72/A73、A75/A76，**索引**）
+#### A. 活动台账未闭合条目（16 条——A34/A41/A54/A55/A56/A62/A65–A70、A72/A73、A75/A76，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。
