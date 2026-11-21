@@ -116,6 +116,25 @@ class TestCLIMCPIntegration:
         assert result.exit_code != 0
         assert "mcp config error" in result.output.lower()
 
+    def test_non_tool_error_is_not_attributed_to_mcp_config(self, monkeypatch, clean_settings, tmp_path):
+        """A72：MCP 生命周期只对 MCP 面异常（``ToolError`` 家族）归因。
+
+        其它异常以前也被标成「mcp config error」——那是错误归因，现在原样上抛。
+        """
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
+        monkeypatch.chdir(tmp_path)
+
+        from heagent.cli import console as console_module
+
+        def boom(settings):
+            raise RuntimeError("unexpected failure")
+
+        monkeypatch.setattr(console_module, "_mcp_lifecycle", boom)
+
+        result = CliRunner().invoke(main, input="\n")
+        assert "mcp config error" not in result.output.lower()
+        assert result.exit_code != 0
+
     def test_enabled_with_config_enters_and_exits_manager(self, monkeypatch, clean_settings, tmp_path):
         """有效配置 → MCPClientManager 在会话期进入、退出时回收（FR-2 生命周期）。"""
         monkeypatch.setenv("KIMI_API_KEY", "test-key")

@@ -28,7 +28,7 @@ from heagent.context.session import validate_session_id
 from heagent.events.sink import read_rollout, render_event
 from heagent.providers.router import active_model
 from heagent.providers.switchable import SwitchableProvider
-from heagent.pub.exceptions import HeAgentError
+from heagent.pub.exceptions import ToolError
 from heagent.pub.log_config import make_formatter
 from heagent.pub.roles import load_agent_roles
 from heagent.pub.safe_logging import install_logging_fault_guard
@@ -263,7 +263,9 @@ def _run_cli_impl(
 
     try:
         mcp_ctx = _mcp_lifecycle(settings)
-    except HeAgentError as exc:
+    except ToolError as exc:
+        # 捕获面收窄到 MCP 面的真实抛出面（``load_mcp_config`` 的 ToolError 家族 +
+        # 缺 SDK 的 McpSdkMissingError）：其它异常不归因成「MCP 配置错」，交给上层兜底。
         report_with_command_hints(
             f"[mcp config error] {exc.message}",
             options=(

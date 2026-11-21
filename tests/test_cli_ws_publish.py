@@ -16,7 +16,7 @@ import pytest
 
 from heagent.cli import interactive
 from heagent.cli.display import _LineState
-from heagent.pub.exceptions import HeAgentError
+from heagent.pub.exceptions import ProviderError
 from heagent.pub.types import StreamEvent
 
 
@@ -112,7 +112,7 @@ def test_every_stream_event_kind_is_mirrored_and_the_run_is_bracketed() -> None:
 
 def test_business_failure_is_mirrored_and_the_run_still_closes() -> None:
     hub = _RecordingHub()
-    loop = _StubLoop([StreamEvent(type="text", text="partial")], error=HeAgentError("provider down"))
+    loop = _StubLoop([StreamEvent(type="text", text="partial")], error=ProviderError("provider down"))
     asyncio.run(_consume(hub, loop))
 
     assert hub.calls[0] == ("begin_run",)

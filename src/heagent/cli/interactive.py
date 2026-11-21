@@ -62,7 +62,7 @@ from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.providers.router import active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
-from heagent.pub.exceptions import BudgetExceeded, HeAgentError
+from heagent.pub.exceptions import ERROR_FAMILIES, BudgetExceeded
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths
@@ -308,7 +308,9 @@ async def _run_single(
         except BudgetExceeded as exc:
             click.echo(f"[budget exceeded] {exc.message}", err=True)
             _hub_call(hub, "publish_error", exc.message)
-        except HeAgentError as exc:
+        except ERROR_FAMILIES as exc:
+            # 显式列举 HeAgentError 的直接子类（`ERROR_FAMILIES`）：新增错误族必须被显式接纳，
+            # 而不是被根类静默吞成一行。需要不同出口行为的族在它之前分流（BudgetExceeded 等）。
             click.echo(f"[error] {exc.message}", err=True)
             _hub_call(hub, "publish_error", exc.message)
         finally:
@@ -585,7 +587,8 @@ async def _consume_stream(
     except BudgetExceeded as exc:
         click.echo(f"[budget exceeded] {exc.message}", err=True)
         _hub_call(hub, "publish_error", exc.message)
-    except HeAgentError as exc:
+    except ERROR_FAMILIES as exc:
+        # 同 `_run_single`：显式列举直接子类；CancelledError / BudgetExceeded 已在上面分流。
         click.echo(f"[error] {exc.message}", err=True)
         _hub_call(hub, "publish_error", exc.message)
     finally:

@@ -68,6 +68,7 @@ __all__ = [
     "BudgetExceeded",
     "ConfigurationError",
     "EngineError",
+    "ERROR_FAMILIES",
     "FactCompactConflictError",
     "HeAgentError",
     "HeAgentException",
@@ -490,3 +491,18 @@ def error_code_of(exc: BaseException) -> str:
     if isinstance(exc, HeAgentError):
         return exc.code
     return UNKNOWN_ERROR_CODE
+
+
+#: 入口兜底的显式异常族清单 = ``HeAgentError`` 的**全部直接子类**。
+#:
+#: 入口层刻意不写 ``except HeAgentError``：新增一个直接子类却忘了在此登记时，
+#: ``tests/test_exception_families.py`` 会红——新错误类型必须被显式接纳（进而可以被赋予
+#: 各自的出口行为），而不是被静默渲染成一行 ``[error]``。
+ERROR_FAMILIES: tuple[type[HeAgentError], ...] = (
+    ProviderError,
+    ToolError,
+    EngineError,
+    AgentError,
+    SessionError,
+    ConfigurationError,
+)
