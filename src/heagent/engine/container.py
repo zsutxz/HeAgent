@@ -28,6 +28,7 @@ from heagent.engine.ledger import ExecutionLedger
 from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
+from heagent.engine.tasks import configure_task_projection
 from heagent.pub.types import SandboxDecision
 from heagent.pub.workspace import WorkspacePaths
 
@@ -349,6 +350,9 @@ class EngineContainer:
         if paths is not None:
             workspace_root = str(paths.root)
             settings = resolve_runtime_config(settings, workspace_root=workspace_root)
+            # A56：后台任务进度投影到 ``<状态根>/tasks/``——同工作区的另一个进程（独立
+            # ``http-server`` / cron 子进程）因此能在同一次 ``/api/tasks`` 里看到本进程的任务。
+            configure_task_projection(paths.state_dir / "tasks")
         backend = settings.sandbox_backend
         backend = backend.strip().lower()
         if backend == "auto":

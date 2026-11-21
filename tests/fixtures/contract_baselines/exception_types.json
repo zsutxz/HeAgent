@@ -224,6 +224,11 @@
     {
       "bases": [],
       "module": "heagent.engine.tasks",
+      "name": "TaskProjection"
+    },
+    {
+      "bases": [],
+      "module": "heagent.engine.tasks",
       "name": "TaskRegistry"
     },
     {
@@ -298,6 +303,13 @@
       ],
       "module": "heagent.goal.workflow_loader",
       "name": "SkillWorkflowError"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.goal.worktree",
+      "name": "WorktreeError"
     },
     {
       "bases": [],
