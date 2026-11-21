@@ -121,3 +121,30 @@ deferred: []
   切换步骤 = `.heagent/tls` 跑 `init --force`（旧材料无 `identity.key`）→ `issue --san 192.168.2.226` →
   `.env` 设 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`、`WS_LAN_NO_AUTH=false`、`~/.heagent/setting.md` 配
   `WS_AUTH_TOKEN` → 重启 → `heagent tls fingerprint --format pin` 交给客户端内置。
+
+### 补证（2026-11-21，容器直连**宿主真实 listener** 192.168.2.226:9201）
+
+上一节的三条「未实测」里两条已随姿态切换消解（`.env` 已置 `WS_LAN_NO_AUTH=false` + `WS_TLS_*` 成对 ⇒
+`external` / `wss` / `auth=token`；宿主已有 openssl 3.0.16，`init/issue/verify` 可直接在宿主跑）。
+本轮从容器以真实客户端打宿主 listener，取证如下（原始输出）：
+
+```
+端口矩阵（socket 3s）
+  192.168.2.226:9201  OPEN
+  192.168.2.226:9301  ConnectionRefused   # Epic 72 已退役，符合预期
+  127.0.0.1:9201      ConnectionRefused   # 绑非回环后回环腿消失，符合预期
+  192.168.2.226:9101  ConnectionRefused   # HTTP 只绑回环
+
+TLS 握手（ca.pem 作锚 + check_hostname=True）
+  TLS: TLSv1.3 TLS_AES_256_GCM_SHA384
+  pin   : 247a8b269307d2f682edad8c4f78d7896f99cb47e95a1279667d2de7750fd301
+  short : ER5I-WJUT-A7JP
+  notAfter: Dec 19 14:48:42 2026 GMT
+  SAN   : 127.0.0.1 / ::1 / 10.0.2.2 / 192.168.122.1 / 192.168.2.226 / localhost / heagent.local
+
+无 token 连 wss
+  InvalidStatus: server rejected WebSocket connection: HTTP 403   # fail-closed 生效
+```
+
+pin 与 `heagent tls fingerprint`（三格式）逐字一致 ⇒ 「客户端 pin 交付」的服务端一侧已可核对；
+仍未实测的两项不变：**客户端 `X509TrustManager` 的 pin 校验**（另一仓）与**宿主 `netstat -ano` 行**。

@@ -83,3 +83,14 @@ GET /api/status listeners:
 
 **未实测（需宿主真机）**：`netstat -ano | findstr :9201` 的本地地址是否为 `192.168.2.226`；
 客户端 `ws://192.168.2.226:9201` 的三处对账。容器内无该网卡地址，故以私网地址做同型判据。
+
+
+### 补证（2026-11-21，姿态已切 `wss` + token）
+
+本机 `.env` 现为 `WS_LAN_NO_AUTH=false` + `WS_TLS_CERT_FILE`/`WS_TLS_KEY_FILE` 成对 ⇒ listener 落
+`external` 档（不再是本文上面的 `lan` 明文档）。容器直连宿主 listener 的端口矩阵：
+`192.168.2.226:9201` OPEN / `9301` REFUSED（已退役）/ `127.0.0.1:9201` REFUSED（回环腿消失）/
+`192.168.2.226:9101` REFUSED（HTTP 只绑回环）；wss 无 token → `HTTP 403`。
+
+⇒ **A75 的 `lan` 免认证对账已失去当前对象**：该判据只在回退到 `lan` 档时才重新需要；宿主
+`netstat` 对账与客户端三处对账现由 **A76** 承载（判据见 story-73.6 的补证节）。

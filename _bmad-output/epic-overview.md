@@ -11,7 +11,7 @@
 - **规划产物**：v6 `sprint-status.yaml` 已归档（64 个 epic 键，2026-11-15 实测）；Epic/Story 状态自 2026-11-15 起以 `Goal-3/tickets/tickets.toml` 票树为唯一写目标（Epic 61-73 现全部 closed）；16 个 epic 的 retrospective `optional` 已裁定不再补做（§1.4-C）。产物整理沿革（`patches/` 解散、deferred 台账重组、story 按 Epic 分组）见 retrospective。
 - **架构优化周期（2026-09-21~22 交付，非 BMad 流程、无 epic 归属）**：6 阶段全部 done——组合根收敛（`ResolvedRuntimeConfig`）/ loop façade（策略五模块 + `mark_terminal`）/ workflow 解耦（`goal/application.py`）/ 三域拆分（`tools/sandbox/` 包、MCP `client`+`registry_bridge`、skills 四文件）/ 子进程监督统一 / safe-open 单点 / **事件契约 v2**（`duration_ms`/`error_kind` + workflow_step_* 事件）+ benchmark 基建。周期速览见 retrospective §一 12.7；`implementation-artifacts/arch-optimization-cycle/` 档案 **2026-11-20 裁定删除**（仅存 git 历史）。
 - **2026-10-27~11-15 交付批（125 提交）**：Epic 58/59/60 交付、A51 发布缺口部分闭合（CHANGELOG 载体 + 版本真源守卫 `0.8.4→0.9.0` + mkdocs strict CI 门）、斜杠命令 `/provider`/`/model` 改名、`config/catalog.py` 拆 9 子模块、全库审查 P2-P4 修复、A54 网络族单源化、台账重组收口（本文件拆分定名）。明细逐条见 git log 与各周期产物。
-- **测试基线**：全量 `pytest` **5610 passed / 0 failed**、覆盖率 **93%**（2026-11-19 实测，Epic 73 门禁；gate 87）；`scripts/quality_gate.py` **六门**（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy / **bandit `-ll`**，与 CI lint job 同参数）；deselect = integration + benchmark + 本机 WSL2 恒红 3 条端口断言；代码量 `src/` 47,525 行 + `tests/` 65,014 行（2026-11-15 实测）。
+- **测试基线**：全量 `pytest` **5645 passed / 17 skipped / 1 xfailed / 0 failed**（2026-11-21 实测，带 node 前端探针；同 HEAD）、覆盖率 **93%**（2026-11-19 实测，Epic 73 门禁；gate 87）；`scripts/quality_gate.py` **六门**（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy / **bandit `-ll`**，与 CI lint job 同参数）；deselect = integration + benchmark；代码量 `src/` 59,520 行（236 个 `.py`）+ `tests/` 80,253 行（2026-11-21 实测）。
 
 ### 1.2 已知缺口（详见 frame.md 第五章）
 
@@ -27,9 +27,9 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 16 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 7 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
-- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `decisions/adr-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 与 `.env` 姿态切换挂 **A76**；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
+- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `decisions/adr-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 交付与宿主 `netstat` 对账挂 **A76**（`.env` 的 `wss` + token 生产姿态已于 2026-11-21 切换完成）；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
 - ✅ **Epic 72 WS 内网明文接入（第一步，2026-11-19 交付）**：5/5 `done`——`lan` 档免 token（三准入 + 每启动 WARNING）、第二 listener 退役（`WS_EXTERNAL_*` 五键 + 9301 + setup_ws_external.py 全删）、doctor `ws_lan_*` 三查、安全口径双档化、容器内端到端取证；retro `accepted-with-open-items`；残差 **A75**。
 - ✅ **Epic 61 Web 检索工具周期（已闭合，2026-11-16）**：61.1 引擎层 `66a5b9f` + 61.2 工具面 `1877250` + 61.3 文档收口，三票 done；真实密钥冒烟经用户裁定跳过，挂账 **A55**（等 WEB_SEARCH_API_KEY）。
 - ✅ **Epic 63 测试体系增强（已收口，2026-11-18）**：63.1–63.8 全 finished（7 done + 63.4 dropped）、`src/` 零改动；CI 基准强制门禁、fixtures 单一宿、参数化 78%；retro `accepted`，三条 ADR 落 `decisions/`。
@@ -51,7 +51,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `Goal-2-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（16 条——A34/A41/A54/A55/A56/A62/A65–A70、A72/A73、A75/A76，**索引**）
+#### A. 活动台账未闭合条目（7 条——A41/A55/A65–A68、A75/A76，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。

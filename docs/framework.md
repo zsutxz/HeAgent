@@ -171,6 +171,7 @@ AgentLoop.run(prompt)
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
 | `tls_cmd.py` | `heagent tls init\|issue\|rotate-key\|fingerprint\|verify`：WS TLS 身份材料唯一入口（身份密钥长期固定 ⇒ 重签不改客户端 pin；Story 73.2） | 新增 |
 | `run_history.py` | 重启后的**读侧事件回放**（A35）：从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 读回引擎事件并映射成 SSE 负载（工具输出未落盘 ⇒ 如实标注；缺终态补 `cancelled` 说明）；run_id 过白名单 + 路径越界校验。入口层模块——它同时认识 `events` 与 `network` 模型，`network/` 自身不得导入运行栈 | 新增 |
+| `settings_audit.py` | CLI 侧用户级配置写入的统一审计留痕（A62）：`heagent init` / `--interactive` 写 `~/.heagent/setting.md` 时经 `record_operation` 记一条 `settings.write`，`before`/`after` 只放文件摘要（sha256 + 字节数，值不进审计），落 `<setting.md 目录>/audit/` | 新增 |
 | `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
 | `wizard.py` | `heagent init --interactive` 配置向导主体（45 项常用键按 11 个面分组，推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
@@ -796,14 +797,20 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 ```
 HeAgentError (base)
-  ├── ProviderError      — API 调用失败
-  ├── ToolError          — 工具执行失败
-  ├── SafetyViolation    — 安全检查拦截
-  ├── BudgetExceeded     — 迭代/Token 预算超限
-  └── PolicyViolation    — 策略门控拦截（`engine/`）
+  ├── ProviderError      — API 调用失败（Auth / RateLimit / Timeout / ResponseFormat）
+  ├── ToolError          — 工具执行失败（Argument / Execution / Unknown / SafetyViolation / McpSdkMissing）
+  ├── EngineError        — 运行时治理（PolicyViolation / PolicyExecution / Ledger / WorkflowExecution / FactCompactConflict）
+  ├── AgentError         — 循环与子 Agent（BudgetExceeded → IterationLimit / SubAgent / AgentResume）
+  ├── SessionError       — 会话持久化（Conflict / NotFound / Unreadable）
+  └── ConfigurationError — 配置与输入校验（InputValidationError）
 ```
 
 **禁止**抛出裸 `Exception`。
+
+**入口兜底口径（A72）**：入口层不写 `except HeAgentError`，而是 `except ERROR_FAMILIES`
+（= 上述 6 个直接子类的显式元组，同一模块导出）。新增直接子类必须登记进 `ERROR_FAMILIES`，
+否则 `tests/test_exception_families.py` 红——新错误族要被显式接纳，而不是被根类静默吞成一行；
+该测试同时守卫 `cli/` 下不再出现裸 `except HeAgentError`。
 
 ### 4.10 配置管理 (`config/` 包)
 
@@ -1599,6 +1606,7 @@ src/heagent/
 │   ├── audit_cmd.py         # heagent audit list|export|verify：审计 JSONL 查询 / 导出 / 跨段哈希链校验（Story 67.2 / 67.3；段轮转 A61）
 │   ├── progress.py          # 工具执行耗时行 + 大文件读写进度（Story 64.8 / 64.9）
 │   ├── run_history.py       # 重启后的读侧事件回放：rollout.jsonl → SSE 负载（A35，2026-11-18）
+│   ├── settings_audit.py    # CLI 侧用户级配置写入的统一审计留痕（A62，2026-11-21）
 │   ├── suggestions.py       # 错误场景 → ≥2 条可执行命令建议（Story 64.13）
 │   ├── wizard.py            # heagent init --interactive 配置向导（Story 64.14）
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
@@ -1794,6 +1802,7 @@ src/heagent/
 │   ├── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
 │   │                        #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
 │   ├── write_audit.py       # Story 写集审计判负策略（AD-18 / A40 内容指纹 / A41-A43 披露与 remediation，2026-11-07 自 cli/goal.py 迁入）
+│   ├── worktree.py          # Story worktree 生命周期（AD-20 / A41 物理隔离第一步）：确定路径 + detached 创建 + --force 移除，失败显性（2026-11-21）
 │   ├── mutex.py             # goal 域互斥公共端口：进程内 asyncio.Lock + 跨进程 .heagent/goal.lock（单推进者不变量下沉，2026-10-07 / A32②）
 │   ├── script_api.py        # GoalScript 受限能力门面：只登记操作请求，准入与执行交给既有 Runner/治理链（Story 51-7）
 │   ├── script_loader.py     # GoalScript 资源加载与静态约束（唯一入口名 build_workflow，AST 白名单）
