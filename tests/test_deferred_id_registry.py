@@ -104,6 +104,18 @@ def _active_rows() -> list[list[str]]:
     return rows
 
 
+def _roundup_ids() -> set[str]:
+    """「速读（按行动姿态分组）」节引用的 A 号集合（该节只应列活动项）。"""
+    lines = _lines(ACTIVE)
+    start = _heading_index(lines, "### 速读")
+    ids: set[str] = set()
+    for line in lines[start + 1 :]:
+        if line.startswith(HEADING):
+            break
+        ids |= {f"A{int(match.group(1))}" for match in CITE.finditer(line)}
+    return ids
+
+
 def _declared_active_count(text: str) -> int:
     """头部声明的活动计数；open-items.md 口径形如「当前活动项：**7 条**」。"""
     declared = re.search(r"当前活动项：\*\*(\d+) 条\*\*", text)
@@ -189,6 +201,20 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
             assert "当前活动项无" in text or "只登记已闭合项" in text, (
                 f"{path.name}: no ID sections and no no-active marker"
             )
+
+
+def test_roundup_lists_exactly_the_active_ids() -> None:
+    """速读节的 ID 集合必须等于活动表：既不许留已闭合 ID，也不许漏列新登记项。
+
+    真事故（2026-11-21 实测）：该节曾同时列着 A34/A54/A62/A66/A69/A70/A72/A73 八个已闭合
+    ID（全部已迁 retrospective §三），读者会去追不存在的待办；计数守卫只看行数、看不见这层。
+    """
+    active = {token for row in _active_rows() if (token := _token(row[0]))}
+    roundup = _roundup_ids()
+    assert roundup == active, (
+        f"速读节与活动表 ID 不一致：仅速读有 {sorted(roundup - active)}（已闭合却未迁 archive），"
+        f"仅活动表有 {sorted(active - roundup)}（新登记项未进速读）"
+    )
 
 
 def test_active_count_declarations_match_the_ledger() -> None:
