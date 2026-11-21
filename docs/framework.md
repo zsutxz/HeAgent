@@ -977,7 +977,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | 模块 | 说明 |
 |------|------|
 | `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务；`create_run_context` 含 FR-1 沙箱会话目录解析（根锚定 workspace_root 回退链，开关开启时写 `metadata["sandbox_workspace"]`、关闭时清除预含键，失败显性抛异常） |
-| `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`；终态唯一写入口 `RunContext.mark_terminal`（Phase 2 C2：RUNNING→COMPLETED/FAILED 合法、终态再写显性失败；`touch` 是裸 setter 仅供迭代期刷新。取消路径不写终态——status 保持 RUNNING 可 resume） |
+| `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/**state_root**/iteration/metadata）、`RunStatus`；`workspace_root` = 围栏基线，`state_root` = 运行产物落盘根（`None` 回退前者，worktree 隔离时钉容器根）；终态唯一写入口 `RunContext.mark_terminal`（Phase 2 C2：RUNNING→COMPLETED/FAILED 合法、终态再写显性失败；`touch` 是裸 setter 仅供迭代期刷新。取消路径不写终态——status 保持 RUNNING 可 resume） |
 | `approval.py` | `ApprovalHandler` 协议 + `ApprovalDecision`/`ApprovalRequest` + `ConsoleApprovalHandler`/`DenyAllApprovalHandler` — 交互式审批闭环（Epic 29） |
 | `tasks.py` | 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；生产者侧 `TaskScope`，查询侧经入口层注入 `GET /api/tasks`；Story 64.11） | 新增 |
 | `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32）；PostToolUse 的**非空 stdout 进对话上下文**（以工具结果附注形态追加，单条 ≤2000 / 单次调用累计 ≤4000 字符，超限显式截断标记；注入点在 ledger 记账之后 ⇒ 幂等缓存只存原始工具输出） |
@@ -1147,8 +1147,12 @@ tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物�
 （写集并集对批内每个成员同形 ⇒ 越集写同样会被写者自己的审计判负），故消息与事件如实标注
 `shared_workspace` / 「a sibling may be the author」而不是默认归因（A41）。
 批内并发走 `gather(return_exceptions=True)`（单成员失败不连坐；步骤级取消取消整批落 PENDING）；
-manual 模式 checkpoint 确认每批一次。worktree / OS 级物理隔离是后续增强层（AD-20）：改变围栏与
-审计的实现强度，不改变本节契约。
+manual 模式 checkpoint 确认每批一次。Story 物理隔离已落地（AD-20 / A41，2026-11-21）：授权并行时该
+Story 在确定性路径 `<repo>/.heagent/worktrees/<goal>/<story>` 的 detached worktree 里跑
+（`context_dir` 透传 ⇒ 围栏根与写集审计基线都钉 worktree），完成后经临时引用 + cherry-pick 回收提交
+（冲突 abort 后显性 FAILED），worktree 在 finally 移除。围栏根换成 worktree 时**运行产物根不跟着搬**：
+`RunContext.state_root` 钉容器根（与 `RunStore` / `ExecutionLedger` 同源），工具审计因此落主工作区而不是
+随 worktree 移除丢失；run 快照与 ledger 本就读容器根，不受隔离影响。
 
 checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id 不同内容」fail-safe 报错），因此必须是「位置」的
 完全函数：`story_loop` 步骤的激活 Story 参与 id —— `<goal>-<run>-step-<N>-story-<index>[-<S-n>]-active-<step>-<status>`。

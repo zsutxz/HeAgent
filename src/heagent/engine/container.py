@@ -454,12 +454,16 @@ class EngineContainer:
         parent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         workspace_root: str | None = None,
+        state_root: str | None = None,
     ) -> RunContext:
         """为一次 loop 执行造一个 ``RunContext``，并把沙箱授权写进它的 metadata。
 
         ``workspace_root`` 按「参数 → container → policy → 进程 cwd」回退，因为路径
         围栏与 per-run 沙箱目录都以它为基线（回退到 cwd 是最后一档，也是为了不让围栏
-        失去锚点）。授权只在真实沙箱后端在位时写入：passthrough 下不写等于保持
+        失去锚点）。``state_root``（运行产物落盘根）默认钉在本容器的根——与
+        ``run_store`` / ``ledger`` 同源；仅当调用方显式要求另一处落盘时才传，例如
+        围栏根被换到 git worktree 时必须显式传主工作区，否则工具审计会随 worktree 移除丢失。
+        授权只在真实沙箱后端在位时写入：passthrough 下不写等于保持
         「未授权即拒绝」的既有 fail-safe，而不是制造「已在沙箱里跑」的假象。会话目录
         创建失败直接抛错、不降级为无目录继续跑。
         """
@@ -470,10 +474,20 @@ class EngineContainer:
             root = self.policy.workspace_root
         if root is None:
             root = str(Path.cwd().resolve())
+        # 产物根与围栏根同源（container / policy 根，二者与 run_store、ledger 一致）；
+        # 仅当围栏被换到别处（Story 的 git worktree 隔离）时 product root 仍留主工作区。
+        product_root: str | None = state_root
+        if product_root is None:
+            product_root = self.workspace_root
+        if product_root is None:
+            product_root = self.policy.workspace_root
+        if product_root is None:
+            product_root = root
         ctx = RunContext(
             session_id=session_id,
             parent_run_id=parent_run_id,
             workspace_root=root,
+            state_root=product_root,
             metadata=dict(metadata or {}),
         )
         if self.sandbox_decision is not None:

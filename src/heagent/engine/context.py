@@ -65,6 +65,11 @@ class RunContext(BaseModel):
     parent_run_id: str | None = None
     # 工作区根目录（绝对路径）；PolicyEngine 路径围栏与 file 工具的基线。
     workspace_root: str = Field(default_factory=lambda: str(Path.cwd().resolve()))
+    # 运行产物落盘根（工具审计 / 台账等进程级持久记录的基线）；``None`` ⇒ 回退
+    # ``workspace_root``。二者只在「围栏根与产物根必须分离」时不同——Story 在独立
+    # git worktree 里跑时围栏钉 worktree（写集审计基线随之），而审计台账须落主工作区，
+    # 否则随 worktree 移除一并丢失。
+    state_root: str | None = None
     # 创建时间戳（ISO-8601 秒精度）。
     started_at: str = Field(default_factory=iso_now)
     # 最近一次 touch 的时间戳；随每次迭代刷新。

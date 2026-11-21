@@ -59,6 +59,16 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[ToolCall], Awaitable[object]]
 
 
+def _audit_root_for(run_context: Any) -> str | None:
+    """审计台账的落盘根：``state_root`` 优先，回退 ``workspace_root``，皆空则 ``None``（cwd 口径）。
+
+    工具审计是进程级持久台账，须与 run 快照、ledger 同根；``workspace_root`` 是围栏基线，
+    在 Story 的 worktree 隔离中指向一次性目录，直接用它会让审计随 worktree 移除丢失。
+    ``RunContext`` 是鸭子契约（测试替身只带 run_id），故逐字段 ``getattr`` 探测。
+    """
+    return getattr(run_context, "state_root", None) or getattr(run_context, "workspace_root", None)
+
+
 def _session_workspace(run_context: RunContext | None) -> Path | None:
     """从 ``run_context.metadata`` 提取并校验沙箱会话目录（FR-1）。
 
@@ -216,7 +226,7 @@ class ToolExecutor:
                 run_id=getattr(run_context, "run_id", None),
                 session_id=getattr(run_context, "session_id", None),
             ),
-            state_dir=state_dir_for(getattr(run_context, "workspace_root", None)),
+            state_dir=state_dir_for(_audit_root_for(run_context)),
         )
 
     async def _dispatch(
