@@ -320,6 +320,73 @@ def _project_env_declares(env_key: str) -> bool:
     return pattern.search(text) is not None
 
 
+def _status_source_for(
+    *,
+    settings: Settings,
+    config: Any,
+    run_service: HttpRunService | None,
+    task_registry: Any,
+    workspace: WorkspacePaths,
+    executor: Any | None,
+    fallback_backend: str | None,
+    enabled: bool,
+) -> Any:
+    """两个入口（内嵌服务 / `http-server`）共用的状态来源构造。
+
+    沙箱档位与 provider 都取**本次进程实际生效的**：``executor`` 建过引擎时以
+    ``sandbox_decision.effective_backend`` 为准（auto / daemon 不可用会降级 passthrough），
+    取不到才回落 ``fallback_backend``。
+    """
+    return build_status_source(
+        version=_current_version(),
+        max_inflight_runs=config.max_inflight_runs,
+        run_service=run_service,
+        task_registry=task_registry,
+        settings=settings,
+        sandbox_backend=_effective_sandbox_backend(executor) or fallback_backend,
+        provider=getattr(executor, "provider", None),
+        workspace_root=str(workspace.root),
+        enabled=enabled,
+    )
+
+
+def _http_listener_for(
+    *,
+    config: Any,
+    settings: Settings,
+    workspace: WorkspacePaths,
+    run_service: HttpRunService | None,
+    status_source: Any,
+    task_registry: Any,
+    enabled: bool,
+    handler_factory: Any,
+    dialog_backend: str = "none",
+) -> HttpServer | None:
+    """两个入口共用的 HTTP listener 装配（控制台 + 任务 / 历史 / 状态来源接线）。"""
+    if not enabled:
+        return None
+    console = HttpProjectConsole(
+        workspace.root,
+        projects_file=settings.http_console_projects_file,
+        runs=run_service,
+        handler_factory=handler_factory,
+        write_enabled=settings.http_console_write_enabled,
+        dialog_backend=dialog_backend,
+    )
+    return HttpServer(
+        config,
+        version=_current_version(),
+        run_service=run_service,
+        console=console,
+        # 进度注册表是**进程内**单例：网页入口与 CLI 同进程时，/api/tasks 读到的正是本进程里压缩等
+        # 后台任务上报的进度（跨进程不共享，这是刻意的——没有 IPC）。
+        tasks=RegistryTaskSource(task_registry),
+        # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读、粗粒度）。
+        history=run_history_source(workspace.root),
+        status=status_source,
+    )
+
+
 def build_http_service(
     settings: Settings,
     *,
@@ -354,42 +421,30 @@ def build_http_service(
     task_registry = default_task_registry()
     # 状态来源在 ``HttpServer`` 之前建、在 ``build_ws_servers`` 之后 ``bind_ws``：注入的是同一个对象，
     # 因此晚绑定对 app 不可见（HTTP listener 先构造，WS listener 后构造）。
-    status_source = build_status_source(
-        version=_current_version(),
-        max_inflight_runs=config.max_inflight_runs,
+    status_source = _status_source_for(
+        settings=settings,
+        config=config,
         run_service=run_service,
         task_registry=task_registry,
-        settings=settings,
+        workspace=workspace,
+        executor=executor,
         # 生效档位优先：`executor` 建过引擎时以 `sandbox_decision.effective_backend` 为准
         # （auto / daemon 不可用会降级成 passthrough），取不到才回落请求值。
-        sandbox_backend=_effective_sandbox_backend(executor) or getattr(executor, "sandbox_backend", None),
-        provider=getattr(executor, "provider", None),
-        workspace_root=str(workspace.root),
+        fallback_backend=getattr(executor, "sandbox_backend", None),
         enabled=http_on,
     )
-    http_server: HttpServer | None = None
-    if http_on:
-        console = HttpProjectConsole(
-            workspace.root,
-            projects_file=settings.http_console_projects_file,
-            runs=run_service,
-            # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
-            # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
-            handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
-            write_enabled=settings.http_console_write_enabled,
-        )
-        http_server = HttpServer(
-            config,
-            version=_current_version(),
-            run_service=run_service,
-            console=console,
-            # 进度注册表是**进程内**单例：网页入口与 CLI 同进程时，/api/tasks 读到的正是
-            # 本进程里压缩等后台任务上报的进度（跨进程不共享，这是刻意的——没有 IPC）。
-            tasks=RegistryTaskSource(task_registry),
-            # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
-            history=run_history_source(workspace.root),
-            status=status_source,
-        )
+    http_server = _http_listener_for(
+        config=config,
+        settings=settings,
+        workspace=workspace,
+        run_service=run_service,
+        status_source=status_source,
+        task_registry=task_registry,
+        enabled=http_on,
+        # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
+        # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
+        handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
+    )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
     ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
     # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
@@ -704,39 +759,29 @@ def http_server_cmd(
     run_service = HttpRunService(config, handler)
     task_registry = default_task_registry()
     # 与内嵌入口同一形态：先在 ``HttpServer`` 之前建 source，再在 ``build_ws_servers`` 之后 bind_ws。
-    status_source = build_status_source(
-        version=_current_version(),
-        max_inflight_runs=config.max_inflight_runs,
+    status_source = _status_source_for(
+        settings=settings,
+        config=config,
         run_service=run_service,
         task_registry=task_registry,
-        settings=settings,
-        # 沙箱档位与 provider 都取**本次进程实际用的**：`--sandbox` 是命令行覆盖、配置里可能是 auto，
-        # 而引擎构造期已把实际生效档位定进 `sandbox_decision`（不可用时降级 passthrough）。
-        sandbox_backend=_effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend,
-        provider=handler.provider,
-        workspace_root=str(workspace.root),
+        workspace=workspace,
+        executor=handler,
+        # `--sandbox` 是命令行覆盖、配置里可能是 auto，引擎构造期已把实际生效档位定进
+        # `sandbox_decision`（不可用时降级 passthrough）；取不到才回落请求值。
+        fallback_backend=sandbox or settings.sandbox_backend,
         enabled=http_on,
     )
-    server: HttpServer | None = None
-    if http_on:
-        console = HttpProjectConsole(
-            workspace.root,
-            projects_file=settings.http_console_projects_file,
-            runs=run_service,
-            handler_factory=handler.for_workspace,
-            write_enabled=settings.http_console_write_enabled,
-            dialog_backend=dialog_backend,
-        )
-        server = HttpServer(
-            config,
-            version=_current_version(),
-            run_service=run_service,
-            console=console,
-            tasks=RegistryTaskSource(task_registry),
-            # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
-            history=run_history_source(workspace.root),
-            status=status_source,
-        )
+    server = _http_listener_for(
+        config=config,
+        settings=settings,
+        workspace=workspace,
+        run_service=run_service,
+        status_source=status_source,
+        task_registry=task_registry,
+        enabled=http_on,
+        handler_factory=handler.for_workspace,
+        dialog_backend=dialog_backend,
+    )
     try:
         # 单 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
         # 本进程**没有 cron**（`enable_cron=False`），中枢建了也永远不会有帧 ⇒ 显式不建，
