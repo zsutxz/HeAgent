@@ -714,6 +714,32 @@ class TestConcurrentWriteMerge:
         assert "last-write-wins" in caplog.text
         assert "kept both conversations" not in caplog.text
 
+    def test_unmergeable_disk_side_is_quarantined_not_dropped(self, tmp_path: Path, caplog) -> None:
+        """A34 裁定 = **隔离**：不可安全合并时把磁盘侧写进 ``conflicts/`` sidecar，不静默丢弃。"""
+        import json
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base", "second"))
+        base = store.load("s1")
+
+        store.save("s1", _users("rewritten-a", "rewritten-b", "rewritten-c"))  # 对方改写共享前缀
+        store.save("s1", base + _users("B1"), base=base)  # 本 writer
+
+        # 活文件仍是 last-write-wins（本 writer 的内容）
+        assert [m.content for m in store.load("s1")] == ["base", "second", "B1"]
+        # 对方侧被完整隔离
+        sidecars = sorted((tmp_path / "sessions" / "conflicts").glob("s1-*.json"))
+        assert len(sidecars) == 1
+        payload = json.loads(sidecars[0].read_text(encoding="utf-8"))
+        assert payload["session_id"] == "s1"
+        assert payload["disk_version"] == 2
+        assert [m["content"] for m in payload["messages"]] == ["rewritten-a", "rewritten-b", "rewritten-c"]
+        # WARNING 点名落点（可操作），且 sidecar 不进会话列表
+        assert "conflicts" in caplog.text
+        assert [meta.session_id for meta in store.list_metadata()] == ["s1"]
+
     def test_a_truncated_file_falls_back(self, tmp_path: Path, caplog) -> None:
         """磁盘比基线**短**（对方删了历史）：同样无法判定，回退而不是拼出个四不像。"""
         import logging

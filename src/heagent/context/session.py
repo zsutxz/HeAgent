@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from heagent.pub.audit import fingerprint_file, record_operation
 from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
-from heagent.pub.persist import atomic_update_text, prune_entries_by_mtime, reap_dangling_locks
+from heagent.pub.persist import atomic_update_text, atomic_write_text, prune_entries_by_mtime, reap_dangling_locks
 from heagent.pub.types import Message, Role
 
 logger = logging.getLogger(__name__)
@@ -413,24 +413,59 @@ def _merge_concurrent_writes(
     return head + on_disk + my_added, len(other_added)
 
 
-def _resolve_concurrent_write(session_id: str, raw: str, base: list[Message], ours: list[Message]) -> list[Message]:
+_QUARANTINE_DIRNAME = "conflicts"
+
+
+def _quarantine_concurrent_side(session_id: str, path: Path, raw: str, on_disk: list[Message]) -> Path | None:
+    """把「判别不出该不该丢」的磁盘侧写进 sidecar，返回落点（写失败返回 ``None``）。
+
+    落 ``<会话目录>/conflicts/<id>-<UTC stamp>-v<version>.json``：子目录 ⇒ 不会被
+    ``*.json`` 的会话列表 / 回收面扫到。内容是**原样的磁盘侧消息**（含 SYSTEM），只做保真交付，
+    不做任何合并或裁剪。写失败只记 WARNING——隔离是尽力而为，不能把一次正常保存变成失败。
+    """
+    version, title = _read_header(raw)
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    target = path.parent / _QUARANTINE_DIRNAME / f"{session_id}-{stamp}-v{version}.json"
+    payload = {
+        "session_id": session_id,
+        "quarantined_at": datetime.now(UTC).isoformat(),
+        "disk_version": version,
+        "title": title,
+        "reason": "concurrent write could not be merged safely; last-write-wins applied to the live file",
+        "messages": [message.model_dump(mode="json") for message in on_disk],
+    }
+    try:
+        atomic_write_text(target, json.dumps(payload, ensure_ascii=False, indent=2))
+    except OSError as exc:
+        logger.warning("Session %r: could not quarantine the concurrent writer's side (%s)", session_id, exc)
+        return None
+    return target
+
+
+def _resolve_concurrent_write(
+    session_id: str, path: Path, raw: str, base: list[Message], ours: list[Message]
+) -> list[Message]:
     """锁内决策：磁盘内容与我们的内容基线不一致时，尽量保住两边的消息（台账同名条目）。
 
     - 磁盘内容与基线**一致**（或判别不出磁盘内容）⇒ 没有别的写者，按原样写入（零开销快路径）；
     - 判别出对方追加了内容且能**安全**合并 ⇒ 返回合并结果并记一条 WARNING（点名条数）；
-    - 判别出内容变了但**不能**安全合并 ⇒ 返回原样并记一条 WARNING 说明这次是 last-write-wins。
+    - 判别出内容变了但**不能**安全合并 ⇒ 把磁盘上的**对方侧隔离**进
+      ``<会话目录>/conflicts/`` 下的 sidecar（A34 裁定 = 隔离，不丢弃），本 writer 照常 last-write-wins。
 
-    三条分支都不抛异常：合并是为了少丢数据，不该把一次正常的保存变成失败。
+    三条分支都不抛异常：合并 / 隔离都是为了少丢数据，不该把一次正常的保存变成失败。
     """
     on_disk = _messages_from_raw(session_id, raw)
     if on_disk is None or _without_system(on_disk) == _without_system(base):
         return ours
     outcome = _merge_concurrent_writes(on_disk, base, ours)
     if outcome is None:
+        quarantined = _quarantine_concurrent_side(session_id, path, raw, on_disk)
         logger.warning(
-            "Session %r: another writer changed it during this run; falling back to last-write-wins "
-            "(the shared prefix no longer matches, so merging would be a guess).",
+            "Session %r: another writer changed it during this run and the two sides cannot be merged safely "
+            "(the shared prefix no longer matches, so merging would be a guess); falling back to last-write-wins "
+            "for the live file, and the disk side was preserved at %s",
             session_id,
+            quarantined if quarantined is not None else "<quarantine failed: see the warning above>",
         )
         return ours
     merged, kept = outcome
@@ -544,7 +579,7 @@ class SessionStore:
                 )
             to_write = finished
             if base is not None:
-                to_write = _resolve_concurrent_write(session_id, raw, base, finished)
+                to_write = _resolve_concurrent_write(session_id, path, raw, base, finished)
             payload = _session_payload(session_id, version + 1, written_at, to_write, title)
             return json.dumps(payload, ensure_ascii=False, indent=2), None
 
