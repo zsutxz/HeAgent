@@ -872,10 +872,8 @@ _TCP_RESIDUE_TOKENS_EXACT = ("TCP_",)
 def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     """TCP 入口删除后，活文件里不得再出现它的模块名 / 子命令 / 设置键。
 
-    为什么需要这条：`4217b5d` 只清了 `docs/framework.md`，而 `README.md`（整节使用说明）、
-    `CLAUDE.md`（常用命令表）、`.env.example`（8 个已不存在的 `TCP_*` 键）与十来处 docstring
-    仍在大面积宣告一个不存在的入口——2026-09-27 实测全仓扫出 493 处命中，其中非历史面 40 余处。
-    **没有判据的清理会在下一次改文档时静默漂回去**。
+    为什么需要这条：入口删除若只改源码不清文档，`README.md`、`CLAUDE.md`、`.env.example`
+    与多处 docstring 会继续宣告一个不存在的入口——**没有判据的清理会在下一次改文档时静默漂回去**。
     """
     root = TARGET_ROOT
     targets = sorted((root / "src" / "heagent").rglob("*.py"))

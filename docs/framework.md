@@ -495,7 +495,7 @@ SafetyGuard
 #### call_summary.py — 工具调用「作用对象」摘要（纯展示辅助）
 
 `summarize_tool_call(name, arguments)` 把一次调用归纳为**单行**说明：读写哪个文件、
-执行哪条命令、抓哪个 URL、委派给哪个角色的子 Agent（如 `docs/frame.md`、
+执行哪条命令、抓哪个 URL、委派给哪个角色的子 Agent（如 `docs/framework.md`、
 `src — *.py`、`0 9 * * * — 生成 AI 新闻摘要`、`coder — 实现登录模块`）。
 该摘要出现在四个展示面：CLI 提示行 `[calling <tool> → <target>]`
 （`cli.display._print_stream_event`，在执行**前**发出；整行由

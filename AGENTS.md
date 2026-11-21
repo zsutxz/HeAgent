@@ -31,6 +31,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 | `docs/iteration.md` | 迭代历程与迭代方法 |
 | `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
 | `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
+| [`docs/framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal) | /goal 声明式工作流契约——改 `goal/` 或 `.heagent/skills/he-goal/` 前先读 |
 | `_bmad-output/epic-overview.md` | 当前状态总览 + epic 总目录（文档地图；2026-11-15 自 consolidated-overview.md 重组定名） |
 | `_bmad-output/open-items.md` | 已知缺口活动台账（「活动（未闭合）条目」节；闭合历史见 `retrospective-all-cycles.md` §三） |
 

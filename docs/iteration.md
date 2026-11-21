@@ -14,6 +14,7 @@
 
 > **路径口径**：下文引用的 `_bmad-output/epics/<周期>/` 是**当前**布局——2026-11-15 起
 > `archive/epics/` 已并入 `epics/`（归档周期与活跃周期同目录混排），故历史句子里也一律写当前路径。
+> 文件名同理：`docs/frame.md` 已改名 `docs/framework.md`（2026-11-20），历史句子一律写现行名。
 > 状态真源同样在 2026-11-15 换代：v6 的 `sprint-status.yaml` 归档在
 > `_bmad-output/Goal-2-v6/`（只读；2026-11-20 自 archive-v6/ 上移），v7 的活动票树在
 > `_bmad-output/Goal-3/tickets/`。
@@ -241,8 +242,8 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 2026-06-19~20 | P0 provider 技术债收尾 + MCP Client 集成周期（Epic 11-13） |
 | 2026-06-21 | `_bmad-output/` 按周期重组 + 去日期化 |
 | 2026-06-23 | engine P0 loop engine runtime 落地 |
-| 2026-06-25 | engine P1-P5 同日集中落地（多 agent 角色化 + checkpoint-resume + 结构化结果/树形聚合/resume 流式）+ 新增 `design.md`；`frame.md` 4.2 对齐 engine 集成 |
-| 2026-06-26 | bmad-method 6.8.0 → 6.9.0；`frame.md` 补 loop engine |
+| 2026-06-25 | engine P1-P5 同日集中落地（多 agent 角色化 + checkpoint-resume + 结构化结果/树形聚合/resume 流式）+ 新增 `design.md`；`framework.md` 4.2 对齐 engine 集成 |
+| 2026-06-26 | bmad-method 6.8.0 → 6.9.0；`framework.md` 补 loop engine |
 | 2026-06-29 | engine / agent 源码补详细中文注释；`loop.py` 968→797 行拆分（零回归）；新增 GitHub Actions 质量门禁 + pre-commit 钩子；epic-13 retrospective 完成 |
 | 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister）；engine 健壮性四件套（ledger/store I/O 全套 async 化、缓存命中复核 policy、持久化原子写 + 损坏 JSON 容错、lease-active 命中跳过重复执行） |
 | 2026-07-08 | engine sandbox 接真实后端：`execute_in_sandbox` 经 `CommandRunner` 抽象（`tools/sandbox.py`）+ `RuntimeSlot` 注入，默认 Passthrough、可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界） |
@@ -354,7 +355,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 2. **异常包装要加守卫，避免双层重包**（Epic 1 / ProviderChain）：provider 源头包成 `ProviderError` 后，chain 的 `except` 又包一层。**教训**：`_wrap_error` 类入口加 `if isinstance(e, ProviderError): raise`；用 `__cause__` 链断言写回归测试。
 3. **流式与同步路径要对称**（Epic 1）：`send()` 的 backstop 跟踪 `last_error`，`stream()` 版本一度漏了。**教训**：成对的 send/stream 实现要互相对照，补齐对称路径。
 4. **安全边界必须诚实声明，不制造「更安全」假象**（Epic 13 / engine）：`SafetyGuard` 与 engine sandbox 都不是真边界。**教训**：安全相关代码注释里写明「非真正边界，须 OS 级沙箱兜底」，见 `CLAUDE.md` 文首声明。
-5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 frame.md/CLAUDE.md 已知缺口）。
+5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 framework.md/CLAUDE.md 已知缺口）。
 6. **评估结论要留依据**（engine P5-1/P5-2）：暂缓决策（D1/D4）把理由写进 `framework.md`，避免日后重做时忘记为何如此——P5-1/P5-2 后于 2026-07-21 反转交付，当初的取舍依据仍有助于理清演进。
 7. **缓存命中仍须复核策略裁决**（engine / ExecutionLedger）：ledger COMPLETED 缓存命中后曾直接返回，未复核最新 policy——若 policy 收紧为 `BLOCKED` 仍返回缓存会绕过门禁。**教训**：缓存层与策略层交叉时，命中后仍须过一遍 policy（commit `84ee783`）；同理 lease-active 命中跳过执行，防并发/重入重复跑 handler（`c07f811`）。
 8. **关停/清理路径必须有硬上界**（sandbox / MCP / cron，2026-07-09~11）：`_kill_and_reap` 的 `proc.wait()`、MCP `__aexit__` 的 transport close、`CronScheduler.stop` 的 task join 都是裸 `await`，遇不可中断 await 点（Linux D-state / 远端不 FIN / job 执行中）会无限阻塞，唯一调用方（CLI 退出路径）挂死需 OS SIGKILL。**教训**：凡 `task.cancel()` + `await` 的关停结构，`await` 必包 `asyncio.wait(timeout=N)`，超时记 ERROR 放弃——三处同构缺口同批补齐（`spec-sandbox-reap-robustness` / `spec-mcp-shutdown-timeout` / `spec-cron-stop-timeout`）。

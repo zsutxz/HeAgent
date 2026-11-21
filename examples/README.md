@@ -50,7 +50,7 @@ python -c "from heagent.skills.skill_store import SkillStore; print(SkillStore('
   `heagent.pub.types`（`ProviderResponse` / `TokenUsage` / `ToolCall`）、
   `heagent.engine.observability`（`EngineEvent`）、`heagent.pub.exceptions`（`ProviderError`）、
   `heagent.skills.skill_store`（`SkillStore`）。**这些是非稳定 API**：属于本仓内部结构，
-  重构时可能移动或改名，升级前请对照 `CHANGELOG.md` 与 `docs/frame.md`。
+  重构时可能移动或改名，升级前请对照 `CHANGELOG.md` 与 `docs/framework.md`。
 
 ## 与本仓纪律的关系
 

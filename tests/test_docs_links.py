@@ -10,7 +10,7 @@ slug 口径按 GitHub（github-slugger）：小写 → 删除 ASCII 标点（保
 预览、`git diff` 阅读）用的就是这套规则。
 
 范围只覆盖**当前事实文档**：`docs/**/*.md`、根 `README.md` / `AGENTS.md` / `CLAUDE.md`、
-`_bmad-output/README.md`。历史归档（`_bmad-output/epics/**`、`retrospective-all-cycles.md` 等）
+`_bmad-output/README.md`、`examples/**/*.md`。历史归档（`_bmad-output/epics/**`、`retrospective-all-cycles.md` 等）
 是证据而非当前事实，允许指向已归档位置，不在此列。
 """
 
@@ -44,6 +44,7 @@ CURRENT_DOCS: tuple[str, ...] = (
 def _current_doc_paths() -> list[Path]:
     paths = [ROOT / name for name in CURRENT_DOCS]
     paths += sorted((ROOT / "docs").rglob("*.md"))
+    paths += sorted((ROOT / "examples").rglob("*.md"))
     return [p for p in paths if p.is_file()]
 
 
@@ -86,6 +87,7 @@ def test_slug_rule_matches_github_samples() -> None:
         == "414-技能资源读取-toctou-评估与安全打开加固epic-461462"
     )
     assert _slug("一、项目定位") == "一项目定位"
+    assert _slug("4.13 Goal 驱动工作流 (`/goal`)") == "413-goal-驱动工作流-goal"
 
 
 def test_in_file_anchors_resolve_to_headings() -> None:
