@@ -88,6 +88,21 @@ class TestToolFace:
         out = await web_search("q")
         assert out == "（无检索结果）"
 
+    async def test_blank_field_entries_are_not_reported_as_no_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A73/E7：引擎返回了记录但字段全空 ⇒ 如实说明，不伪装成「没搜到」。"""
+        _patch_tool(monkeypatch, _EngineStub([_result("   ", url="  ", snippet="")]))
+        out = await web_search("q")
+        assert out.startswith("（无检索结果：")
+        assert "全为空" in out
+        assert "[1]" not in out, "空字段条目不得作为结果条目注入上下文"
+
+    async def test_blank_entries_are_skipped_among_real_ones(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        engine = _EngineStub([_result("  ", url=" ", snippet=""), _result("T2", "https://a/2", "s2")])
+        _patch_tool(monkeypatch, engine)
+        out = await web_search("q")
+        assert "[1] T2" in out
+        assert "[2]" not in out
+
     async def test_no_key_explicit_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _NoKeySettings:
             web_search_engine = "tavily"

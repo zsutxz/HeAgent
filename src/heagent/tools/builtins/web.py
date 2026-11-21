@@ -205,7 +205,12 @@ async def web_search(query: str, max_results: int = 5) -> str:
 
     Args:
         query: The search query.
-        max_results: 返回条数上限（默认 5，钳位 [1, 10]）。
+        max_results: 返回条数上限（默认 5，钳位 ``[1, 10]``）。
+
+    双层钳位分工（契约）：
+    - 引擎层 ``_MAX_RESULTS_CAP = 20`` = **多引擎共用的请求契约上限**，防止单次 HTTP 请求超发；
+    - 工具面 ``[1, 10]`` = **注入上下文前的可见预算**（模型一次能读多少条），与引擎上限无关。
+    两层刻意不同值：换引擎不该放宽模型可见量，调可见量也不该改引擎契约。
     """
     q = query.strip()
     if not q:
@@ -215,7 +220,9 @@ async def web_search(query: str, max_results: int = 5) -> str:
     engine = create_engine(settings.web_search_engine, api_key=settings.web_search_api_key)
     n = min(max(max_results, 1), 10)
     # 工具面自有预算闸：即使引擎违反 max_results 契约超发，也在注入上下文前确定性切片
-    results = list(await engine.search(q, max_results=n))[:n]
+    raw_results = list(await engine.search(q, max_results=n))[:n]
+    # 空字段条目（title / url / snippet 全空白）不是检索结果，只是引擎的占位行——不进上下文。
+    results = [r for r in raw_results if r.title.strip() or r.url.strip() or r.snippet.strip()]
 
     lines: list[str] = []
     for i, r in enumerate(results, 1):
@@ -233,5 +240,8 @@ async def web_search(query: str, max_results: int = 5) -> str:
             + f"\n\n[已截断：原 {len(text)} 字符，超出 {_SEARCH_TOTAL_MAX_CHARS} 汇总预算]"
         )
     if not text.strip():
+        if raw_results:
+            # 引擎确实返回了记录但字段全空：如实说明，不伪装成「没搜到」。
+            return "（无检索结果：检索引擎返回的记录标题 / 链接 / 摘要全为空）"
         return "（无检索结果）"
     return guard_content(text)

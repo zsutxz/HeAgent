@@ -65,13 +65,37 @@ def ensure_startup_config(settings: Settings) -> None:
     验证本身是纯内存判据（见 :func:`heagent.config.validation.validate_startup`）；本函数只做入口层
     呈现——**不**降级成 WARNING 后继续跑。挂载点是 :func:`_build_provider`：四个入口
     （run / 交互 / http-server / gui）都经它装配 provider，一处即全覆盖。
+
+    第二道校验是检索引擎名（A73/C4）：``WEB_SEARCH_ENGINE`` 指向未注册引擎时在这里就失败，
+    而不是等到第一次 ``web_search``（或无人监督的 dream 中段）才炸。
     """
     result = validate_startup(settings)
-    if result.ok:
-        return
-    for issue in result.issues:
-        report_with_command_hints(issue.message, options=issue.options, anchor=ANCHOR_CLI_ERRORS)
-    raise SystemExit(1)
+    if not result.ok:
+        for issue in result.issues:
+            report_with_command_hints(issue.message, options=issue.options, anchor=ANCHOR_CLI_ERRORS)
+        raise SystemExit(1)
+    engine_issue = _web_search_engine_issue(settings)
+    if engine_issue is not None:
+        report_with_command_hints(
+            f"Error: WEB_SEARCH_ENGINE: {engine_issue}",
+            options=(
+                "set WEB_SEARCH_ENGINE to a registered engine name in .env (or ~/.heagent/setting.md)",
+                "run `heagent doctor` to see the rest of the startup checks",
+            ),
+            anchor=ANCHOR_CLI_ERRORS,
+        )
+        raise SystemExit(1)
+
+
+def _web_search_engine_issue(settings: Settings) -> str | None:
+    """未注册引擎名 → 可读原因；合法或引擎层不可用（非错名）→ ``None``。"""
+    from heagent.tools.builtins.web_search_engine import SearchEngineError, create_engine  # noqa: PLC0415
+
+    try:
+        create_engine(settings.web_search_engine)
+    except SearchEngineError as exc:
+        return exc.message
+    return None
 
 
 def load_startup_settings(loader: Callable[[], Settings] | None = None) -> Settings:

@@ -150,8 +150,13 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
         keys=("LOG_DIR", "GOAL_WORKFLOW_SKILL"),
         reason="host_path",
     ),
+    ConfigGroupSpec(id="outbound", label="出站与端点", keys=("ACTIVE_PROVIDER",), reason="outbound_redirect"),
     ConfigGroupSpec(
-        id="outbound", label="出站与端点", keys=("ACTIVE_PROVIDER", "WEB_SEARCH_ENGINE"), reason="outbound_redirect"
+        id="search",
+        label="检索面",
+        # 引擎名取自内置注册表（``create_engine`` 未知名 fail-loud），不是任意 URL —— 不属「准外泄通道」。
+        keys=("WEB_SEARCH_ENGINE",),
+        reason="search_engine",
     ),
     ConfigGroupSpec(
         id="run_semantics",
@@ -214,6 +219,7 @@ LABELS: dict[str, str] = {
     "host_path": "宿主路径 / 任意工作流加载面",
     "safety_gate": "安全闸门：降低 defense-in-depth 等于自我削权",
     "outbound_redirect": "出站重定向：可把凭证送往往意端点（准外泄通道）",
+    "search_engine": "检索引擎选择：值取自内置注册表，改不了请求目标（未知名启动即报错）",
     "run_semantics": "运行语义开关：静默改变行为，超出「配置展示」范围",
     "console_itself": "控制台自身开关：写入面不得给自己解锁",
     "unknown_key": "未知键（不在 Settings 字段集内）",

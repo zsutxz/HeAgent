@@ -282,6 +282,20 @@ class TestRendering:
         ensure_startup_config(_settings(deepseek_api_key="sk-test"))
         assert capsys.readouterr().err == ""
 
+    def test_unknown_web_search_engine_fails_at_startup(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A73/C4：未注册引擎名在启动期就失败，不等第一次 ``web_search``（或 dream 中段）才炸。"""
+        with pytest.raises(SystemExit) as excinfo:
+            ensure_startup_config(_settings(deepseek_api_key="sk-test", web_search_engine="no-such-engine"))
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err
+        assert "WEB_SEARCH_ENGINE" in err
+        assert "no-such-engine" in err
+        assert "Try:" in err
+
+    def test_registered_web_search_engine_passes(self, capsys: pytest.CaptureFixture[str]) -> None:
+        ensure_startup_config(_settings(deepseek_api_key="sk-test", web_search_engine="tavily"))
+        assert capsys.readouterr().err == ""
+
     def test_load_startup_settings_wraps_construction_failure(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
