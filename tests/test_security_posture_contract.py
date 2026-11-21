@@ -176,7 +176,8 @@ def test_canonical_heading_appears_exactly_once() -> None:
     """守「唯一真源」：canonical 段在 framework.md 里只能出现一次，复制出第二份即口径分裂。"""
     occurrences = _read_doc(FRAME_DOC).count(CANONICAL_HEADING)
     assert occurrences == 1, (
-        f"docs/framework.md 中 {CANONICAL_HEADING!r} 出现 {occurrences} 次，期望恰好 1 次：安全口径唯一真源不得复制出第二份"
+        f"docs/framework.md 中 {CANONICAL_HEADING!r} 出现 {occurrences} 次，期望恰好 1 次："
+        "安全口径唯一真源不得复制出第二份"
     )
 
 

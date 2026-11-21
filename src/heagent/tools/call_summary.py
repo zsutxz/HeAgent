@@ -69,7 +69,7 @@ _NO_TRUNCATE_TOOLS = frozenset({"shell"})
 
 
 def summarize_tool_call(name: str, arguments: Mapping[str, object] | None = None) -> str:
-    """返回一次工具调用的「作用对象」摘要，如 ``docs/frame.md`` / ``0 9 * * * — 每日摘要``。
+    """返回一次工具调用的「作用对象」摘要，如 ``docs/framework.md`` / ``0 9 * * * — 每日摘要``。
 
     无法归纳（无参工具、参数缺失、形状异常）时返回空串——调用方据此省略摘要段。
     shell 命令不做长度截断（全文），其余按 :data:`_MAX_LENGTH` / :data:`_MAX_TEXT` 截断。
