@@ -122,25 +122,59 @@ def _stat_signature(path: Path) -> tuple[int, int]:
     return (info.st_mtime_ns, info.st_size)
 
 
+#: 内容抽样字节数（首尾各至多这么多）：粗粒度时间戳 FS（FAT / 部分网络盘 / 9p）上
+#: 「同一时间粒度内改写、大小不变」不会让 ``(mtime_ns, size)`` 变化，靠抽样兜住失效。
+_SAMPLE_BYTES = 64
+
+
+def _content_sample(path: Path, size: int) -> str:
+    """文件首尾抽样的短摘要（8 位十六进制）；空文件 / 读不到返回空串，与零签名同义。"""
+    if size <= 0:
+        return ""
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(_SAMPLE_BYTES)
+            if size > _SAMPLE_BYTES:
+                handle.seek(max(size - _SAMPLE_BYTES, _SAMPLE_BYTES))
+                data += handle.read(_SAMPLE_BYTES)
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()[:8]
+
+
 def skill_library_fingerprint(store: SkillStore) -> str:
     """技能库内容指纹：匹配结果与索引的失效判据。
 
-    逐**生效根**技能取 ``meta.yaml`` 与 ``SKILL.md`` 的 ``(mtime_ns, size)``，连同技能名
-    排序后做 sha256，取前 16 位十六进制。任一技能文件被写（含 ``record_usage`` 回写
-    ``meta.yaml``）或技能增删 ⇒ 指纹变化 ⇒ 全部缓存失效。
+    逐**生效根**技能取 ``meta.yaml`` 与 ``SKILL.md`` 的 ``(mtime_ns, size)`` **加首尾 64 字节
+    抽样摘要**，连同技能名排序后做 sha256，取前 16 位十六进制。任一技能文件被写（含
+    ``record_usage`` 回写 ``meta.yaml``）或技能增删 ⇒ 指纹变化 ⇒ 全部缓存失效；粗粒度
+    时间戳文件系统上「同 size 同 mtime 改内容」也因抽样变化而失效（A70）。
 
-    只做 stat、不 open：比 :meth:`SkillStore.parse`（读盘 + YAML/frontmatter 解析）便宜
-    一个量级，故可以每次匹配都算一遍。
+    成本：每技能文件一次 ``stat`` + 一次 ``open``（只读首尾各 64 字节），仍远低于
+    :meth:`SkillStore.parse`（读全文 + YAML / frontmatter 解析），故每次匹配都可重算。
     """
-    records: list[tuple[str, int, int, int, int]] = []
+    records: list[tuple[str, int, int, str, int, int, str]] = []
     for name in store.list_skills():
         owner = store.owner_root(name)
         if owner is None:  # 竞态：list_skills 到 owner_root 之间目录被移走
             continue
         skill_dir = owner / name
-        meta_mtime, meta_size = _stat_signature(skill_dir / META_FILENAME)
-        md_mtime, md_size = _stat_signature(skill_dir / "SKILL.md")
-        records.append((name, meta_mtime, meta_size, md_mtime, md_size))
+        meta_path = skill_dir / META_FILENAME
+        md_path = skill_dir / "SKILL.md"
+        meta_mtime, meta_size = _stat_signature(meta_path)
+        md_mtime, md_size = _stat_signature(md_path)
+        # 抽样只在 stat 命中时做：两文件都读不到时整条记录退化为零签名（= 无该技能）。
+        records.append(
+            (
+                name,
+                meta_mtime,
+                meta_size,
+                _content_sample(meta_path, meta_size),
+                md_mtime,
+                md_size,
+                _content_sample(md_path, md_size),
+            )
+        )
     records.sort()
     payload = "\n".join("|".join(str(field) for field in record) for record in records)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

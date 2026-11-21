@@ -3,12 +3,13 @@
 判据分三层：
 - **计数**（主判据）：同一 prompt 第二次匹配 ``SkillStore.parse`` 调用数为 0；
   改动任一技能的 ``SKILL.md`` / ``meta.yaml`` 后指纹变化 ⇒ 下一次匹配重新解析。
-- **指纹**：只覆盖文件状态（name/mtime_ns/size），不读内容；增删技能也会换指纹。
+- **指纹**：覆盖文件状态（name/mtime_ns/size + 首尾 64 字节抽样摘要），增删技能也会换指纹。
 - **提速**（``-m benchmark``，默认门禁不跑）：同 prompt 重复匹配显著快于冷启动。
 """
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -172,6 +173,20 @@ class TestFingerprintInvalidation:
     def test_fingerprint_depends_only_on_file_state(self, store: CountingStore) -> None:
         """指纹只由文件状态决定，不含实例身份 ⇒ 新实例（同一目录）算出同一个值。"""
         assert skill_library_fingerprint(store) == skill_library_fingerprint(SkillStore(store.roots[0]))
+
+    def test_same_size_and_mtime_rewrite_still_invalidates(self, store: CountingStore) -> None:
+        """粗粒度时间戳 FS 的兜底（A70）：size 与 mtime_ns 都没变、内容变了也必须失效。"""
+        meta = store.authoring_root / "skill_0" / "meta.yaml"
+        meta.write_text("model_invocable: true\n", encoding="utf-8", newline="\n")
+        original = meta.stat()
+        before = skill_library_fingerprint(store)
+
+        meta.write_text("model_invocable: truf\n", encoding="utf-8", newline="\n")  # 同长度改写
+        os.utime(meta, ns=(original.st_atime_ns, original.st_mtime_ns))  # 把 mtime 钉回改写前
+        pinned = meta.stat()
+        assert (pinned.st_size, pinned.st_mtime_ns) == (original.st_size, original.st_mtime_ns)
+
+        assert skill_library_fingerprint(store) != before, "首尾抽样必须让同 size 同 mtime 的改写也失效"
 
 
 class TestCacheShape:
