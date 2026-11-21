@@ -325,9 +325,24 @@ def _first_active_id() -> str:
     return active_ids[0]
 
 
+def _first_baseline_row_id() -> str:
+    """取一个**在 67 基线快照内**的台账 ID（守恒断言的锚只能从闭合/退役/归档段里找）。
+
+    活动段里的 ID 都在基线之外（它们是新登记项），删掉它们撞的是「反僵尸」而不是「守恒」——
+    故不能沿用 `_first_active_id()`。
+    """
+    sections = split_sections(_archive_text())
+    for name in (RETIRED, CLOSED, ARCHIVED):
+        for row in rows(sections[name]):
+            for ident in ids_in(row[0]):
+                if ident in BASELINE_IDS:
+                    return ident
+    raise AssertionError("台账里找不到基线 ID：守恒负面用例无法构造")
+
+
 def test_dropped_id_is_reported() -> None:
-    """把一条活动条目整行删掉 ⇒ 全集断言必须点名它。"""
-    dropped = _first_active_id()
+    """把台账里一条基线内条目整行删掉 ⇒ 全集断言必须点名它。"""
+    dropped = _first_baseline_row_id()
     lines = [line for line in _archive_text().splitlines() if not line.startswith(f"| {dropped} |")]
     findings = audit("\n".join(lines), _entry_text())
     assert any("条目静默消失" in item and dropped in item for item in findings), findings
@@ -347,15 +362,20 @@ def test_empty_landing_is_reported() -> None:
     assert any("落点为空" in item for item in findings), findings
 
 
+def _first_frozen_row() -> tuple[str, str]:
+    """取当前活动段第一条 `frozen` 行的 (ID, 说明)。**不硬编码 A 号**——frozen 条目会随裁定搬家。"""
+    for row in rows(split_sections(_archive_text())[ACTIVE]):
+        if len(row) == 4 and row[2] == "`frozen`":
+            return row[0], row[3]
+    raise AssertionError("活动段没有 frozen 条目：本用例需要一条 frozen 才能构造")
+
+
 def test_frozen_without_pointer_is_reported() -> None:
     """frozen 条目丢了「裁定指针」⇒ 必须报（挂起没有指针就不是状态，是遗忘）。"""
-    mutated = _archive_text().replace(
-        "**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率",
-        "短期靠围栏预防层降低概率",
-        1,
-    )
+    ident, note = _first_frozen_row()
+    mutated = _archive_text().replace(note, note.replace("裁定指针", "指针"), 1)
     findings = audit(mutated, _entry_text())
-    assert any("frozen 缺裁定指针" in item and "A41" in item for item in findings), findings
+    assert any("frozen 缺裁定指针" in item and ident in item for item in findings), findings
 
 
 def test_unregistered_new_id_needs_origin_marker() -> None:

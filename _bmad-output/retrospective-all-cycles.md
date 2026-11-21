@@ -1017,10 +1017,11 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 | ID | retired_reason | replaced_by | decision_ref | retired_on | recheck_condition |
 | --- | --- | --- | --- | --- | --- |
-| （当前 0 条） | — | — | — | — | — |
+| A41 | 兄弟 Story 越集写互相误归因——根因（共享工作区无法按写者归属）已由物理隔离消除；剩余唯一项 = run 快照的 `context.workspace_root` 记录已删除的 worktree 路径（纯文本、无悬空引用，该字段语义本就是「当时围栏根」），裁定不修 | `goal/worktree.py`（`create_worktree` / `promote_story_commit` / `promote_goal_products`）+ `goal/write_audit.py` 的写者归属披露；判据 `tests/test_story_worktree.py`（18 例）/ `test_story_write_audit.py` / `test_engine_audit_state_root.py` / `test_story_scheduling_integration.py` | 2026-11-21 用户裁定「物理隔离」+ cherry-pick 合并策略；剩余取舍由 2026-11-21 用户授权代理裁定（原话「A41 要记录嘛?你定」） | 2026-11-21 | 出现按快照 `context.workspace_root` 定位产物/围栏根的消费方（跨 run 复跑、报告回链路径）时重新评估 |
+| A68 | **origin=新增（2026-11-19 Epic 65 retro #3 升台账）**release 失败通知无外推通道——外部推送（webhook / IM）需要在仓库加 secret，与 Epic 67 确立的「零 secret 发布」（OIDC）契约冲突；用户 2026-11-21 裁定**维持不引入 secret** ⇒ 不修 | GitHub Actions 自带的失败邮件 + `tests/test_release_workflow_contract.py`（release job 触发面与 OIDC 发布契约钉死：仅 tag/手动触发 + OIDC、CI job 数量恒定） | 2026-11-21 用户裁定「维持不引入 secret」 | 2026-11-21 | 出现「发版失败必须分钟级通知」的硬需求，且愿意引入并轮换 webhook secret 时重新立项 |
+| A75 | **origin=新增（2026-11-19 Epic 72 retro 升台账）**Epic 72 `lan` 档宿主真机对账——待对账的观测对象已被永久取消：本仓 `.env` 现为 `WS_HOST=192.168.2.226` + `WS_LAN_NO_AUTH=false` + `WS_TLS_*` 成对（`external` / `wss` / token），且用户 2026-11-21 明示「不回退」 | `tests/test_ws_lan_mode.py`（lan 档实现判据）+ `tests/test_security_posture_contract.py`（档位与 TLS 互斥契约）；宿主对账面已由 A76 承载（`Goal-3/tickets/epic-73-ws-tls-install-trust/tickets/story-73.6-e2e-and-posture-sync-plan.md` 的补证节） | 2026-11-21 用户明示「A75 不回退，可以关闭」 | 2026-11-21 | 用户改口回退 `lan` 免认证档（`WS_LAN_NO_AUTH=true` + 私有地址字面量、TLS 停用）时重新成立 |
 
-**为什么本轮 0 条**：退役需要「已裁定不修」的前提，而本轮已批决策只覆盖「继续挂起 / 继续挂账」（OQ-3 / OQ-4 / OQ-5），
-没有任何一条被裁定为「永不修」。缺裁定指针却填满 5 字段等于伪造决策，故留空表 + 结构就位。
+**2026-11-21 首次启用（3 条）**：A41 / A68 / A75 都推到了「再动作也无收益」的边界——A41 的根因已由物理隔离消除，剩余一项（run 快照的 `context.workspace_root` 指向已删除 worktree 路径）属字段语义本身且无消费方；A75 的观测对象（`lan` 免认证档）被用户明示「不回退」永久取消；A68 的外部推送与「零 secret 发布」契约正面冲突，用户裁定维持不引入 secret。三条都带裁定指针与复活条件，故记**退役**而不是「已修复」——混进闭合段会让后人以为验证过。此前 0 条的原因不变：缺裁定指针却填满 5 字段等于伪造决策。
 
 ### 跨周期勘察与裁定索引
 
