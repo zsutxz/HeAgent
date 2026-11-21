@@ -39,6 +39,7 @@ import click
 from pydantic import BaseModel, ConfigDict
 
 from heagent.cli.errors import ANCHOR_CLI_ERRORS, exit_with_hints
+from heagent.cli.settings_audit import record_settings_write, snapshot_settings
 from heagent.config import GLOBAL_SETTING_FILE, Settings
 from heagent.config.catalog import ConfigSource, build_config_report, guards_for
 from heagent.config.envfile import check_key, parse_value
@@ -896,7 +897,10 @@ def _run_wizard(*, target: Path, project_env: Path) -> WizardResult:
 
     text = _merge_text(existing, answers)
     _verify_candidate(text, intended=answers, target=target, project_env=project_env)
+    before = snapshot_settings(target)
     write_setting_md(target, text)
+    # 写后立即留痕（先于回读校验）：即使后续校验失败，落盘事实也必须可追证。
+    record_settings_write(target=target, before=before)
     _verify_written(target, answers)
 
     click.echo("")

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import click
 
+from heagent.cli.settings_audit import record_settings_write, snapshot_settings
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_SETTING_FILE, LEGACY_GLOBAL_ENV_FILE
 from heagent.config.user_settings import ensure_user_settings_migrated
 
@@ -89,9 +90,12 @@ def _init_interactive(project: bool) -> None:
         GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         click.echo(f"[OK] Created global config directory: {GLOBAL_CONFIG_DIR}")
 
+    before_settings = snapshot_settings(GLOBAL_SETTING_FILE)
     migrated = ensure_user_settings_migrated(GLOBAL_SETTING_FILE, legacy_env_file=LEGACY_GLOBAL_ENV_FILE)
     if migrated:
         click.echo(f"[OK] Migrated legacy ~/.heagent/.env into {GLOBAL_SETTING_FILE} (renamed .env.migrated)")
+        # 迁移同样是写 setting.md：转换后的键值可追证，值本身不进审计（只留摘要）。
+        record_settings_write(target=GLOBAL_SETTING_FILE, before=before_settings)
 
     run_wizard(setting_file=GLOBAL_SETTING_FILE)
     if project:
@@ -130,13 +134,18 @@ def init_cmd(project: bool, interactive: bool) -> None:
         GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         created_dir = True
 
+    before_settings = snapshot_settings(GLOBAL_SETTING_FILE)
     migrated = ensure_user_settings_migrated(GLOBAL_SETTING_FILE, legacy_env_file=LEGACY_GLOBAL_ENV_FILE)
     if migrated:
         click.echo(f"[OK] Migrated legacy ~/.heagent/.env into {GLOBAL_SETTING_FILE} (renamed .env.migrated)")
+        # 迁移同样是写 setting.md：转换后的键值可追证，值本身不进审计（只留摘要）。
+        record_settings_write(target=GLOBAL_SETTING_FILE, before=before_settings)
 
     created_file = False
     if not GLOBAL_SETTING_FILE.exists():
+        before_settings = snapshot_settings(GLOBAL_SETTING_FILE)
         GLOBAL_SETTING_FILE.write_text(_INIT_SETTING_TEMPLATE, encoding="utf-8")
+        record_settings_write(target=GLOBAL_SETTING_FILE, before=before_settings)
         created_file = True
 
     if created_dir and created_file:
