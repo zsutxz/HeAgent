@@ -70,8 +70,11 @@ def _session_stub(monkeypatch: pytest.MonkeyPatch, *, writes: tuple[str, ...] = 
 
     async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
         calls.append(dict(kwargs))
+        # A41 物理隔离：并行 story 在 worktree 里跑 ⇒ 替身的写必须落在 `context_dir`
+        # （否则改动落在共享工作区、隔离后的审计看不到）。
+        root = Path(kwargs["context_dir"]) if kwargs.get("context_dir") else Path.cwd()
         for rel in writes:
-            _tracked(Path.cwd(), rel, f"touched {rel}\n")
+            _tracked(root, rel, f"touched {rel}\n")
         return SimpleNamespace(success=True, output="body")
 
     monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)

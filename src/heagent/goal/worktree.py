@@ -30,6 +30,11 @@ WORKTREE_DIRNAME = ".heagent/worktrees"
 #: ``git worktree`` 子命令超时（秒）：创建要检出整棵树，给比普通查询更宽的预算。
 _GIT_TIMEOUT_SECONDS = 120.0
 
+#: promote（cherry-pick 到主工作区）的**进程内**串行门：并行批里多个 story 同时结束时，
+#: 两个 ``git cherry-pick`` 会抢 ``.git/index.lock`` 而互相失败。跨进程不必再加锁——goal 域
+#: 本就有 ``.heagent/goal.lock`` 保证同一时刻只有一个推进者（``goal/mutex.py``）。
+_MERGE_LOCK = asyncio.Lock()
+
 
 class WorktreeError(RuntimeError):
     """worktree 创建 / 移除失败（携带 git 的原始 stderr 首行）。"""
@@ -85,6 +90,41 @@ async def remove_worktree(repo_root: str | Path, target: str | Path) -> None:
         Path(target).rmdir()
 
 
+async def head_commit(worktree: str | Path, *, rev: str = "HEAD") -> str:
+    """worktree（或任意仓库路径）的提交 SHA。"""
+    return (await _git(worktree, "rev-parse", rev)).strip()
+
+
+def story_ref(story_id: str) -> str:
+    """临时引用名：``refs/heagent/stories/<story>``（防止 detached 提交被 gc 回收）。"""
+    return f"refs/heagent/stories/{story_id}"
+
+
+async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: str) -> str:
+    """把一个 story 提交**搬回主工作区分支**（cherry-pick），返回新提交 SHA。
+
+    流程与失败语义：
+
+    1. 先建临时引用 ``refs/heagent/stories/<story>`` 指向该提交——detached HEAD 的提交一旦失去
+       引用，``git gc`` 可能把它回收；pick 成功后再删引用。
+    2. ``git cherry-pick`` 到主工作区当前分支；冲突时 ``cherry-pick --abort`` 恢复干净工作区，
+       再抛 :class:`WorktreeError`（**不**留下半合并状态）。
+    """
+    ref = story_ref(story_id)
+    async with _MERGE_LOCK:
+        await _git(repo_root, "update-ref", ref, commit)
+        try:
+            await _git(repo_root, "cherry-pick", commit)
+        except WorktreeError:
+            with contextlib.suppress(WorktreeError):
+                await _git(repo_root, "cherry-pick", "--abort")
+            raise
+        finally:
+            with contextlib.suppress(WorktreeError):
+                await _git(repo_root, "update-ref", "-d", ref)
+        return await head_commit(repo_root)
+
+
 async def list_worktrees(repo_root: str | Path) -> list[str]:
     """``git worktree list --porcelain`` 里的全部路径（诊断 / 残留清点用）。"""
     output = await _git(repo_root, "worktree", "list", "--porcelain")
@@ -120,8 +160,11 @@ __all__ = [
     "WORKTREE_DIRNAME",
     "WorktreeError",
     "create_worktree",
+    "head_commit",
     "list_worktrees",
+    "promote_story_commit",
     "remove_worktree",
+    "story_ref",
     "worktree_path",
     "worktree_root",
 ]

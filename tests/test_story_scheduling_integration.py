@@ -214,7 +214,9 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
         sessions.append(story_id)
         allowlist = kwargs.get("write_allowlist")
         assert allowlist == [story_of[story_id]]  # 围栏输入逐成员生效
-        (tmp_path / story_of[story_id]).write_text(f"impl {story_id}\n", encoding="utf-8")
+        # A41 物理隔离：并行 story 在自己的 worktree 里写（`context_dir` = worktree 根）。
+        root = Path(kwargs["context_dir"]) if kwargs.get("context_dir") else tmp_path
+        (root / story_of[story_id]).write_text(f"impl {story_id}\n", encoding="utf-8")
         return SimpleNamespace(success=True, output=f"impl {story_id}")
 
     monkeypatch.setattr("heagent.cli.goal.execution._goal_session", fake_session)
@@ -245,9 +247,10 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     # checkpoint 快照文件）。
     step_events = [(kind, details.get("story", "")) for kind, details in events if kind.startswith("workflow_step_")]
     assert step_events == [("workflow_step_started", "S-1"), ("workflow_step_completed", "")]
+    # A41 物理隔离后：story 在自己的 worktree 里跑 ⇒ 主工作区的 checkpoint 产物噪声不进它的审计 Δ，
+    # worktree 干净时审计不留事件（无信号即无事件）。「越集写被抓」由下一条用例判据覆盖。
     audits = [details for kind, details in engine_stub.published if kind == "workflow_write_audit"]
-    assert len(audits) == 2  # 每条 Story 一次 Git 审计
-    assert all(details.get("untracked") for details in audits)  # 真实 untracked 信号（非产物）
+    assert audits == []
     snapshots = await store.list_checkpoints(goal_id="goal")
     # 快照链：S-1 记账（RUNNING）→ S-2 记账（RUNNING）→ 批终态（PENDING），批 = 单 checkpoint 单元。
     assert [checkpoint.completed_stories for checkpoint in snapshots] == [["S-1"], ["S-1", "S-2"], ["S-1", "S-2"]]
@@ -351,3 +354,53 @@ async def test_parallel_subagents_share_provider_and_engine_bus() -> None:
     assert all(result.success for result in results)
     assert sorted(prompts) == [f"task s-{index}" for index in range(1, 4)]
     assert peak >= 2  # 三个会话真实并发重叠，而非退化为顺序执行
+
+
+@pytest.mark.asyncio
+async def test_story_write_outside_its_set_is_flagged_inside_its_worktree(tmp_path, monkeypatch) -> None:
+    """A41：隔离后写集归属天然正确——worktree 内的越集写被**本 Story 自己**的审计抓住。
+
+    这是物理隔离要解决的根因（A41 原文：共享工作区无法按写者归属），故判据落在
+    「越集写 ⇒ 本 Story FAILED + write_violation」，并顺带钉住 worktree 用完即清。
+    """
+    monkeypatch.chdir(tmp_path)
+    for rel in ("src/a.py", "src/b.py"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{rel}\n", encoding="utf-8")
+    _git("init", cwd=tmp_path)
+    _git("add", "-A", cwd=tmp_path)
+    _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "base", cwd=tmp_path)
+    goal_dir = tmp_path / "_he-output" / "goals" / "demo"
+    goal_dir.mkdir(parents=True)
+    engine_stub = _AuditEngineStub()
+    roots: list[Path] = []
+
+    async def fake_session(provider, engine, prompt, **kwargs):
+        root = Path(kwargs["context_dir"])
+        roots.append(root)
+        (root / "src/a.py").write_text("declared\n", encoding="utf-8")
+        # tracked 但不在写集 ⇒ tracked 越集写（untracked 增量按设计只警告不判负）
+        (root / "src/b.py").write_text("outside my set\n", encoding="utf-8")
+        return SimpleNamespace(success=True, output="done")
+
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", fake_session)
+    workflow = _parallel_workflow()
+    story = parse_story_list(_DISJOINT_THREE)[0]
+    execution = StoryExecutionContext(
+        story_id=story.id,
+        parallel=True,
+        write_allowlist=["src/a.py"],
+        batch_members=[story.id],
+        sibling_write_sets={},
+    )
+
+    result = await cli_goal._goal_execute_step(
+        SimpleNamespace(), engine_stub, workflow, "demo goal", goal_dir, {}, workflow.steps[0], story, execution
+    )
+
+    assert result.status is WorkflowStatus.FAILED
+    assert result.write_violation is True
+    assert "src/b.py" in result.reason
+    assert roots and roots[0] != tmp_path, "会话必须在隔离的 worktree 里跑"
+    assert not roots[0].exists(), "worktree 用完即清"

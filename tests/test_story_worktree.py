@@ -14,8 +14,11 @@ import pytest
 from heagent.goal.worktree import (
     WorktreeError,
     create_worktree,
+    head_commit,
     list_worktrees,
+    promote_story_commit,
     remove_worktree,
+    story_ref,
     worktree_path,
     worktree_root,
 )
@@ -98,3 +101,68 @@ async def test_remove_cleans_both_directory_and_registration(repo: Path) -> None
 async def test_create_outside_a_repository_fails_loudly(tmp_path: Path) -> None:
     with pytest.raises(WorktreeError):
         await create_worktree(tmp_path, "goal-1", "s1")
+
+
+async def test_story_commit_is_cherry_picked_back_and_ref_is_removed(repo: Path) -> None:
+    """A41 合并策略（用户裁定 cherry-pick）：worktree 内的提交搬回主工作区，临时引用随即删除。"""
+    base = await head_commit(repo)
+    path = await create_worktree(repo, "goal-1", "s1")
+
+    (path / "story.txt").write_text("from s1\n", encoding="utf-8")
+    _git(path, "add", ".")
+    _git(path, "commit", "-q", "-m", "feat: s1")
+    story_sha = await head_commit(path)
+    assert story_sha != base
+
+    promoted = await promote_story_commit(repo, "goal-1-s1", commit=story_sha)
+
+    assert promoted != base, "主工作区必须前移到新提交"
+    assert await head_commit(repo) == promoted
+    assert (repo / "story.txt").read_text(encoding="utf-8") == "from s1\n"
+    assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() != "HEAD"
+    # 临时引用已删除
+    refs = _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
+    assert story_ref("goal-1-s1") not in refs
+
+
+async def test_conflicting_story_commit_aborts_and_fails_loudly(repo: Path) -> None:
+    """冲突时：``cherry-pick --abort`` 恢复干净工作区，再显性抛错（不留半合并状态）。"""
+    path = await create_worktree(repo, "goal-1", "s1")
+    (path / "README.md").write_text("s1 version\n", encoding="utf-8")
+    _git(path, "add", ".")
+    _git(path, "commit", "-q", "-m", "feat: s1 edits README")
+    story_sha = await head_commit(path)
+
+    # 主工作区同时改了同一行 ⇒ pick 必冲突
+    (repo / "README.md").write_text("main version\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "main edits README")
+
+    with pytest.raises(WorktreeError):
+        await promote_story_commit(repo, "goal-1-s1", commit=story_sha)
+
+    assert (repo / "README.md").read_text(encoding="utf-8") == "main version\n"
+    assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists(), "必须已 abort，工作区干净"
+    refs = _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
+    assert story_ref("goal-1-s1") not in refs, "失败也必须清掉临时引用"
+
+
+async def test_concurrent_promotions_do_not_fight_over_the_git_index(repo: Path) -> None:
+    """并行批里多个 story 同时收尾：promote 串行化，两个 cherry-pick 都成功（不抢 index.lock）。"""
+    import asyncio
+
+    first = await create_worktree(repo, "goal-1", "s1")
+    second = await create_worktree(repo, "goal-1", "s2")
+    for path, name in ((first, "one.txt"), (second, "two.txt")):
+        (path / name).write_text(name, encoding="utf-8")
+        _git(path, "add", ".")
+        _git(path, "commit", "-q", "-m", f"feat: {name}")
+
+    results = await asyncio.gather(
+        promote_story_commit(repo, "goal-1-s1", commit=await head_commit(first)),
+        promote_story_commit(repo, "goal-1-s2", commit=await head_commit(second)),
+        return_exceptions=True,
+    )
+
+    assert [type(item).__name__ for item in results] == ["str", "str"], results
+    assert (repo / "one.txt").is_file() and (repo / "two.txt").is_file(), "两个 story 的产出都必须在主工作区"

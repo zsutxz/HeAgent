@@ -52,7 +52,15 @@ from heagent.goal.quality_gates import gate_declaration_problem, is_registered_g
 from heagent.goal.script_api import ScriptRequest, ScriptResponse
 from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.workflow_loader import SkillWorkflowError
+from heagent.goal.worktree import (
+    WorktreeError,
+    create_worktree,
+    head_commit,
+    promote_story_commit,
+    remove_worktree,
+)
 from heagent.goal.write_audit import (
+    _audit_git_evidence,
     _audit_story_writes,
     _emit_write_audit_event,
     _write_audit_baseline,
@@ -237,9 +245,118 @@ async def _goal_execute_step(
     Runner 据此置撤销闩，该 Goal 此后串行）；untracked 增量只发 ``workflow_write_audit``
     警告（验证夹具 / 新产物常态）；仓库不可用（``GitPortError``）跳过审计并发说明事件，
     围栏仍生效。脚本执行器无 SubAgent 会话，不消费 execution。
+
+    物理隔离（A41 / AD-20）：``execution`` 非空时该 Story 在**自己的 git worktree** 里执行
+    （会话的工作区根与写审计基线都钉在 worktree），完成后把 worktree 里的提交
+    cherry-pick 回主工作区（用户 2026-11-21 裁定：批内按声明顺序串行 pick，pick 前先建
+    ``refs/heagent/stories/<story>`` 临时引用防 gc）。合并冲突 ⇒ ``cherry-pick --abort``
+    已恢复干净工作区后 FAILED 显性报出，不静默丢产出；worktree 在 finally 里移除
+    （移除失败只 WARNING，残留可由 ``git worktree prune`` 回收）。
     """
     if step.executor_mode == "script":
         return await _goal_execute_script_step(engine, workflow, goal_dir, inputs, step, story)
+    repo_root = _goal_verify_workspace(engine)
+    if execution is None or story is None:
+        # 串行 / 未授权并行：共享工作区（既有语义逐字不变）。
+        return await _goal_run_declarative_step(
+            provider,
+            engine,
+            workflow,
+            description,
+            goal_dir,
+            inputs,
+            step,
+            story=story,
+            execution=execution,
+            workspace=repo_root,
+        )
+    try:
+        worktree = await create_worktree(repo_root, goal_dir.name, story.id)
+    except WorktreeError as exc:
+        # 非 Git 工作区拿不到隔离 ⇒ 与 A41 之前逐字一致地走共享工作区（稍后审计自己会发
+        # `git_unavailable`，此处不再重复）；Git 可用但 worktree 建不起来（路径占用 / 权限 /
+        # 磁盘）则**显性降级**并留事件——降级必须可观测。
+        if await _audit_git_evidence(repo_root) is None:
+            return await _goal_run_declarative_step(
+                provider,
+                engine,
+                workflow,
+                description,
+                goal_dir,
+                inputs,
+                step,
+                story=story,
+                execution=execution,
+                workspace=repo_root,
+            )
+        _emit_write_audit_event(
+            _workflow_event_emitter(engine),
+            step=step,
+            story=story,
+            skipped=f"worktree_unavailable: {exc}"[:200],
+        )
+        return await _goal_run_declarative_step(
+            provider,
+            engine,
+            workflow,
+            description,
+            goal_dir,
+            inputs,
+            step,
+            story=story,
+            execution=execution,
+            workspace=repo_root,
+        )
+    try:
+        base_rev = await head_commit(worktree)
+        result = await _goal_run_declarative_step(
+            provider,
+            engine,
+            workflow,
+            description,
+            goal_dir,
+            inputs,
+            step,
+            story=story,
+            execution=execution,
+            workspace=worktree,
+            context_dir=str(worktree),
+        )
+        if result.status is not WorkflowStatus.COMPLETED:
+            return result
+        story_head = await head_commit(worktree)
+        if story_head != base_rev:
+            try:
+                await promote_story_commit(repo_root, f"{goal_dir.name}-{story.id}", commit=story_head)
+            except WorktreeError as exc:
+                return WorkflowStepResult(
+                    status=WorkflowStatus.FAILED,
+                    reason=(
+                        f"story '{story.id}' worktree could not be merged back into the main workspace: {exc}; "
+                        "the cherry-pick was aborted and the main workspace is clean - resolve the conflict "
+                        "manually, then rerun the story"
+                    ),
+                )
+        return result
+    finally:
+        await remove_worktree(repo_root, worktree)
+
+
+async def _goal_run_declarative_step(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    description: str,
+    goal_dir: Path,
+    inputs: Mapping[str, Any],
+    step: Any,
+    *,
+    story: Any,
+    execution: StoryExecutionContext | None,
+    workspace: Path,
+    context_dir: str | None = None,
+) -> WorkflowStepResult:
+    """一次声明式步骤的会话 + 门 + 写审计（``workspace`` 由调用方决定：共享或 story worktree）。"""
     prompt = _goal_declarative_prompt(
         workflow,
         step.name,
@@ -252,7 +369,6 @@ async def _goal_execute_step(
     )
     # 审计基线在会话**开始前**采集：Δ = after \ before，兄弟并发写与门命令产物
     # 因此天然落在 after 里、按声明排除。基线采集失败（非 Git）→ 跳过审计，围栏不撤。
-    workspace = _goal_verify_workspace(engine)
     baseline = await _write_audit_baseline(workspace) if execution is not None else None
     if execution is not None and baseline is None:
         _emit_write_audit_event(_workflow_event_emitter(engine), step=step, story=story, skipped="git_unavailable")
@@ -269,6 +385,7 @@ async def _goal_execute_step(
         },
         max_iterations=step.max_iterations or None,
         write_allowlist=list(execution.write_allowlist) if execution is not None else None,
+        context_dir=context_dir,
     )
     if result is None:
         return WorkflowStepResult(
@@ -510,6 +627,7 @@ async def _goal_session(
     metadata: dict[str, Any] | None = None,
     max_iterations: int | None = None,
     write_allowlist: Sequence[str] | None = None,
+    context_dir: str | None = None,
 ) -> SubAgentResult | None:
     """开一个**全新** SubAgent 会话执行一个 goal 步骤（流式经 SubAgent 内部收集）。
 
@@ -528,6 +646,7 @@ async def _goal_session(
         window_reset=WindowResetConfig(threshold=get_settings().window_reset_threshold),
         announcer=SUBAGENT_ANNOUNCER,
         write_allowlist=write_allowlist,
+        context_dir=context_dir,
     )
     try:
         return await agent.run(prompt)
