@@ -1,0 +1,152 @@
+{
+  "codes": {
+    "E_AGENT": "AgentError",
+    "E_AGENT_BUDGET_EXCEEDED": "BudgetExceeded",
+    "E_AGENT_ITERATION_LIMIT": "IterationLimitError",
+    "E_AGENT_RESUME": "AgentResumeError",
+    "E_AGENT_SUBAGENT": "SubAgentError",
+    "E_CONFIGURATION": "ConfigurationError",
+    "E_CONFIGURATION_INVALID_INPUT": "InputValidationError",
+    "E_ENGINE": "EngineError",
+    "E_ENGINE_LEDGER": "LedgerError",
+    "E_ENGINE_POLICY_EXECUTION": "PolicyExecutionError",
+    "E_ENGINE_POLICY_VIOLATION": "PolicyViolation",
+    "E_ENGINE_STORE_CONFLICT": "FactCompactConflictError",
+    "E_ENGINE_WORKFLOW": "WorkflowExecutionError",
+    "E_HEAGENT": "HeAgentError",
+    "E_PROVIDER": "ProviderError",
+    "E_PROVIDER_AUTH": "ProviderAuthError",
+    "E_PROVIDER_RATE_LIMIT": "ProviderRateLimitError",
+    "E_PROVIDER_RESPONSE_FORMAT": "ProviderResponseFormatError",
+    "E_PROVIDER_TIMEOUT": "ProviderTimeoutError",
+    "E_SESSION": "SessionError",
+    "E_SESSION_CONFLICT": "SessionConflictError",
+    "E_SESSION_NOT_FOUND": "SessionNotFoundError",
+    "E_SESSION_UNREADABLE": "SessionUnreadableError",
+    "E_TOOL": "ToolError",
+    "E_TOOL_ARGUMENT": "ToolArgumentError",
+    "E_TOOL_EXECUTION": "ToolExecutionError",
+    "E_TOOL_MCP_SDK_MISSING": "McpSdkMissingError",
+    "E_TOOL_SAFETY_VIOLATION": "SafetyViolation",
+    "E_TOOL_UNKNOWN": "UnknownToolError"
+  },
+  "entries": [
+    {
+      "class_name": "HeAgentError",
+      "code": "E_HEAGENT"
+    },
+    {
+      "class_name": "ProviderError",
+      "code": "E_PROVIDER"
+    },
+    {
+      "class_name": "ProviderAuthError",
+      "code": "E_PROVIDER_AUTH"
+    },
+    {
+      "class_name": "ProviderRateLimitError",
+      "code": "E_PROVIDER_RATE_LIMIT"
+    },
+    {
+      "class_name": "ProviderTimeoutError",
+      "code": "E_PROVIDER_TIMEOUT"
+    },
+    {
+      "class_name": "ProviderResponseFormatError",
+      "code": "E_PROVIDER_RESPONSE_FORMAT"
+    },
+    {
+      "class_name": "ToolError",
+      "code": "E_TOOL"
+    },
+    {
+      "class_name": "ToolArgumentError",
+      "code": "E_TOOL_ARGUMENT"
+    },
+    {
+      "class_name": "ToolExecutionError",
+      "code": "E_TOOL_EXECUTION"
+    },
+    {
+      "class_name": "UnknownToolError",
+      "code": "E_TOOL_UNKNOWN"
+    },
+    {
+      "class_name": "SafetyViolation",
+      "code": "E_TOOL_SAFETY_VIOLATION"
+    },
+    {
+      "class_name": "McpSdkMissingError",
+      "code": "E_TOOL_MCP_SDK_MISSING"
+    },
+    {
+      "class_name": "EngineError",
+      "code": "E_ENGINE"
+    },
+    {
+      "class_name": "PolicyViolation",
+      "code": "E_ENGINE_POLICY_VIOLATION"
+    },
+    {
+      "class_name": "LedgerError",
+      "code": "E_ENGINE_LEDGER"
+    },
+    {
+      "class_name": "PolicyExecutionError",
+      "code": "E_ENGINE_POLICY_EXECUTION"
+    },
+    {
+      "class_name": "WorkflowExecutionError",
+      "code": "E_ENGINE_WORKFLOW"
+    },
+    {
+      "class_name": "FactCompactConflictError",
+      "code": "E_ENGINE_STORE_CONFLICT"
+    },
+    {
+      "class_name": "AgentError",
+      "code": "E_AGENT"
+    },
+    {
+      "class_name": "BudgetExceeded",
+      "code": "E_AGENT_BUDGET_EXCEEDED"
+    },
+    {
+      "class_name": "IterationLimitError",
+      "code": "E_AGENT_ITERATION_LIMIT"
+    },
+    {
+      "class_name": "SubAgentError",
+      "code": "E_AGENT_SUBAGENT"
+    },
+    {
+      "class_name": "AgentResumeError",
+      "code": "E_AGENT_RESUME"
+    },
+    {
+      "class_name": "SessionError",
+      "code": "E_SESSION"
+    },
+    {
+      "class_name": "SessionConflictError",
+      "code": "E_SESSION_CONFLICT"
+    },
+    {
+      "class_name": "SessionNotFoundError",
+      "code": "E_SESSION_NOT_FOUND"
+    },
+    {
+      "class_name": "SessionUnreadableError",
+      "code": "E_SESSION_UNREADABLE"
+    },
+    {
+      "class_name": "ConfigurationError",
+      "code": "E_CONFIGURATION"
+    },
+    {
+      "class_name": "InputValidationError",
+      "code": "E_CONFIGURATION_INVALID_INPUT"
+    }
+  ],
+  "order_source": "_CATALOG_CLASSES"
+}

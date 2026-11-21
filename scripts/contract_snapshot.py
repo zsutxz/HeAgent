@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""导出并校验 HeAgent 的契约快照（公共导出面 / 传输路由 / 异常类型 / 传输错误码）。
+"""导出并校验 HeAgent 的契约快照（公共导出面 / 传输路由 / 异常类型 / 传输错误码 / 框架错误码）。
 
-四份快照：
+五份快照：
 
 - ``public``（INV-1）：公共导出面，`PUBLIC_MODULES` 各模块的 defined / imported / `__all__`
 - ``routes``（INV-2）：传输路由表，HTTP ``Route(...)`` 与 WS ``WebSocketRoute(...)``
 - ``exceptions``（INV-3）：异常类型集合 + ``HttpErrorCode`` 枚举取值
 - ``transport_errors``（INV-8）：错误信封键集 + 每个错误码的 HTTP 状态（S-11 起）
+- ``error_codes``（A71）：框架异常码 → 类名，顺序照抄 ``_CATALOG_CLASSES``
 
 纯 stdlib（argparse / ast / json / sys / pathlib）、AST 静态解析，不导入 heagent 本体，
 因此可在任何 Python 3.9+ 环境离线运行。
 
 用法::
 
-    python3 scripts/contract_snapshot.py --write          # 重新生成四份基线
+    python3 scripts/contract_snapshot.py --write          # 重新生成五份基线
     python3 scripts/contract_snapshot.py --check          # 校验基线是否与代码一致（默认）
     python3 scripts/contract_snapshot.py --write --only public
     python3 scripts/contract_snapshot.py --print --only transport_errors   # 打印当前快照（不落盘）
@@ -90,6 +91,7 @@ SNAPSHOT_NAMES = {
     "routes": "transport_routes.json",
     "exceptions": "exception_types.json",
     "transport_errors": "transport_errors.json",
+    "error_codes": "error_codes.json",
 }
 
 
@@ -467,6 +469,97 @@ def collect_transport_errors() -> dict[str, object]:
     }
 
 
+# ------------------------------------------------- F. error_codes (A71)
+
+FRAMEWORK_ERROR_MODULE = "src/heagent/pub/exceptions.py"
+#: `error_catalog()` 的顺序真源：模块级类元组。快照顺序**照抄它**，不另排。
+ERROR_CATALOG_ORDER = "_CATALOG_CLASSES"
+#: 每个异常类的码声明名（`code: ClassVar[str] = "E_..."`）
+ERROR_CODE_ATTR = "code"
+
+
+def _assigned_value(tree: ast.Module, name: str) -> ast.expr | None:
+    """模块级赋值（`NAME = ...` / `NAME: T = ...`）的右值；无则 None。"""
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+                return node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            return node.value
+    return None
+
+
+def catalog_class_order(tree: ast.Module) -> list[str]:
+    """读出 ``_CATALOG_CLASSES`` 的类名顺序（顺序真源）。
+
+    只认字面量 tuple/list of names：一旦改成运行时拼装（推导式 / `*splat` / 函数调用），
+    这里 fail-loud 而不是静默给出缺项的顺序。
+    """
+    value = _assigned_value(tree, ERROR_CATALOG_ORDER)
+    if value is None:
+        raise LookupError(f"{ERROR_CATALOG_ORDER} not found in {FRAMEWORK_ERROR_MODULE}")
+    if not isinstance(value, (ast.Tuple, ast.List)):
+        raise ValueError(f"{ERROR_CATALOG_ORDER} in {FRAMEWORK_ERROR_MODULE} is not a tuple/list literal")
+    names: list[str] = []
+    for element in value.elts:
+        name = dotted_tail(element)
+        if name is None:
+            raise ValueError(f"{ERROR_CATALOG_ORDER} contains a non-name element: {ast.dump(element)[:60]}")
+        names.append(name)
+    if len(names) != len(set(names)):
+        raise ValueError(f"{ERROR_CATALOG_ORDER} lists the same class twice in {FRAMEWORK_ERROR_MODULE}")
+    return names
+
+
+def class_error_code(tree: ast.Module, class_name: str) -> str:
+    """类体里 ``code`` 的**字面量**值。
+
+    必须声明在本类体内：靠继承得到的码静态归不了因（也会让「改归属」这类漂移隐形），
+    因此找不到就 fail-loud。
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        for item in node.body:
+            targets: list[ast.expr] = []
+            if isinstance(item, ast.AnnAssign):
+                targets = [item.target]
+            elif isinstance(item, ast.Assign):
+                targets = list(item.targets)
+            if not any(isinstance(target, ast.Name) and target.id == ERROR_CODE_ATTR for target in targets):
+                continue
+            value = item.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return value.value
+            raise ValueError(f"{class_name}.{ERROR_CODE_ATTR} in {FRAMEWORK_ERROR_MODULE} is not a string literal")
+        raise LookupError(
+            f"{class_name} (listed in {ERROR_CATALOG_ORDER}) declares no literal {ERROR_CODE_ATTR}"
+            f" in {FRAMEWORK_ERROR_MODULE}"
+        )
+    raise LookupError(f"{class_name} (listed in {ERROR_CATALOG_ORDER}) is not defined in {FRAMEWORK_ERROR_MODULE}")
+
+
+def collect_error_codes() -> dict[str, object]:
+    """框架异常「码 → 类名」的有序清单（A71：只增不复用）。
+
+    - ``entries``：``[{class_name, code}, ...]``，顺序 = ``_CATALOG_CLASSES``
+      （`json.dumps(sort_keys=True)` 只排对象键、不排数组，所以顺序必须自带确定性）；
+    - ``codes``：同一数据的 ``{code: class_name}`` 扁平视图，便于按码查归属；
+    - ``order_source``：记录顺序来自哪个模块级符号，避免日后自造排序。
+    """
+    tree = parse_file(FRAMEWORK_ERROR_MODULE)
+    entries: list[dict[str, str]] = []
+    for class_name in catalog_class_order(tree):
+        entries.append({"class_name": class_name, "code": class_error_code(tree, class_name)})
+    codes: dict[str, str] = {}
+    for entry in entries:
+        code = entry["code"]
+        if code in codes:
+            raise ValueError(f"duplicate error code {code!r}: {codes[code]} and {entry['class_name']}")
+        codes[code] = entry["class_name"]
+    return {"codes": codes, "entries": entries, "order_source": ERROR_CATALOG_ORDER}
+
+
 # ------------------------------------------------------------ CLI 主流程
 
 
@@ -475,6 +568,7 @@ BUILDERS = {
     "routes": collect_routes,
     "exceptions": collect_exceptions,
     "transport_errors": collect_transport_errors,
+    "error_codes": collect_error_codes,
 }
 
 

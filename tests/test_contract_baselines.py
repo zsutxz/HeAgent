@@ -6,6 +6,10 @@ INV-8 守「传输错误码集合只增不减」——`transport_errors.json` �
 G-1 守「同一棵树连跑两次快照，输出逐字节相同」——即脚本不含时间戳、绝对路径、
 行号、mtime 等易变字段。
 
+五份基线的「只增」语义各自有专属守卫：INV-8 的码表在
+`test_transport_error_codes_are_additive_only`，框架错误码（A71）在
+`tests/test_error_code_registry.py`（独立文件，含 AST 快照 ↔ `error_catalog()` 交叉校验）。
+
 快照走 subprocess 而非 import：`scripts/contract_snapshot.py` 是纯 stdlib 的
 CLI（`--check` / `--write` / `--print` / `--only`），子进程是它唯一受支持的入口；
 import 会绕过 `__main__` 的参数解析与退出码语义，也就测不到 CI 真正跑的那条路径。
@@ -26,6 +30,7 @@ BASELINE_FILES = (
     "transport_routes.json",
     "exception_types.json",
     "transport_errors.json",
+    "error_codes.json",
 )
 
 # 基线里不得出现的易变字段/环境泄漏（"path" 是路由路径，属合法字段，勿列入）。
@@ -43,7 +48,7 @@ def _run_check() -> subprocess.CompletedProcess[str]:
 
 
 def test_snapshot_check_passes() -> None:
-    """`--check` 必须 exit 0；否则四份基线已与实际代码漂移。"""
+    """`--check` 必须 exit 0；否则五份基线已与实际代码漂移。"""
     result = _run_check()
     assert result.returncode == 0, (
         f"contract snapshot drift (exit={result.returncode})\n"
