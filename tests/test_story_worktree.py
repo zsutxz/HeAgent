@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
@@ -16,15 +16,13 @@ from heagent.goal.worktree import (
     create_worktree,
     head_commit,
     list_worktrees,
+    promote_goal_products,
     promote_story_commit,
     remove_worktree,
     story_ref,
     worktree_path,
     worktree_root,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -166,3 +164,69 @@ async def test_concurrent_promotions_do_not_fight_over_the_git_index(repo: Path)
 
     assert [type(item).__name__ for item in results] == ["str", "str"], results
     assert (repo / "one.txt").is_file() and (repo / "two.txt").is_file(), "两个 story 的产出都必须在主工作区"
+
+
+# ── 产物回写（A41 残余切片）：`_he-output/` 是 gitignore 面，cherry-pick 带不回来 ─────────────────
+
+
+GOAL_REL = Path("_he-output") / "goals" / "g1"
+
+
+async def test_goal_products_written_in_the_worktree_are_moved_back(repo: Path) -> None:
+    """worktree 里写出的 `_he-output` 产物必须搬回主工作区，否则随目录移除一起消失。"""
+    worktree = await create_worktree(repo, "g1", "s1")
+    product = worktree / GOAL_REL / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+    product.parent.mkdir(parents=True)
+    product.write_text("story 报告\n", encoding="utf-8")
+
+    copied = await promote_goal_products(repo, worktree, GOAL_REL)
+
+    assert copied == ["_he-output/goals/g1/step-01-step/epic-e1/s-1/story.md"]
+    target = repo / GOAL_REL / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+    assert target.read_text(encoding="utf-8") == "story 报告\n"
+
+
+async def test_ignored_products_are_moved_back_like_the_real_repository(repo: Path) -> None:
+    """本仓 `_he-output/` 被 gitignore：忽略态（`!!`）同样要搬回，别只认 untracked。"""
+    (repo / ".gitignore").write_text("_he-output/goals/\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-q", "-m", "ignore goal products")
+    worktree = await create_worktree(repo, "g1", "s1")
+    product = worktree / GOAL_REL / "brief.md"
+    product.parent.mkdir(parents=True)
+    product.write_text("需求\n", encoding="utf-8")
+
+    copied = await promote_goal_products(repo, worktree, GOAL_REL)
+
+    assert copied == ["_he-output/goals/g1/brief.md"]
+    assert (repo / GOAL_REL / "brief.md").read_text(encoding="utf-8") == "需求\n"
+
+
+async def test_untouched_tracked_products_never_clobber_the_main_workspace(repo: Path) -> None:
+    """`_he-output` 被 tracked 时，worktree 里未改动的旧版本不得覆盖主工作区的新版本。"""
+    tracked = repo / GOAL_REL / "epics.md"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("v1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "track epics")
+    worktree = await create_worktree(repo, "g1", "s1")  # 基线 = v1
+
+    tracked.write_text("main v2\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "main updates epics")
+
+    assert await promote_goal_products(repo, worktree, GOAL_REL) == []
+    assert tracked.read_text(encoding="utf-8") == "main v2\n", "worktree 里的旧版本不得覆盖主工作区"
+
+
+async def test_a_story_without_products_is_a_no_op(repo: Path) -> None:
+    worktree = await create_worktree(repo, "g1", "s1")
+
+    assert await promote_goal_products(repo, worktree, GOAL_REL) == []
+    assert not (repo / GOAL_REL).exists(), "源目录不存在时不得凭空建出目标目录"
+
+
+async def test_goal_dir_outside_the_repository_fails_loudly(repo: Path, tmp_path: Path) -> None:
+    worktree = await create_worktree(repo, "g1", "s1")
+    with pytest.raises(WorktreeError, match="outside the repository"):
+        await promote_goal_products(repo, worktree, tmp_path / "elsewhere" / "g1")

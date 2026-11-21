@@ -1153,6 +1153,9 @@ Story 在确定性路径 `<repo>/.heagent/worktrees/<goal>/<story>` 的 detached
 （冲突 abort 后显性 FAILED），worktree 在 finally 移除。围栏根换成 worktree 时**运行产物根不跟着搬**：
 `RunContext.state_root` 钉容器根（与 `RunStore` / `ExecutionLedger` 同源），工具审计因此落主工作区而不是
 随 worktree 移除丢失；run 快照与 ledger 本就读容器根，不受隔离影响。
+产物面同理不能靠 cherry-pick：`_he-output/` 是 gitignore 面，故 worktree 移除前由
+`goal/worktree.py::promote_goal_products` 把本 Story 自写的增量（untracked / ignored / tracked-modified）
+搬回主工作区，未改动的 tracked 旧版本不覆盖主工作区，搬不动即显性 FAILED。
 
 checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id 不同内容」fail-safe 报错），因此必须是「位置」的
 完全函数：`story_loop` 步骤的激活 Story 参与 id —— `<goal>-<run>-step-<N>-story-<index>[-<S-n>]-active-<step>-<status>`。
@@ -1806,7 +1809,7 @@ src/heagent/
 │   ├── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
 │   │                        #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
 │   ├── write_audit.py       # Story 写集审计判负策略（AD-18 / A40 内容指纹 / A41-A43 披露与 remediation，2026-11-07 自 cli/goal.py 迁入）
-│   ├── worktree.py          # Story 物理隔离（AD-20 / A41）：worktree 确定性路径 + detached 创建 + --force 移除，以及产物回收 promote_story_commit（临时引用 refs/heagent/stories/<story> → cherry-pick → 删引用，冲突 abort 后显性失败；进程内串行门防 index.lock 争用）（2026-11-21）
+│   ├── worktree.py          # Story 物理隔离（AD-20 / A41）：worktree 确定性路径 + detached 创建 + --force 移除，产物回收 promote_story_commit（临时引用 refs/heagent/stories/<story> → cherry-pick → 删引用，冲突 abort 后显性失败；进程内串行门防 index.lock 争用）与 promote_goal_products（gitignore 的 `_he-output` 增量搬回主工作区）（2026-11-21）
 │   ├── mutex.py             # goal 域互斥公共端口：进程内 asyncio.Lock + 跨进程 .heagent/goal.lock（单推进者不变量下沉，2026-10-07 / A32②）
 │   ├── script_api.py        # GoalScript 受限能力门面：只登记操作请求，准入与执行交给既有 Runner/治理链（Story 51-7）
 │   ├── script_loader.py     # GoalScript 资源加载与静态约束（唯一入口名 build_workflow，AST 白名单）

@@ -404,3 +404,50 @@ async def test_story_write_outside_its_set_is_flagged_inside_its_worktree(tmp_pa
     assert "src/b.py" in result.reason
     assert roots and roots[0] != tmp_path, "会话必须在隔离的 worktree 里跑"
     assert not roots[0].exists(), "worktree 用完即清"
+
+
+@pytest.mark.asyncio
+async def test_story_products_written_in_the_worktree_land_in_the_main_workspace(tmp_path, monkeypatch) -> None:
+    """A41 残余切片：`_he-output/` 被 gitignore ⇒ 产物靠宿主搬回，不能随 worktree 一起消失。"""
+    monkeypatch.chdir(tmp_path)
+    for rel in ("src/a.py", "src/b.py"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{rel}\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("_he-output/\n", encoding="utf-8")
+    _git("init", cwd=tmp_path)
+    _git("add", "-A", cwd=tmp_path)
+    _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "base", cwd=tmp_path)
+    goal_dir = tmp_path / "_he-output" / "goals" / "demo"
+    goal_dir.mkdir(parents=True)
+    engine_stub = _AuditEngineStub()
+    roots: list[Path] = []
+
+    async def fake_session(provider, engine, prompt, **kwargs):
+        root = Path(kwargs["context_dir"])
+        roots.append(root)
+        (root / "src/a.py").write_text("declared\n", encoding="utf-8")
+        product = root / "_he-output" / "goals" / "demo" / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+        product.parent.mkdir(parents=True, exist_ok=True)
+        product.write_text("story 四件套之一\n", encoding="utf-8")
+        return SimpleNamespace(success=True, output="done")
+
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", fake_session)
+    workflow = _parallel_workflow()
+    story = parse_story_list(_DISJOINT_THREE)[0]
+    execution = StoryExecutionContext(
+        story_id=story.id,
+        parallel=True,
+        write_allowlist=["src/a.py"],
+        batch_members=[story.id],
+        sibling_write_sets={},
+    )
+
+    result = await cli_goal._goal_execute_step(
+        SimpleNamespace(), engine_stub, workflow, "demo goal", goal_dir, {}, workflow.steps[0], story, execution
+    )
+
+    assert result.status is WorkflowStatus.COMPLETED, result.reason
+    moved = goal_dir / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+    assert moved.read_text(encoding="utf-8") == "story 四件套之一\n", "worktree 产物必须回到主工作区"
+    assert roots and not roots[0].exists(), "worktree 用完即清"

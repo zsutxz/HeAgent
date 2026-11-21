@@ -1,17 +1,20 @@
-"""并行 Story 的物理隔离层（AD-20 / A41 裁定「物理隔离」）：git worktree 生命周期。
+"""并行 Story 的物理隔离层（AD-20 / A41 裁定「物理隔离」）：git worktree 生命周期与产物回写。
 
-三条契约：
+四条契约：
 
 - **路径可预测**：``<repo>/.heagent/worktrees/<goal_id>/<story_id>``——残留物集中在同一处，
   ``git worktree prune`` 一网打尽；
 - **detached HEAD**：不占分支名（同一 base 可并发派生多个 worktree，也不会因分支被占用而失败）；
 - **失败显性**：创建失败抛 :class:`WorktreeError`，**不**静默回落到共享工作区——回落等于偷偷
-  取消隔离，而调用方仍以为自己被隔离（静默降级比失败更危险）。
+  取消隔离，而调用方仍以为自己被隔离（静默降级比失败更危险）；
+- **产物搬得回来**：``_he-output/`` 是 gitignore 面，``cherry-pick`` 带不回 worktree 里写出的
+  步骤报告，故 :func:`promote_goal_products` 在移除 worktree **之前**把它们按本 Story 自写的
+  增量搬回主工作区（否则产物随目录一起消失）。
 
 移除失败只记 WARNING：worktree 残留是可回收的磁盘占用，不是数据损坏。
 
-本模块只做**生命周期**，不决定「哪个故事在哪个 worktree 跑」——那是执行器（cli/goal）的接线，
-依赖 `SubAgent` 的 per-run 工作区根（``context_dir``）。
+本模块只做**生命周期与产物回收**，不决定「哪个故事在哪个 worktree 跑」——那是执行器
+（cli/goal）的接线，依赖 `SubAgent` 的 per-run 工作区根（``context_dir``）。
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -125,6 +129,57 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
         return await head_commit(repo_root)
 
 
+async def promote_goal_products(repo_root: str | Path, worktree: str | Path, goal_dir: str | Path) -> list[str]:
+    """把 worktree 里本 Story 写出的 ``goal_dir`` 产物增量搬回主工作区，返回搬动的相对路径。
+
+    为什么需要这一步：``_he-output/`` 是 gitignore 面（步骤报告、story 四件套都落在这里），
+    ``cherry-pick`` 只带得回 tracked 提交 ⇒ 不移交就等于产物随 worktree 一起被删掉。
+
+    搬动范围严格取「本 Story 自写的增量」，不看内容差异也不是整树覆盖——
+
+    - 未跟踪且未被忽略（``--others --exclude-standard``）；
+    - 未被跟踪但被忽略（``--others --ignored``，``_he-output/`` 在本仓即此档）；
+    - 已跟踪且相对 index 有改动（``--modified``）。
+
+    这样 ``_he-output`` 被 tracked 的消费者也不会被「worktree 里的旧版本」覆盖掉主工作区的新
+    产物（未改动的 tracked 文件不在清单里）；删除不传播（``--modified`` 里出现的已删路径按
+    ``is_file()`` 跳过），产物只增不删。源目录不存在（该 Story 没写产物）返回空列表。
+    """
+    repo = Path(repo_root).resolve()
+    rel = _relative_goal_dir(repo, goal_dir)
+    source_root = Path(worktree) / rel
+    if not source_root.is_dir():
+        return []
+    listed = ""
+    for selector in (
+        ("--others", "--exclude-standard"),
+        ("--others", "--ignored", "--exclude-standard"),
+        ("--modified",),
+    ):
+        listed += await _git(worktree, "ls-files", *selector, "-z", "--", rel.as_posix())
+    copied: list[str] = []
+    for entry in sorted({path for path in listed.split("\0") if path}):
+        source = Path(worktree) / entry
+        if not source.is_file():
+            continue
+        target = repo / entry
+        target.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(shutil.copyfile, source, target)
+        copied.append(entry)
+    return copied
+
+
+def _relative_goal_dir(repo: Path, goal_dir: str | Path) -> Path:
+    """把 ``goal_dir`` 收敛成**相对仓库根**的路径（绝对路径必须落在仓库内，否则显性失败）。"""
+    candidate = Path(goal_dir)
+    if not candidate.is_absolute():
+        return candidate
+    try:
+        return candidate.resolve().relative_to(repo)
+    except ValueError:
+        raise WorktreeError(f"goal dir {candidate} is outside the repository {repo}") from None
+
+
 async def list_worktrees(repo_root: str | Path) -> list[str]:
     """``git worktree list --porcelain`` 里的全部路径（诊断 / 残留清点用）。"""
     output = await _git(repo_root, "worktree", "list", "--porcelain")
@@ -162,6 +217,7 @@ __all__ = [
     "create_worktree",
     "head_commit",
     "list_worktrees",
+    "promote_goal_products",
     "promote_story_commit",
     "remove_worktree",
     "story_ref",

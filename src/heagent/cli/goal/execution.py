@@ -56,6 +56,7 @@ from heagent.goal.worktree import (
     WorktreeError,
     create_worktree,
     head_commit,
+    promote_goal_products,
     promote_story_commit,
     remove_worktree,
 )
@@ -322,6 +323,18 @@ async def _goal_execute_step(
             workspace=worktree,
             context_dir=str(worktree),
         )
+        # `_he-output/` 不进 cherry-pick（gitignore 面）：worktree 移除前把本 Story 写出的产物搬回
+        # 主工作区，否则步骤报告随目录一起消失。搬不动即显性 FAILED——静默丢产物比失败更糟。
+        try:
+            await promote_goal_products(repo_root, worktree, goal_dir)
+        except (WorktreeError, OSError) as exc:
+            return WorkflowStepResult(
+                status=WorkflowStatus.FAILED,
+                reason=(
+                    f"story '{story.id}' products could not be moved back from its worktree: {exc}; "
+                    "the worktree is removed and the step report is still in the goal directory only"
+                ),
+            )
         if result.status is not WorkflowStatus.COMPLETED:
             return result
         story_head = await head_commit(worktree)
