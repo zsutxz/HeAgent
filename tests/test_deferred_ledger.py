@@ -303,14 +303,19 @@ def _synthetic(active_rows: list[str], retired_rows: list[str] | None = None) ->
 
 
 def test_duplicate_across_states_is_reported() -> None:
-    """同一 ID 同时出现在「活动」与「本轮闭合」⇒ 互斥断言必须报。"""
+    """同一 ID 同时出现在「活动」与「本轮闭合」⇒ 互斥断言必须报。
+
+    **不硬编码 A 号**：要构造「同时在两段」必须取一个**当前仍在活动段**的 ID
+    （闭合格的 A 号会搬到「本轮闭合」，用它会退化成「重复登记」而不是「互斥破坏」）。
+    """
+    active_id = _first_active_id()
     mutated = _archive_text().replace(
         "| A45 | `KeyboardInterrupt`",
-        "| A34 | `KeyboardInterrupt`",
+        f"| {active_id} | `KeyboardInterrupt`",
         1,
     )
     findings = audit(mutated, _entry_text())
-    assert any("互斥破坏" in item and "A34" in item for item in findings), findings
+    assert any("互斥破坏" in item and active_id in item for item in findings), findings
 
 
 def _first_active_id() -> str:
