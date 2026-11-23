@@ -83,3 +83,27 @@
 - 2026-11-23 Decision: `R8 cancel_run` 归 E74（与既有单 run `cancel` 同源，属帧与权限口径），E76 只验证并发下「不误杀其它 run」。
 - 2026-11-23 Decision: `R14` 契约快照重生成与文档同步一次性放 E76 收口，避免 E74 / E75 各自重生成同一批快照互相覆盖。
 - 2026-11-23 Decision: epic 目录形态用 `epic-<编号>-<slug>`（非纯 `<e编号>-…`）—— 票树脚本 `EPIC_RE` 只认 `epic-*`、`epic_folders()` 只 glob `epic-*`，纯编号形态需改脚本且补丁会被角色包重装覆盖；人读编号仍写 `code` / `title` 前缀 / frontmatter 三处。
+
+## 延期项
+
+> 三审（R1/R2/R3）与 Step 07 期间发现的**不在本轮落改**项。逐条给来源轮次、位置与为何延后。
+
+- 2026-11-23 R1 M-1：epic `Done when` 第 2 条「名额计数不变」缺直接判据 —— `tests/network/test_ws_project_submit.py:213-234` 只断言两条启动路径调用次数为 0。转 E75（`75.2` / `75.3` 适配器落地时连带补 inflight 计数断言）。
+- 2026-11-23 R1 M-2：`E74-S05` 的 `## Verification` 命令一次性出现 5 红谱（`test_ws_event_contract.py`×3 + `test_ws_error_codes.py::test_network_never_imports_the_runtime_stack_or_config` + `test_ws_protocol.py::test_event_frame_round_trip_preserves_nested_sse_payload`），随后 4 次全绿 709。判环境产物（9p 缓存 / 首跑冷导入），归档不改代码；同一谱再现时按 `docs/testing.md` 分诊而不是当新回归。
+- 2026-11-23 R1 L-1：单 run 端点 `cancel_run` 命中「绑定 run 已消失」时断连（`ws_commands.py:132-134`），与 epic R5 字面「不断连」有差；plan 74.3 已登记为刻意分层。E76 文档收口时统一措辞。
+- 2026-11-23 R1 L-2：集合级端点的 `cancel_run` 分支无 `readonly` 判据，readonly 由「只读 listener 不注册集合端点」结构兜住 —— 该前提应在端点 docstring 明示（E76）。
+- 2026-11-23 R1 L-3：`ProjectChannelService` 声明在 `network/ws_protocol.py` 并重导出，与 epic R2 字面「声明在 `ws_server.py`」不同（74.3 拆模块所致；epic Requirements 冻结，不回改）。后续 entry 按 `ws_protocol.py` 定位。
+- 2026-11-23 R1 L-4：`project_id` 的 `max_length=16` 无判据（`run_id` 侧有对称用例）。补一例 17 字符 ⇒ `malformed`。
+- 2026-11-23 R1 L-5：epic `Done when` 第 4 条字面「判 `WsFrameError`」，实际是出站帧模型的 pydantic `ValidationError`（入站才是 `WsFrameError`）。E76 统一口径。
+- 2026-11-23 R1 L-6：单 run 端点接受 `project_service` 形参但从不使用（`ws_server.py:362`）。E75 装配时再决定是否收窄签名。
+- 2026-11-23 R1 L-7：`story-e74-s03-cancel-run-plan.md:46` 记 `ws_protocol.py` 425 行，实测 426 —— 冻结段不回改，行数口径以实测为准。
+- 2026-11-23 R2 M-1：`docs/framework.md:1771` 的架构目录树缺新增模块 `network/ws_commands.py`（253 行）；`network/` 没有 cli/pub 那样的目录白名单守卫，只能人工同步。转 **76.6**（文档收口），并考虑为该包补一条目录白名单。
+- 2026-11-23 R2 M-2：`ws_commands.py:191-192` 把适配器异常的 `str(exc)` 原样放进错误帧 —— E74 无适配器故当前无泄漏，但 E75 适配器若把路径 / 工作区名写进消息即外泄。转 **75.2 / 75.3**：适配器侧约束 + 一条「错误帧不含路径形态」判据。
+- 2026-11-23 R2 M-3：`docs/framework.md` 六处（`:1353` / `:1390` / `:1397` / `:1771` / `:1984` / `:1985`）命令集仍写 `{run, cancel, ping}`，实际已 4 值。转 **76.6**。
+- 2026-11-23 R3 M-1：生产装配（`ws_host.py:268-289` → `build_ws_servers`）从不传 `project_service`，也没有 wiring 判据 ⇒ 当前生产行为是「带 `project_id` 恒回 `invalid_request`」。转 **75.5**：注入点 + 一条 wiring 判据（参照 `version=` 的既有判据形态）。
+- 2026-11-23 R3 M-3：项目端口两次 await 无时间上界，集合级端点无 `_supervise`：端口挂起即占提交席位且断连不被感知。转 **75.2 / 75.3**：端口契约写明「必须有内部超时」+ 一条挂起用例。
+- 2026-11-23 R3 M-4：「零副作用」只在 `ensure_available` 失败时成立；`start_project_run` 建 run 后抛错无幂等键（重试即双 run）。转 **75.2**：`ProjectChannelService` docstring 明确「提交失败不做原子性保证」，是否引入 `request_id` 由 E75 决定。
+- 2026-11-23 R3 M-7：「未装配项目通道」与「帧字段拼错」共用 `invalid_request`，而 message 不在 `transport_errors` 契约面内 ⇒ 客户端只能靠文案分流。转 **76.6**：裁定是否新增具名 code。
+- 2026-11-23 R3 M-8：集合级端点的 `cancel_run` 可取消任意 `run_id`（无所有权判定）——**这是设计意图**，但文档必须写成「入口口径：谁能连上谁就能取消，不是授权」（与安全声明第 3 条同型风险）。转 **76.6**。
+- 2026-11-23 R3 L-4：`ws_protocol.py:97` 的 `_OPTIONAL_FRAME_FIELDS` 粒度是字段名而非 (命令, 字段)，将来若某命令的 `run_id` 变可选，唯一表达方式是放宽全局集合并连带放开 `cancel_run` 的必带语义。转 **75.6**。
+- 2026-11-23 R3 L-5：`tests/network/test_ws_command_fields.py:23` 直接 import 私有 `_FRAME_FIELDS`（实现细节耦合）。转 **75.6**：加 `frame_fields(command)` 公开读口后测试改读。

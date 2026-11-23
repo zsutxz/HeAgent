@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from heagent.network.http_protocol import HttpErrorCode, HttpRunConflictError, RunStatus
+from heagent.network.ws_protocol import WS_CLOSE_INTERNAL
 from heagent.network.ws_server import (
     ProjectChannelService,
     SubmittedRun,
@@ -256,3 +257,31 @@ def test_project_channel_port_takes_only_opaque_id_and_prompt() -> None:
 
     assert start_params == {"project_id", "prompt"}
     assert ensure_params == {"project_id"}
+
+
+class _ExplodingProjectConsoleStub(_HttpProjectConsoleStub):
+    """端口抛非 ``HttpRunConflictError``：适配器**漏译**时的形状（E75 适配器的义务判据）。"""
+
+    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
+        raise RuntimeError("adapter blew up")
+
+
+@pytest.mark.asyncio
+async def test_untranslated_port_error_becomes_server_error_and_closes() -> None:
+    """端口异常类型漏译时不静默：``server_error`` 错误帧 + ``1011`` 断连。
+
+    现状是刻意保守的（不猜 code、不外泄异常文本）；本用例把「漏译」的后果钉成可观察行为，
+    E75 的适配器因此有一条明确义务：把端口异常翻译成带 ``code`` 的 ``HttpRunConflictError``。
+    """
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    project_service = _ExplodingProjectConsoleStub(calls)
+    ws = _QueueWebSocket([_run_frame(project_id="p1234abcd")])
+
+    await _endpoint(service, project_service)(ws)
+
+    frames = [json.loads(frame) for frame in ws.sent]
+    assert frames[-1]["type"] == "error"
+    assert frames[-1]["error"]["error"]["code"] == HttpErrorCode.SERVER_ERROR.value
+    assert "blew up" not in frames[-1]["error"]["error"]["message"]
+    assert ws.closed_code == WS_CLOSE_INTERNAL

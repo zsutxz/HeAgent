@@ -8,6 +8,7 @@ sources: ["docs/Goal-4/prd-ws-remote-project-channel/prd-ws-remote-project-chann
 after: []
 risk: medium
 refined: true
+status: done
 ---
 
 # E74 · WS 远程项目通道：协议与帧契约

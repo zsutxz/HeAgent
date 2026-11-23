@@ -273,3 +273,12 @@ def test_ws_protocol_does_not_define_duplicate_error_messages() -> None:
     assert '"unknown_run"' not in source
     assert '"resync_required"' not in source
     assert "error_envelope" in source
+
+
+@pytest.mark.parametrize("text", ['"run"', "[1,2]", "null", "42"])
+def test_json_that_is_not_an_object_is_malformed(text: str) -> None:
+    """合法 JSON 但不是对象 ⇒ ``malformed``（与「解不出 JSON」同档，不崩、不静默当空帧）。"""
+    with pytest.raises(WsFrameError) as excinfo:
+        parse_command_frame(text)
+
+    assert excinfo.value.kind is WsFrameErrorKind.MALFORMED

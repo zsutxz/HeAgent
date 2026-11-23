@@ -366,8 +366,11 @@ def build_ws_endpoint(
     ``readonly`` 透传给命令处理：只读 listener 上 ``cancel`` 被拒绝、事件流照常。
 
     ``project_service`` 与集合级端点同名同义（默认 ``None`` = 没有项目通道）。单 run 端点本来
-    就不接受 ``run`` 命令，所以本参数只保证两个构造器签名同形，当下的行为不随它改变。
+    就不接受 ``run`` 命令，所以本参数只保证两个构造器签名同形，当下的行为不随它改变——传了非
+    ``None`` 的值会记一条 debug（``ws event=project_service_ignored``），不静默吞掉这个错配。
     """
+    if project_service is not None:
+        logger.debug("ws event=project_service_ignored reason=run_endpoint_takes_no_projects")
 
     async def endpoint(websocket: WebSocketLike) -> None:
         run_id = str(websocket.path_params.get("run_id", ""))

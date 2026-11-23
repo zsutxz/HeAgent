@@ -129,3 +129,11 @@ async def test_project_id_without_project_service_is_rejected_without_starting_r
     assert types == ["hello", "error"]
     assert json.loads(ws.sent[1])["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
     assert service.start_run_calls == 0
+
+
+def test_overlong_project_id_is_malformed() -> None:
+    """``max_length=16``：17 字符同样判 ``malformed``（与 ``run_id`` 的 64 上界对称）。"""
+    with pytest.raises(WsFrameError) as excinfo:
+        parse_command_frame(json.dumps({"command": "run", "prompt": "hi", "project_id": "p" * 17}))
+
+    assert excinfo.value.kind is WsFrameErrorKind.MALFORMED

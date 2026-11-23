@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from heagent.network.http_protocol import HttpErrorCode, RunStatus
+from heagent.network.ws_protocol import WS_CLOSE_POLICY
 from heagent.network.ws_commands import _handle_commands
 from heagent.network.ws_server import build_runs_collection_endpoint
 
@@ -226,3 +227,48 @@ async def test_cancel_and_cancel_run_share_one_cancel_port() -> None:
 
     assert service.cancel_calls == ["run-a", "run-a"]
     assert service.start_run_calls == 0
+
+
+class _VanishingRunServiceStub(_RunServiceStub):
+    """``cancel_run`` 恒返回 ``None``：模拟「绑定记录已被清理」。"""
+
+    async def cancel_run(self, run_id: str) -> None:  # type: ignore[override]
+        self.cancel_calls.append(run_id)
+        return None
+
+
+class _IgnoringCancelServiceStub(_RunServiceStub):
+    """取消被忽略：端口如实返回**仍在** ``running`` 的记录（真实端口的超时分支）。"""
+
+    async def cancel_run(self, run_id: str) -> _RunRecord | None:
+        self.cancel_calls.append(run_id)
+        return self.records.get(run_id)
+
+
+@pytest.mark.asyncio
+async def test_single_run_endpoint_closes_when_the_bound_record_is_gone() -> None:
+    """单 run 端点：绑定记录已消失 ⇒ ``unknown_run`` 后**断连**（与集合级的分层差异，刻意行为）。
+
+    这条连接的唯一目标都不存在了，留着它没有意义——plan 74.3 显式登记的口径，本用例是它的钉子。
+    """
+    service = _VanishingRunServiceStub("run-a")
+    ws = _QueueWebSocket([json.dumps({"command": "cancel"})])
+
+    await _bound_run_loop(service, "run-a")(ws)
+
+    frames = [json.loads(frame) for frame in ws.sent]
+    assert frames[-1]["type"] == "error"
+    assert frames[-1]["error"]["error"]["code"] == HttpErrorCode.UNKNOWN_RUN.value
+    assert ws.closed_code == WS_CLOSE_POLICY
+
+
+@pytest.mark.asyncio
+async def test_cancel_ack_reports_the_status_the_port_returned() -> None:
+    """取消不保证立即生效：ack 的 ``status`` 是端口**当时**返回的状态，``running`` 也如实回执。"""
+    service = _IgnoringCancelServiceStub("run-a")
+    ws = _QueueWebSocket([_cancel_run_frame("run-a")])
+
+    await _collection_endpoint(service)(ws)
+
+    ack = json.loads(ws.sent[1])
+    assert ack == {"type": "ack", "command": "cancel_run", "run_id": "run-a", "status": "running"}

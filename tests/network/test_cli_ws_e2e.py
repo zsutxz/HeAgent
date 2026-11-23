@@ -107,6 +107,11 @@ async def test_cli_ws_ping_acks_but_cancel_is_refused_without_closing() -> None:
             assert refused["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
             assert "cancel is not supported" in refused["error"]["error"]["message"]
 
+            await ws.send('{"command":"cancel_run","run_id":"run-1"}')
+            refused_run = json.loads(await ws.recv())
+            assert refused_run["type"] == "error"
+            assert refused_run["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+
             # 连接必须还活着：再 ping 一次仍然回 ack。
             await ws.send('{"command":"ping"}')
             assert json.loads(await ws.recv())["type"] == "ack"

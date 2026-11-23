@@ -85,7 +85,8 @@ async def _handle_commands(
     ``cancel_run`` 与 ``cancel`` **同源**（同一个 ``service.cancel_run(run_id)`` 端口），差别只在
     目标从哪儿来：``cancel`` 恒指本连接绑定的 run，``cancel_run`` 的目标写在帧里，所以先与绑定
     run 比对——不等即 ``invalid_request``（一条连接只能控制它订阅的那条运行），同样**不断连**。
-    目标已终止不算错误：``cancel_run`` 幂等返回终态记录，ack 因此带终态 status。
+    目标已终止不算错误：``cancel_run`` 幂等返回当时的记录，ack 带的是端口**当时**返回的状态
+    ——已终止即终态，仍在跑即 ``running``（取消是协作式的，不保证立即生效）。
     """
     while True:
         frame = await _next_command(websocket)

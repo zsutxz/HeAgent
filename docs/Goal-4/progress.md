@@ -3,7 +3,7 @@
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
 - 状态：in-progress
-- 当前步骤：step-07-implement-story（E74 五条全 built ⇒ 下一步 = E74 收口三审，须在新会话开跑）
+- 当前步骤：step-07-implement-story（E74 已收口；下一步 = E75 首条 entry）
 
 ## 步骤状态
 
@@ -15,14 +15,15 @@
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
 | 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
 | 06 | refine-stories | completed（approved 2026-11-23） | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
-| 07 | implement-story | in-progress（E74 全 built，待收口三审） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
+| 07 | implement-story | in-progress（E74 已收口：三审 + 回顾 + 提交；续跑 E75） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
-- E74 `epic-74-ws-frame-contract`：5 entry，全部 built（74.1–74.5）——待三审收口
+- E74 `epic-74-ws-frame-contract`：5 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
 - E75 `epic-75-project-channel-runtime`：6 entry，0 built
 - E76 `epic-76-remote-surface-closeout`：6 entry，0 built
 - 合计 `counts {total: 17, review: 5, planned: 12}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（收口后）：`ready_to_start` = `75.1` / `75.2`（成对可开）
 
 ## 决策日志（追加式，只增不改）
 
@@ -67,10 +68,16 @@
 - 2026-11-23 **74.5 built**：宿主直接实现（预期零 src 改动、单文件测试）。新增 `tests/network/test_ws_error_codes.py` 17 例：七条 code 逐条断言是 `HttpErrorCode` 既有成员 + 逐条在 `transport_errors.json` 有对应项；`network/` 对运行栈/配置面**导入面**零命中（AST，含 `TYPE_CHECKING`）、`is_dir` 零命中、五个 WS 模块都不导入 `http_server`。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 709 passed；单文件 17 passed；ruff / format / mypy 全绿。**E74 五条 entry 至此全部 built。**
 - 2026-11-23 Decision: 74.5 的 `verify` 里「六条 `content_search` 断言 0 命中」按**AST 导入面**实现，不按纯文本 —— 实测 `network/` 里 `heagent.config` 有 5 处、`heagent.engine` 有 4 处命中，全是 docstring/注释里的说明性引用（「镜像 ``heagent.config.catalog`` 的同名常量」「不得 import ``heagent.engine.tasks``」），纯文本搜会把正当注释判成违规。`is_dir` 仍按文本断言（实测 0 处）。
 
+- 2026-11-23 **E74 收口三审（新会话开跑，R1 → R2 → R3 连跑）**：三份报告落 `tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract-review-r{1,2,3}.md`。R1（规格对账）有条件的通过：5 条已交付 / 2 条部分（R2 声明位置、R5 两处口径差），Critical 0 / High 0 / Medium 2 / Low 8 → 全进延期项，无落改。R2（不变量与守卫反脆弱）有条件的通过：Critical 0 / **High 1** / Medium 3 / Low 2，High = 依赖边界守卫对**相对导入**无牙（`from ..config import ...` 在 `network/` 里两条守卫双绿），当轮修补并把「HEAD 无牙 → 修补后有牙 → 无注入转绿」写成反证 D。R3（三镜头对抗式）通过：唯一 high（H-1 说 `_package_of` 产生 `heagent.heagent.*`）经宿主实测为**误报**（评审把 `SRC/'heagent'/...` 多传了一层），真实接线注入相对导入后 `test_no_reverse_dependency_on_agent` 报 `运行期反向依赖：network/ws_commands.py → heagent.config`，复原即绿；medium 8 条落改 3（M-2 端口异常漏译判据 / M-5 ack 语义措辞 / M-6 `project_service` 显式忽略），low 6 条落改 5。
+- 2026-11-23 Decision: 三审落改共 **8 处** —— 新增判据 6 例（端口异常漏译、`cancel_run` 断连分支钉子、ack 如实回执 `running`、`project_id` 17 字符上界、非对象 JSON 四例参数化、两条只读流 `cancel_run` 拒绝）+ 收紧 R4 判据（删 `unmapped_codes` 逃生门）+ 两处 src 措辞/信号（`ws_commands.py` 的 ack 语义、`ws_server.py` 的 `ws event=project_service_ignored` debug）。
+- 2026-11-23 Decision: epic 容器 `status: done` 由宿主在收口时写进 epic 文件 frontmatter（`tickets.py mark` 只管 entry）。理由：`classify()` 的 epic gate 只认「容器 status == done」，不写则 `after: [epic-74]` 的 E75 / E76 永久 blocked（epic 级 `after` 声明因此无法自洽）。entry 的 `done` 仍只由 Step 08 的人工 `approve` 写。
+- 2026-11-23 **E74 收口门禁实测**：`pytest tests/network tests/test_architecture_contracts.py -q` = **719 passed**；`pytest tests/network -q` = 679 passed；`ruff check` / `ruff format --check`（499 files）/ `mypy src`（239 files）/ `bandit -r src/ -ll`（No issues identified）全绿。`pytest tests/test_contract_baselines.py` 仍 2 红（`exception_types.json` 缺 74.1 新增的 `SubmittedRun` / `ProjectChannelService`）——**已知预期红**，76.6 重生成快照收口。
+- 2026-11-23 **E74 收口提交**：`test(e74-s05): 依赖边界守卫补齐相对导入与 AST 口径` + `fix(e74): 三审落改补判据与 ack 语义，E74 收口`。
+
 ## 交接块（下一轮入口）
 
-- 下一条：`none（E74 五条全 built ⇒ 转 E74 收口三审 R1 → R2 → R3 → 回顾 → 提交）`；收口完成后 `tickets.py next` 的下一条是 E75 的 `75.1`
-- 票树实测：`status docs/Goal-4` → counts {total: 17, review: 5, planned: 12}、E74 五条全 `built`、unpinned/undeclared/order_conflict 全空；`next.ready_to_start` = []（E75/E76 仍被 epic-level `after` 拦住）
-- 必读：epic 文件 `docs/Goal-4/tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract.md`（Requirements R1–R7 / Done when）· 五份 plan（`story-e74-s01…s05-*-plan.md`）· 本 epic 的合并 diff（`git log --oneline d6e705de^..HEAD -- src/heagent/network tests/network`）
-- 未关闭的门：**E74 收口三审未开跑**（R1 规格对账 / R2 不变量与守卫反脆弱 / R3 code_review 三镜头）；三份报告落 `tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract-review-r{1,2,3}.md`，回顾落 `…-retrospective.md`（带 `## 三审记录`）
-- 本轮结论：E74 的交付面已闭合 —— 命令面 4 值（run / cancel / cancel_run / ping）、`cancel_run` 与 `cancel` 共用 `service.cancel_run` 端口、事件面逐字节未动（golden 信封 + 两层 `project_id` 拒绝 + 路由集对基线）、错误码零新增、`network/` 导入面零命中；`ws_server.py` 698 行（拆出 `ws_commands.py` 253 行）⇒ E75 加代码仍有余量。**已知预期红**：`tests/test_contract_baselines.py` 的 check 用例（`exception_types.json` 缺 74.1 新增的 `SubmittedRun` / `ProjectChannelService`）由 76.6 重生成快照收口。
+- 下一条：`75.1` E75-S01（`epic-75-project-channel-runtime`）与 `75.2` E75-S02 —— `next` 实测两者同时 `ready_to_start`；是否成批并行取决于各自 `parallel_group` / `write_set` 声明与「七条件」
+- 票树实测：`status docs/Goal-4` → counts `{total: 17, review: 5, planned: 12}`、problems 空、unpinned / undeclared / order_conflict 全空、epics = `[{74, done}, {75, ""}, {76, ""}]`；`longest_remaining_chain` = 75.2 → 75.3 → 75.5 → 75.6
+- 必读：`tickets/epic-75-project-channel-runtime/epic-75-project-channel-runtime.md`（Requirements R1–R7）· `tickets/epic-75-project-channel-runtime/tickets/tickets.toml`（6 条 entry）· E74 回顾 `tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract-retrospective.md`（三审记录 + 转 75.x 的遗留义务）· `brief.md`「延期项」节（9 条跨轮遗留，其中 5 条直接绑定 75.2 / 75.3 / 75.5）
+- 未关闭的门：无（E74 已收口；75.x 无 checkpoint / hitl；Step 08 放行在全部 entry built 之后）
+- 本轮结论：E74 交付面闭合 —— 命令面 4 值（run / cancel / cancel_run / ping）、`ProjectChannelService` 与 `SubmittedRun` 住 `ws_protocol.py` 并经 `ws_server` 重导出、事件面逐字节零漂移、错误码零新增；`ws_server.py` 698 行 / `ws_commands.py` 253 行 / `ws_protocol.py` 426 行（单文件上限 1000）。**E75 开工必须带上的三条既有义务**：① `project_service` 目前**没有任何生产注入点**（`ws_host.py` 恒 `None`）⇒ wiring 判据归 75.5；② 适配器不得把路径写进错误消息、端口必须有内部超时（75.2/75.3）；③ `ws_server.py` 余量充足，但新增代码仍应优先落 `ws_commands.py`。

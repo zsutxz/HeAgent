@@ -111,6 +111,11 @@ async def test_notification_ws_ping_acks_with_an_empty_run_id_and_refuses_comman
             assert refused["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
             assert "read-only" in refused["error"]["error"]["message"]
 
+            await ws.send('{"command":"cancel_run","run_id":"run-1"}')
+            refused_cancel_run = json.loads(await ws.recv())
+            assert refused_cancel_run["type"] == "error"
+            assert refused_cancel_run["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+
             await ws.send('{"command":"run","prompt":"hi"}')
             refused_run = json.loads(await ws.recv())
             assert refused_run["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
