@@ -1351,7 +1351,7 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.16.1 帧契约）与 `{run, cancel, ping}` 命令（`run` 仅集合级端点有效，见 4.16.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **36** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.16.1 帧契约）与 `{run, cancel, cancel_run, ping, projects}` 命令（`run` / `projects` 仅集合级端点有效，见 4.16.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
 | 传输层 | `network/http_server/`（子包：app / listener / service / pipeline / endpoints_*）：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 与 `ws_host` 均**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住；共用的延迟导入辅助住 `network/optional_deps.py`）。 |
 | 可选依赖 | `starlette` / `uvicorn` / `websockets>=13.0,<18` 由 `pyproject.toml` 的 `http` extra **直接声明**；服务端只延迟导入 Starlette/Uvicorn，不直接导入 `websockets`。缺少 HTTP 栈抛 `HttpDependencyError`；缺少 WS 协议实现时 HTTP 仍可启动并记录 `ws_unavailable`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`。 |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）；探测收尾（`writer.close()` 之后的 `await writer.wait_closed()`）**自带 `_PROBE_TIMEOUT` 上界**——对端只收不关（或黑洞）时不再把就绪门禁拖成无界等待（2026-09-28 修复，`tests/network/test_http_server.py::TestProbeBoundedClose`）|
@@ -1388,17 +1388,18 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | 端点 | 作用 | `local`（回环） | `lan` / `external`（非回环） |
 | --- | --- | --- | --- |
 | `WS /api/runs/ws` | **集合级**：经 WS 提交 run（Epic 56 D2 新增；见下表「提交 run」行） | ✅ | ✅（`external` 在 token 后） |
-| `WS /api/runs/{run_id}/ws` | 单 run 订阅 + `{cancel, ping}`（Epic 54） | ✅ | ✅（`external` 在 token 后） |
+| `WS /api/runs/{run_id}/ws` | 单 run 订阅 + `{cancel, cancel_run, ping}`（Epic 54；`cancel_run` 为 Epic 75 补充） | ✅ | ✅（`external` 在 token 后） |
 | `WS /api/cli/ws` | CLI 旁路只读事件流（Epic 55，默认关；见「CLI 旁路订阅」） | ✅（开关开时） | ❌ **不注册**（D9） |
 | `WS /api/notifications/ws` | 只读通知流：cron 执行结果（Epic 58，默认关；见「只读通知流」） | ✅（中枢注入时） | ✅（中枢注入时；`external` 在 token 后，Epic 58 D2） |
 
 | 关注点 | 实现事实 |
 | --- | --- |
 | 生命周期与就绪 | `WsServer.start()` / `serve_forever()` / `close()` 三件套口径对齐 `HttpServer`：绑定失败与就绪探测失败都转 `WsStartupError`（命令层给一行可读错误，**绝不**打印「已监听」）。**就绪判据是真实 TCP 连通**——本 server 没有健康端点可打（D1 接缝事实）。`close()` 幂等、全程有界，只做 WS 侧收尾（关订阅连接 + 停 listener），**绝不**取消运行；在途运行的排空归 HTTP `close()`，编排顺序由入口层保证。 |
-| 帧契约 | `network/ws_protocol.py` 定义封闭的 `hello` / `event` / `ack` / `error` / `notification` 帧；**`hello` 是连接首帧（56-9，2026-11-06）**：四端点 `accept()` 后、任何配额/游标/关停判定前立即下发 `{"type":"hello","version":…}`——版本由入口层注入（`heagent.__version__`，经 `WsServer → build_ws_app → builders` 参数链），传输层不读包元数据；认证/Origin 拒绝发生在 accept 前，被拒连接不经 hello；hello 不属任何一条流（无 `run_id`/`seq`、不进环形缓冲，续传/游标语义逐字不变），客户端按「可忽略类型」处理（不认识就跳过）；空版本（测试装配形态）端点侧 debug 跳过（不静默）；事件负载嵌套复用 `RunEventPayload`（通知流用 `NotificationPayload`），错误复用 `error_envelope()` 与 `HttpErrorCode`。命令集封闭为 `{run, cancel, ping}`，其中 **`run` 只在集合级端点 `/api/runs/ws` 有效**（单 run 端点、CLI 旁路与通知流收到它回 `invalid_request` 且不断连）。 |
+| 帧契约 | `network/ws_protocol.py` 定义封闭的 `hello` / `event` / `ack` / `error` / `notification` 帧；**`hello` 是连接首帧（56-9，2026-11-06）**：四端点 `accept()` 后、任何配额/游标/关停判定前立即下发 `{"type":"hello","version":…}`——版本由入口层注入（`heagent.__version__`，经 `WsServer → build_ws_app → builders` 参数链），传输层不读包元数据；认证/Origin 拒绝发生在 accept 前，被拒连接不经 hello；hello 不属任何一条流（无 `run_id`/`seq`、不进环形缓冲，续传/游标语义逐字不变），客户端按「可忽略类型」处理（不认识就跳过）；空版本（测试装配形态）端点侧 debug 跳过（不静默）；事件负载嵌套复用 `RunEventPayload`（通知流用 `NotificationPayload`），错误复用 `error_envelope()` 与 `HttpErrorCode`。命令集封闭为 `{run, cancel, cancel_run, ping, projects}` 五值，其中 **`run`（提交）与 `projects`（项目列表）只在集合级端点 `/api/runs/ws` 有效**（单 run 端点、CLI 旁路与通知流收到任一即回 `invalid_request` 且不断连）；`cancel_run` 与 `cancel` 的差别只在目标来源（连接绑定的 run vs 帧内 `run_id`），两者复用同一个 `service.cancel_run()` 端口。 |
 | 事件与续传 | WS 复用 `_RunRecord` 的 ring buffer、单调 `seq`、背压踢除和终态哨兵；`?last_event_id=N` 只补 `seq > N`，越过窗口返回 `resync_required` 错误帧。重放/水位去重与 SSE 同一实现（`http_protocol.replay_then_follow`，A54④）；`resync_required` 判据算术单源 `http_protocol.cursor_out_of_window`（三条流 + WS 共用，A54⑤）；连接登记与有界关停委托 `event_stream_hub.WsRegistry`（与只读流同一实现，A54⑤）。 |
 | 命令 | `cancel` 与 `DELETE /api/runs/{run_id}` 使用同一协作式取消语义并保持幂等；`ping` 返回 `ack`。断线只注销 WS 连接，不取消 run。 |
-| 提交 run（Epic 56 D2，`WS /api/runs/ws`） | **集合级**端点（路径无 `run_id`；与 `/api/runs/{run_id}/ws` 段数不同，不互相遮蔽）：收 `{"command":"run","prompt":…}` 后**复用** `RunRequest` 校验与 `HttpRunService.start_run` 创建（名额 / 记录 / 任务生成只有一处实现），回 `ack{command:run, run_id, status}`。错误走错误帧且**不断连**：空白 prompt `empty_prompt`、空串/超长 prompt `invalid_request`、名额满 `run_conflict` / 服务级总额 `total_inflight_limit`、关停 `shutting_down`——与 `POST /api/runs` 的状态码语义一一对应。**期一交互形状**：提交连接**不转事件流**，客户端拿 `run_id` 后经既有单 run 端点订阅；该连接上的 `cancel` 回 `invalid_request`（没有绑定对象）、`ping` 回连接级 ack（`run_id` 空串）。 |
+| 提交 run（Epic 56 D2，`WS /api/runs/ws`） | **集合级**端点（路径无 `run_id`；与 `/api/runs/{run_id}/ws` 段数不同，不互相遮蔽）：收 `{"command":"run","prompt":…}` 后**复用** `RunRequest` 校验与 `HttpRunService.start_run` 创建（名额 / 记录 / 任务生成只有一处实现），回 `ack{command:run, run_id, status}`。错误走错误帧且**不断连**：空白 prompt `empty_prompt`、空串/超长 prompt `invalid_request`、名额满 `run_conflict` / 服务级总额 `total_inflight_limit`、关停 `shutting_down`——与 `POST /api/runs` 的状态码语义一一对应。**期一交互形状**：提交连接**不转事件流**，客户端拿 `run_id` 后经既有单 run 端点订阅；该连接上的 `cancel` 回 `invalid_request`（没有绑定对象）、`ping` 回连接级 ack（`run_id` 空串）。**Epic 75 扩展**：帧上加可选 `project_id`（缺省 = 启动工作区，与该字段出现之前的旧路径逐字等价）⇒ 提交到该项目；另收 `{"command":"projects"}` 回 `WsProjectsFrame`（每条三字段 + 两值 `registry_state`），见下表「项目通道」行。 |
+| 项目通道（Epic 75） | **注入链路**：`build_ws_servers(project_service=…)` → `WsServer.project_service` → `ws_host.build_ws_app` → 两个端点构造器（集合级端点拿实例；单 run 端点收到非 `None` 只记 `ws event=project_service_ignored` debug——它没有项目面）。**适配器只翻译**（`cli/ws_project_adapter.ProjectChannelAdapter`，`ProjectChannelService` 的唯一入口层实现）：列表投影成 `WsProjectsFrame`（每条只留 `id` / `name` / `available`，`path` / `last_opened_at` / `is_default` 不出入口层——它们会把宿主目录结构交给持 token 的对端）+ 两值 `registry_state`；提交收窄成 `SubmittedRun`（`session_id` 不出入口层）；`ConsoleOperationError` / `ProjectRegistryError` 的 `code` **逐字**搬进 `HttpRunConflictError`，不改写、不折叠（漏译让 `ValueError` 直冒，连接骨架收敛成 `server_error`）。适配器**不解析项目目录、不探测目录是否在盘、不读注册表文件**——「传输层与适配器都不认识项目目录」是结构保证，不是纪律要求。**六项落点由编排层保证**（`cli/http_console.HttpProjectConsole.start_project_run` 经 `for_workspace` 派生 per-project 运行时）：`context.workspace_root`（围栏基址）/ 会话文件（`paths.sessions`）/ 产物目录（rollout sink 与围栏同按项目根）/ `engine` 的 run 记录与 ledger / `RunContext.state_root`（默认钉容器根，与前者同源）/ memory 根（`paths.memory_file` 与 profile）。**未注入时**（`project_service=None`）`projects` 与带 `project_id` 的 `run` 回 `invalid_request` 且不断连，**绝不静默按启动工作区执行**——「装配漏了」不能变成「跑错项目」。错误码：项目侧既有码（`unknown_project` / `invalid_project_path` / `project_unavailable` / `project_busy` / `project_limit_reached`）全部复用，本 epic 只新增 `project_registry_unreadable`（HTTP 500，**仅提交径**产生；列表径 fail-soft 走 `registry_state="unreadable"` + 一条 WARNING）⇒ `HttpErrorCode` 总数 35 → **36**。 |
 | 同源防线 | WS 升级在 `accept()` 前复用 `_request_origin_violation` 校验 Host/Origin（**仅本地模式**；对外模式的 Host/Origin 不适用，见监听模式/认证两行）。Origin 违规时客户端看到 HTTP 403、无错误 body；缺少 Origin 的非浏览器客户端按既有 HTTP 口径放行。既有 ASGI 中间件对 `scope["type"] != "http"` 直接放行，因此 CSWSH 防线由 WS 层单独执行。 |
 | 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。提交端点**不占**订阅名额（它不订阅事件、不建 run 记录）。 |
 | 入站上界 | 三条上限（Epic 56 Story 56-3 起）：`WS_MAX_COMMAND_CHARS=4096`（**非 run** 帧的字符上限）、`WS_MAX_INBOUND_CHARS=6×MAX_PROMPT_CHARS+信封余量`（入站文本的廉价预检——按 `ensure_ascii` 最坏转义推算，否则合法的最大 prompt 会被挡在协议层外）、`WS_MAX_FRAME_BYTES=MAX_REQUEST_BYTES_FOR_MAX_PROMPT`（Uvicorn `ws_max_size`，与 HTTP 请求体上限同源）。应用层超限关闭码 `1009`。关闭码 `1000` 正常结束、`1001` 服务关停、`1008` 策略/协议违规、`1011` 内部错误。 |
@@ -1420,7 +1421,7 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | --- | --- |
 | 状态源 | `network/cli_event_hub.py::CliEventHub`：seq 跨轮次单调、环形缓冲 `CLI_EVENT_BUFFER_SIZE`(256)、订阅席位上限（取 `WS_MAX_CONNECTIONS`，按**整条流**计）、`close()` / `reopen()` 与 `HttpRunService` 同形态。**不建 run 记录**，因此不存在"淘汰 / 会话投影 / 取消"这些 HTTP 侧的语义。 |
 | 帧契约 | `WsCliEventFrame`（`type` + **`run_id`** + `event`）与 `WsCliAckFrame`（`command` + `run_id`，**不带** `RunStatus`）。与 `WsEventFrame` / `WsAckFrame` 分开定义 ⇒ `/api/runs/{id}/ws` 的既有契约逐字不变。 |
-| 命令面 | 仅 `ping`（回 ack，`run_id` 为空串表示此刻没有在跑的轮次）。`cancel` 回 `invalid_request` 错误帧但**不关闭连接**——旁路不拥有运行，「不支持」必须显式告知，不能静默忽略。`run`（提交）同理拒绝：它只在集合级端点 `/api/runs/ws` 有效（Epic 56 D2 的边界：旁路是观众席，不是生产通道）。 |
+| 命令面 | 仅 `ping`（回 ack，`run_id` 为空串表示此刻没有在跑的轮次）。`cancel` 回 `invalid_request` 错误帧但**不关闭连接**——旁路不拥有运行，「不支持」必须显式告知，不能静默忽略。`run`（提交）与 `projects`（项目列表）同理拒绝：两者都只在集合级端点 `/api/runs/ws` 有效（Epic 56 D2 / Epic 75 的边界：旁路是观众席，不是生产通道）。 |
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口已淘汰开头（含「无游标但 `oldest_seq > 1`」）回 `resync_required` 错误帧。订阅队列与缓冲同界，落后一整窗口即结束该流（客户端带游标重连）——与 SSE / run-WS 同一口径。 |
 | 发布点 | 入口层 `cli/interactive.py`：`_consume_stream` 逐条镜像 `StreamEvent`（text / tool_call / tool_result / done），进入即 `begin_run`、退出（含取消与异常）即 `end_run`；单次模式走非流式 `loop.run`，只发一条终态 `done`，**不假装有增量**。中枢经 `ContextVar` 传递（`_run_prompt` 的签名是 3 处测试 patch 的契约，不能加参数）。 |
 | 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |
@@ -1445,7 +1446,7 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 | --- | --- |
 | 状态源 | `network/notification_hub.py::NotificationHub`（`EventStreamHub[NotificationPayload]` 薄适配）：seq **跨作业跨执行单调**、环形缓冲 256、订阅席位上限取 `WS_MAX_CONNECTIONS`（按整条流计）、`close()` / `reopen()` 与旁路同形态。 |
 | 帧契约 | `WsNotificationFrame`（`type=notification` + `notification`）；载荷 `NotificationPayload`：`kind`（`cron_result`）/ `seq` / `job_id` / `cron`（表达式）/ `status`（`completed` / `failed`）/ `text`（终局答案或错误首行，入缓冲前 `clip_text`）。**不带** `run_id`、不带 `RunStatus`——客户端按 `job_id` + `seq` 定位，不产生「能订阅/控制一条运行」的错觉。 |
-| 命令面 | 仅 `ping`（回 `WsCliAckFrame`，`run_id` 恒为空串）。`cancel` / `run` 回 `invalid_request` 且**不断连**（只读流没有可取消或可提交的对象）。 |
+| 命令面 | 仅 `ping`（回 `WsCliAckFrame`，`run_id` 恒为空串）。`cancel` / `cancel_run` / `run` / `projects` 回 `invalid_request` 且**不断连**（只读流没有可取消、可提交或可列项目的对象）。 |
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口越界（含无游标但 `oldest_seq > 1`）回 `resync_required`。订阅队列与缓冲同界，落后一整窗口即结束该流（同 SSE / run-WS / 旁路）。 |
 | 可见性 | 与旁路**刻意不同**（Epic 58 D2）：中枢注入即注册，`local` / `lan` / `external` **都注册**——通知流送的是宿主自己排的 cron 产物，不暴露终端会话内容；`external` 上还有 token（fail-closed），`lan` 上无认证但代价（同网段可见）由启动 WARNING 写明。旁路旁观的「宿主的终端」才必须留在本地。 |
 | 装配 | `cli/http_config.py::build_ws_servers` 在 `CRON_PUSH_ENABLED` 为真时建中枢并注入每一条 listener；未注入 ⇒ 路由不注册（Uvicorn 给客户端裸 403，不是应用层 404）。发布点由入口层把 `cron_notifier` 注入 `build_cron_job_runner`（一次执行一条；goal 自动推进分支不发）。 |
@@ -1482,7 +1483,7 @@ Epic 50 把 4.16 的「单项目聊天页」扩成**多项目控制台**：左�
 | 网页 cron 能力（2026-10-28，用户裁决改判） | `HttpAgentHandler.new_loop()` 以 `enable_cron=True` 组装：网页会话与交互模式 / GUI 共用同一份 `<项目>/.heagent/cron/jobs.json`，`cron_add` / `cron_list` / `cron_remove` 全部可用（原 A11② 的「不绑 cron 工具」形态**撤销**；此前网页侧一律回 `Error: cron tools not configured.`）。**handler 不启停调度器**：`_build_loop` 在有会话时顺带构造的 `CronScheduler` 被丢弃（构造只赋值字段、不建 task，无泄漏），start/stop 属进程级生命周期（`cli/interactive.py`、`gui/app.py`）⇒ 网页写的任务在本进程不触发，由那些入口的调度器执行；网页进程若也要自己跑调度，应挂 `EmbeddedHttpService` 生命周期，**不能**按 run 启停。同分钟跨进程重复执行由 `engine` ledger 的幂等键 + 租约兜底（`cron:{job_id}:{分钟}`，落 `.heagent/ledger/`）。⚠ 代价：绑定的是**可写** store ⇒ 端口可达者能增删该项目的定时任务（无认证、回环亦不可信）。判据：`tests/test_cli_http.py::test_new_loop_binds_the_full_cron_surface`（`enable_cron=True` 接线 + 同一 `jobs.json` 可见性 + 丢弃 scheduler 不抛） |
 | 网页侧工具结果收敛（Story 50-8 R5；2026-09-28 扩到 `content_search` / `file_edit`） | `cli.http_console._web_tool_output`：**两类收敛**——① `file_read` / `file_edit` 的**成功**结果内容**整份**不进网页事件流（前者是文件正文、后者是 `OK: edited …` + diff + 快照，对话区只显示「工具名 → 作用对象」）；② `content_search` 的成功结果**只留去重的命中文件清单**（`_matched_files` 剥掉 `路径:行号: 正文` 的行内容，保序去重）。**失败消息照旧**（内置工具用返回值 `Error: ...` 表达可预期失败，故判据 = `is_error` **或** 该前缀；无命中消息与超大文件跳过行同属诊断，**原样保留**）；会话文件 / `rollout.jsonl` / CLI / GUI **一字不变**（审计与回放不受影响），模型侧也照旧拿到全文 |
 | 控制台体验约束（Story 50-8 R1/R3/R4/R6/R7/R8） | 会话列表**默认只渲染最近 10 条**（服务端仍按时间降序给全量、硬上限 200；展开是本地 slice，且**当前会话永远可见**——落在窗口外时自动展开并隐藏展开按钮），规模提示与「显示全部」放在**会话面板最上面**（列表之上，R8）；侧栏**一列**：项目在上、会话在下（`display:flex`/`column`，**用户 2026-09-24 裁决，不得回退成多栏**）；对话区**占满所在列**（R7，2026-09-24 撤销 R6 的 48rem 限宽居中阅读列：`.chat-log > *` 与 `.composer > *` 只留 `width:100%`；设置面板打开时**对话列仍是三列里最宽的**）；侧栏 280px；设置面板只留**一行短状态**与逐项短只读标签，诊断 / 未知键折进默认收起的 `<details>`（标题带告警条数），逐项长说明压成徽标 + `title` |
-| 错误码 | 传输层 `HttpErrorCode` 封闭 **35** 码，分组：项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2（`confirm_required`、`loopback_required`）/ 原生目录选择 2（`dialog_unavailable`（503）、`dialog_busy`（409））/ 服务级在途总额 1（`total_inflight_limit`（409）），其余为 Epic 49 基础运行码。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
+| 错误码 | 传输层 `HttpErrorCode` 封闭 **36** 码，分组：项目注册表 7 / 会话 5 / 写通道 5 / 运行与边界 2（`confirm_required`、`loopback_required`）/ 原生目录选择 2（`dialog_unavailable`（503）、`dialog_busy`（409））/ 服务级在途总额 1（`total_inflight_limit`（409）），其余 14 为 Epic 49 基础运行码（Epic 75 只加 `project_registry_unreadable`（500，仅提交径）；Epic 74 未新增码）。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
 | 框架异常码 | `pub/exceptions.py` 每个异常类带 `code`（形态 `E_<分类>_<具体>`，**只增不复用**），`error_catalog()` 给出码 → 类名 / 描述 / 建议，`error_code_of(exc)` 对非框架异常返回 `E_UNKNOWN`；当前 **29** 类，码表与 `docs/errors.md` 第二节逐条一致（`tests/test_exceptions.py` 钉死）。与传输层码是两套封闭集合，刻意不合并（Epic 69 / Story 69.3） |
 | 前端纪律 | 纯文本渲染（`createTextNode`，永不 `innerHTML`）；面板文案 / 只读原因 / 取值提示全部由后端 `labels` / `guards` / `source` 派生，**前端零硬编码**；零第三方资源、零内联脚本 / 事件属性；`[hidden]{display:none!important}` 全局兜底（作者样式的 `display:flex` 会压过 UA 的 `[hidden]`） |
 
@@ -1770,7 +1771,7 @@ src/heagent/
 │
 ├── network/                 # 网络入口传输层（Epic 49–50 HTTP/SSE + Epic 54–56 WS；协议/生命周期/暴露判定，不依赖运行栈）
 │   ├── http_protocol.py     # HTTP/SSE 协议模型与稳定错误码（含 HttpRunConflictError 的唯一来源）
-│   ├── ws_protocol.py       # WebSocket 帧模型（event/ack/error/notification）、命令枚举（run/cancel/ping）、三条上界与关闭码
+│   ├── ws_protocol.py       # WebSocket 帧模型（event/ack/error/notification）、命令枚举（run/cancel/cancel_run/ping/projects）、三条上界与关闭码
 │   ├── http_server/         # HTTP/SSE 子包（2026-11-15 Story 62.1 自单文件拆出；层序无环：config → assets/records → service → pipeline → endpoints_* → middleware → app → listener，`__init__` 全量再导出）
 │   │   ├── config.py        # HttpServerConfig 与启动失败异常（层序最底层，只依赖 Pydantic + 请求上限常量）
 │   │   ├── assets.py        # 包内静态资源白名单与读取
@@ -1788,6 +1789,7 @@ src/heagent/
 │   ├── origin.py            # 入口 listener 同源防线（AD-6）与探测地址推导（HTTP/WS 共用的单源；Epic 56 D1）
 │   ├── optional_deps.py     # 可选依赖延迟导入辅助 require_module + HttpDependencyError（http_server / ws_host 共用）
 │   ├── ws_server.py         # WS 端点逻辑：提交 run、单 run 订阅+游标续传、命令处理、连接生命周期
+│   ├── ws_commands.py       # 集合级端点的命令循环簇（分派 / 提交 / 取消 / 项目列表；Story 74.3 自 ws_server 拆出）
 │   ├── ws_auth.py           # 对外模式认证纯逻辑：Bearer 解析 / 常量时间比较 / 按来源失败限速（Epic 56）
 │   ├── event_stream_hub.py  # 只读事件流通用核：seq / 环形缓冲 / 游标重放 / 背压踢人 / 有界关停（Epic 58 D3）
 │   ├── cli_event_hub.py     # CLI 终端的旁路流（EventStreamHub 薄适配：本轮 run 语义 + RunEventPayload）
@@ -1982,8 +1984,9 @@ python -m heagent http-server [--host H] [--port P] [--ws-host H] [--ws-port P] 
                     │                                    （名额判定/记录/任务生成复用 HttpRunService.start_run；
                     │                                      错误帧 run_conflict / total_inflight_limit / shutting_down /
                     │                                      empty_prompt / invalid_request，不断连）
+                    │                                    （Epic 75：帧带 project_id ⇒ 提交到该项目；projects ⇒ WsProjectsFrame）
                     ├── WS /api/runs/{run_id}/ws      → 重放 ring buffer（?last_event_id=N）→ 跟随实时事件
-                    │                                    + {cancel, ping}（cancel 与 DELETE 同语义、幂等）
+                    │                                    + {cancel, cancel_run, ping}（cancel 与 DELETE 同语义、幂等；cancel_run 用帧内 run_id）
                     ├── WS /api/cli/ws                → CLI 旁路（默认关）：跨轮次只读，仅 ping；cancel/run 显式拒绝
                     └── WS /api/notifications/ws      → 通知流（默认关）：cron 执行结果（?last_event_id=N 续传），仅 ping
         └── finally: await http_server.close() → await ws_server.close()
