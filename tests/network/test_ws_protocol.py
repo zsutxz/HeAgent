@@ -208,6 +208,45 @@ def test_parse_command_frame_checks_character_limit_before_json() -> None:
     assert parse_command_frame(text).command is WsCommand.RUN
 
 
+def test_cancel_run_frame_requires_exactly_a_run_id() -> None:
+    """E74-S03：``cancel_run`` 的目标是必带字段，且不许夹带 ``project_id`` 或未知键。"""
+    frame = parse_command_frame(json.dumps({"command": "cancel_run", "run_id": "run-abc"}))
+    assert frame.command is WsCommand.CANCEL_RUN
+    assert frame.run_id == "run-abc"
+    assert frame.project_id is None
+    # 不做 strip：服务端签发的 opaque id 必须原样回传，加空格就是另一个 id（长度仍在界内）。
+    assert parse_command_frame(json.dumps({"command": "cancel_run", "run_id": " run-abc "})).run_id == " run-abc "
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"command":"cancel_run"}',  # run_id 必带
+        '{"command":"cancel_run","run_id":null}',  # 显式 null 与缺席同义
+        '{"command":"cancel_run","run_id":""}',  # min_length=1
+        '{"command":"cancel_run","run_id":"' + "x" * 65 + '"}',  # max_length=64
+        '{"command":"cancel_run","run_id":"run-1","project_id":"p1234abcd"}',  # 项目字段只对 run 有效
+        '{"command":"cancel_run","run_id":"run-1","extra":1}',
+        '{"command":"cancel","run_id":"run-1"}',  # cancel 沿用连接绑定，多带目标即非法
+        '{"command":"ping","run_id":"run-1"}',
+        '{"command":"run","prompt":"hi","run_id":"run-1"}',
+    ],
+)
+def test_run_id_is_exclusive_to_cancel_run(text: str) -> None:
+    with pytest.raises(WsFrameError) as exc_info:
+        parse_command_frame(text)
+    assert exc_info.value.kind is WsFrameErrorKind.MALFORMED
+
+
+def test_cancel_run_keeps_the_small_character_limit() -> None:
+    """``cancel_run`` 与 ``cancel`` / ``ping`` 同档：非 ``run`` 命令一律走 4096 字符上限。"""
+    padded = json.dumps({"command": "cancel_run", "run_id": "run-1", "pad": "x" * WS_MAX_COMMAND_CHARS})
+    assert len(padded) > WS_MAX_COMMAND_CHARS
+    with pytest.raises(WsFrameError) as exc_info:
+        parse_command_frame(padded)
+    assert exc_info.value.kind is WsFrameErrorKind.TOO_LARGE
+
+
 def test_ws_protocol_runtime_imports_stay_within_network_leaf_dependencies() -> None:
     source = Path("src/heagent/network/ws_protocol.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -223,6 +262,7 @@ def test_ws_protocol_runtime_imports_stay_within_network_leaf_dependencies() -> 
         "json",
         "enum",
         "pydantic",
+        "typing",  # 端口 Protocol 的 ``Any`` / ``Protocol``（E74 起注入端口与帧同住本模块）
         "heagent.network.http_protocol",
     }
 

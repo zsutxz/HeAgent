@@ -3,7 +3,7 @@
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
 - 状态：in-progress
-- 当前步骤：step-06-refine-stories（**审批门：产出已齐，待用户确认**）
+- 当前步骤：step-07-implement-story（74.3 built；下一条 74.4）
 
 ## 步骤状态
 
@@ -14,14 +14,15 @@
 | 03 | analyze-requirements | completed | `step-03-analyze-requirements/report.md` |
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
 | 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
-| 06 | refine-stories | awaiting-approval | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
+| 06 | refine-stories | completed（approved 2026-11-23） | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
+| 07 | implement-story | in-progress（74.3 built） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
-- E74 `epic-74-ws-frame-contract`：5 entry，17 planned 中 5 条 / 0 built
+- E74 `epic-74-ws-frame-contract`：5 entry，3 built（74.1、74.2、74.3）/ 2 planned
 - E75 `epic-75-project-channel-runtime`：6 entry，0 built
 - E76 `epic-76-remote-surface-closeout`：6 entry，0 built
-- 合计 `counts {total: 17, planned: 17}`；`problems` 空、`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- 合计 `counts {total: 17, review: 3, planned: 14}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
 
 ## 决策日志（追加式，只增不改）
 
@@ -46,10 +47,24 @@
 - 2026-11-23 **路径修正**：契约快照实际目录是 `tests/fixtures/contract_baselines/`（非 `tests/contract_baselines/`）；spine / brief / PRD / 报告中的写法已全量替换修正。
 - 2026-11-23 Decision: `ProjectChannelService` Protocol 与 `SubmittedRun` 的定义归 74.1（帧与端口形状），75.2 只做 `_submit_run` 分支与判据 —— 否则 74.1 的类型注解会对 75.2 造成前向依赖。
 
+- 2026-11-23 **Step 06 审批门通过**：用户答复原文「yes」⇒ Requirements + 17 条 entry 确认，已提交（`7ba444cc`）。
+- 2026-11-23 **74.1 built**：实现子会话在 26 次迭代处超限退出（留下 `ws_protocol.py` / `ws_server.py` 改动），宿主接手补 `tests/network/test_ws_command_fields.py`（5 例）与 plan、逐条实测后 `mark 74.1 built`。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 658 passed；ruff / format / mypy 全绿。已提交 `d6e705de`。
+- 2026-11-23 Decision: 74.1 的 `ProjectChannelService` 只声明 `start_project_run` / `ensure_available` 两方法（`list_projects` 留 75.3），否则 74.1 的类型注解会对 75.3 的 `WsProjectsFrame` 造成前向依赖。
+
+- 2026-11-23 **74.2 built**：实现子会话在 26 次迭代处超限退出（未回报），留下 `ws_server.py` 的完整改动与 `tests/network/test_ws_project_submit.py` 全文；宿主接手按 `## Verification` 逐条实测、核 `verify` 四判据与 `wc -l` 上限后 `mark 74.2 built`，已提交 `eeb7fee9`。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 668 passed；`pytest tests/network/test_ws_project_submit.py tests/network/test_ws_command_fields.py -q` = 10 passed；ruff / format / mypy 全绿。
+- 2026-11-23 Decision: 「未装配却带 `project_id`」的护栏从 `_handle_submit_commands` 搬进 `_start_project_run` 顶部（code / message 逐字不变），循环只做转发——否则项目提交搬进 `_submit_run` 后循环里那道判定成为不可达的第二份真源。74.1 的既有 5 例是这个搬动的判据（仍全绿）。
+- 2026-11-23 **余量告警（留给 E75）**：`network/ws_server.py` 现 988 行，距单文件 1000 行上限只剩 12 行 ⇒ E75 若要在本文件继续加代码必须先拆模块，不能硬塞。
+
+- 2026-11-23 **74.3 built**：实现子会话在 25 次迭代处超限退出（未回报），留下**完整模块拆分**（新建 `network/ws_commands.py`、四个端口契约迁入 `ws_protocol.py`、两个命令循环的 `cancel_run` 分支）但未写测试、未落 plan；宿主接手补 `tests/network/test_ws_cancel_run.py`（6 例）、`test_ws_protocol.py` 3 组帧面判据 + `typing` 导入白名单、封闭命令集断言，逐条实测后 `mark 74.3 built`。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 685 passed；`pytest tests/network/test_ws_cancel_run.py tests/network/test_ws_protocol.py -q` = 38 passed；`pytest tests/test_cli_http.py tests/test_cli_http_lifecycle.py tests/test_http_web_ui.py -q` = 171 passed / 34 skipped（无 node 的前端探针）；ruff / format / mypy / bandit 全绿。
+- 2026-11-23 Decision: `ws_server.py` 拆前 988 行、本 entry 至少加 40+ 行 ⇒ 先拆再改：新建 `network/ws_commands.py` 承载命令循环簇（`_send_error*` / `_next_command` / `_handle_commands` / `_submit_run` / `_start_project_run` / `_handle_submit_commands`），四个端口契约（`WebSocketLike` / `RunWebSocketService` / `SubmittedRun` / `ProjectChannelService`）迁入 `ws_protocol.py`；依赖单向 `ws_server → ws_commands → ws_protocol`，`ws_server.__all__` 与既有对外名一个不少。行数：698 / 253 / 425。
+- 2026-11-23 Decision: 74.3 的 `write_set` 实际扩了 2 条 —— `src/heagent/network/ws_commands.py`（拆分产物）与 `tests/test_architecture_contracts.py`（`test_ws_endpoints_and_commands_stay_closed` 的封闭命令集断言必须随 `cancel_run` 同步，否则恒红）。本 entry 无 `parallel_group`、串行执行，不参与并行批，无写集相交风险。
+- 2026-11-23 Decision: 集合级端点的 `unknown_run` **不断连**、单 run 端点沿用既有 `_send_error(close_code=POLICY)` 断连 —— 后者那条连接的唯一目标都不存在，继续留着没有意义；这是刻意的分层差异，不是漏改。
+- 2026-11-23 Decision: CLI 旁路与通知流的命令循环把 `cancel_run` 与 `cancel` 同档拒绝（旁路 = 终端才拥有运行；通知流 = 无可取消对象），文案沿用各自既有句，未新增文案。
+
 ## 交接块（下一轮入口）
 
-- 下一条：Step 06 审批门（等用户 `approve` / `reject` / `amend`；批准后进 Step 07 首条 = `74.1`）
-- 票树实测：`status docs/Goal-4` → epics 74/75/76（refined 全 True）、counts {total:17, planned:17}、problems 空、unpinned/undeclared/order_conflict 全空
-- 必读：`architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md` · 三个 epic 文件（含 Requirements）· 三个 `tickets/tickets.toml` · `prd-ws-remote-project-channel/` · `step-06-refine-stories/report.md`
-- 未关闭的门：**Step 06 规划审批**；Step 07 逐 entry 实现（本 epic 无 `hitl` / checkpoint）；Step 08 最终放行
-- 本轮结论：17 条 entry 全部可开工（无 `unknown`、无 `blocked`）；并行候选 = `75.1‖75.2`、`75.3‖75.4`、`76.1–76.4`（需分两批，批上限 3）；`ProjectChannelService`/`SubmittedRun` 归 74.1。
+- 下一条：`74.4` E74-S04（epic-74-ws-frame-contract）——事件面零漂移契约钉子
+- 票树实测：`status docs/Goal-4` → counts {total: 17, review: 3, planned: 14}、unpinned/undeclared/order_conflict 全空、`longest_remaining_chain = [75.2, 75.3, 75.5, 75.6]`；`next` 的 `ready_to_start` = [74.4, 74.5]（两条都无 `parallel_group` 可成批 ⇒ 按并行纪律取首行串行推进；74.5 现列进 ready 是因 74.3 已交付，但它的 `after=[2,3]` 也满足）
+- 必读：`tickets/epic-74-ws-frame-contract/tickets/story-e74-s03-cancel-run-plan.md`（Code Map / Design Notes）· epic 文件 `## Requirements` R6 · 74.4 的 entry（write_set 只有 `tests/network/test_ws_event_contract.py`，预期零 src 改动）
+- 未关闭的门：无（74.4 / 74.5 均无 hitl / checkpoint）；epic 收口三审在 E74 五条全 built 后自动开跑，且**开跑前先换会话**
+- 本轮结论：命令面现有四条命令（run / cancel / cancel_run / ping），`cancel_run` 与 `cancel` 共用同一个 `service.cancel_run` 端口、目标来源不同；`network/` 新增 `ws_commands.py`（命令循环簇）与 `ws_protocol.py` 的端口契约，`ws_server.py` 降到 698 行 —— **E75 要加代码已有余量，不必再拆**。

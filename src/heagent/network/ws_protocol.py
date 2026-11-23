@@ -1,13 +1,14 @@
-"""WebSocket 帧协议模型（Epic 54）。
+"""WebSocket 帧协议模型与传输端口（Epic 54）。
 
-本模块只定义 WS 传输层的纯数据契约，不执行 I/O，也不导入运行栈。
-事件与错误负载复用 HTTP/SSE 的公开模型，避免两条入口产生漂移。
+本模块只定义 WS 传输层的纯数据契约——帧模型、命令枚举与注入端口的 Protocol——不执行 I/O，
+也不导入运行栈。事件与错误负载复用 HTTP/SSE 的公开模型，避免两条入口产生漂移。
 """
 
 from __future__ import annotations
 
 import json
 from enum import StrEnum
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -68,9 +69,15 @@ class WsCommand(StrEnum):
 
     ``run`` 只在**集合级**端点 ``WS /api/runs/ws`` 上有效（Epic 56 D2：经 WS 提交 run）；
     单 run 端点与 CLI 旁路收到它一律回 ``invalid_request``（提交能力不外溢）。
+
+    ``cancel_run`` 是 ``run`` 的对偶：目标 run 写在帧里（``run_id`` 必带），因此集合级端点能取消
+    任意一条运行；单 run 端点只接受「等于本连接绑定的 run」的目标，只读 listener 一律拒绝。
+    它与 ``cancel`` 复用**同一个** ``service.cancel_run(run_id)`` 端口——取消实现只有一份，两处
+    差别仅在目标的来源（连接绑定 vs 帧字段）。
     """
 
     CANCEL = "cancel"
+    CANCEL_RUN = "cancel_run"
     PING = "ping"
     RUN = "run"
 
@@ -80,6 +87,7 @@ class WsCommand(StrEnum):
 _FRAME_FIELDS: dict[WsCommand, frozenset[str]] = {
     WsCommand.RUN: frozenset({"command", "prompt", "project_id"}),
     WsCommand.CANCEL: frozenset({"command"}),
+    WsCommand.CANCEL_RUN: frozenset({"command", "run_id"}),
     WsCommand.PING: frozenset({"command"}),
 }
 
@@ -212,6 +220,10 @@ class WsCommandFrame(BaseModel):
 
     ``project_id`` **不做 strip**：它由项目注册表的 ``project_id_for()``（``"p" + sha256[:8]``）
     或字面量 ``"default"`` 产出，客户端必须原样回传——strip 会造出第二个合法拼写。
+
+    ``run_id`` 与 ``project_id`` 相反：它只对 ``cancel_run`` 有效且**必带**（``cancel`` 沿用连接
+    绑定，多带一个目标字段即 ``malformed``），取消目标由客户端显式给出。它同样**不做 strip**：
+    run id 是服务端签发的 opaque 短 id，客户端必须原样回传。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -219,6 +231,7 @@ class WsCommandFrame(BaseModel):
     command: WsCommand
     prompt: str | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=16)
+    run_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def _validate_fields_per_command(self) -> WsCommandFrame:
@@ -234,13 +247,122 @@ class WsCommandFrame(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# 传输端口：适配器与注入的服务回调之间的最小契约。
+# 与帧模型同属「纯契约」——只声明签名，不执行 I/O，也不认识项目目录或运行栈。
+# ---------------------------------------------------------------------------
+
+
+class WebSocketLike(Protocol):
+    """Starlette WebSocket 的最小结构化接口。"""
+
+    scope: dict[str, Any]
+    path_params: dict[str, Any]
+    query_params: Any
+
+    async def accept(self) -> None:
+        """实现方在此完成握手（对应真实 websocket 的 `accept`）。"""
+
+    ...
+
+    async def close(self, code: int = 1000) -> None:
+        """实现方以给定关闭码结束连接（认证失败用 1008）。"""
+
+    ...
+
+    async def receive_text(self) -> str:
+        """实现方读一条文本帧；超长帧由实现方按 `WS_MAX_INBOUND_CHARS` 拒绝。"""
+
+    ...
+
+    async def send_text(self, data: str) -> None:
+        """实现方发一条文本帧（服务端到客户端的唯一出口）。"""
+
+    ...
+
+
+class RunWebSocketService(Protocol):
+    """ws_server 所需的最小运行服务端口。
+
+    Epic 56 D1：WS 连接额度自 ``HttpServerConfig`` 迁入 ``WsServerConfig``，经
+    :func:`build_ws_endpoint` 的 ``max_connections`` 参数注入——端点因此不感知任何配置类。
+    Epic 56 D2：``start_run`` 是**集合级端点**（经 WS 提交 run）的入口，与 ``POST /api/runs``
+    共用同一个实现（名额判定/记录/任务生成只有一处）。
+    """
+
+    _closing: bool
+
+    def run(self, run_id: str) -> Any | None:
+        """按 run_id 取 run 记录；不存在返回 `None`（与「已结束但记录还在」区分开）。"""
+
+    ...
+
+    def needs_resync(self, record: Any, last_event_id: int | None) -> bool:
+        """判断客户端是否需要重置：`last_event_id` 落后于记录的可回放窗口时为真。"""
+
+    ...
+
+    async def start_run(self, prompt: str) -> Any:
+        """为一条 prompt 起 run 并返回记录（提交端点背后的一次调用）。"""
+
+    ...
+
+    async def cancel_run(self, run_id: str) -> Any | None:
+        """取消指定 run 并返回记录（幂等：已终止的 run 仍回它的终态记录）；不存在返回 `None`。"""
+
+    ...
+
+    def register_ws(self, connection_id: str, run_id: str, websocket: WebSocketLike) -> None:
+        """登记一个 WS 连接与 run 的绑定（推送与断线清理都靠这张表）。"""
+
+    ...
+
+    def unregister_ws(self, connection_id: str) -> None:
+        """注销连接绑定；对未知 id 幂等无操作。"""
+
+    ...
+
+
+class SubmittedRun(BaseModel):
+    """提交成功的**收窄**结果：刻意不含 ``session_id``。
+
+    入口层的 ``ProjectRunResponse`` 带 ``session_id``；网络层若原样透传，就等于把「这个 run
+    接续了服务端的哪个会话」交给远程客户端，而帧面只需要客户端能操作的两项。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(min_length=1)
+    status: RunStatus
+
+
+class ProjectChannelService(Protocol):
+    """项目通道端口（与 :class:`RunWebSocketService` **并列**，不并入它）。
+
+    实现方住在入口层（``cli/ws_project_adapter``），网络层只按这两个签名调用。签名里没有
+    路径 / workspace / session 类参数，``project_id`` 是不透明短 id——「传输层不认识项目目录」
+    因此是结构保证，而不是纪律要求。失败一律抛 :class:`HttpRunConflictError`（``code`` 取自
+    ``HttpErrorCode``），端点侧只转译错误码、不改写语义。
+    """
+
+    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
+        """在该项目围栏内起 run 并返回收窄后的提交结果。"""
+        ...
+
+    async def ensure_available(self, project_id: str) -> str:
+        """提交前置校验（不占名额）：可用时原样返回 ``project_id``，否则抛 ``HttpRunConflictError``。"""
+        ...
+
+
 def parse_command_frame(text: str) -> WsCommandFrame:
     """解析并校验一条客户端命令帧。
 
-    长度检查先于 JSON 解析，避免把超限输入交给解析器。两级上限：``WS_MAX_INBOUND_CHARS``
-    是总闸（含 prompt），``WS_MAX_COMMAND_CHARS`` 再把非 ``run`` 命令钉回小上限——解析出命令
-    之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后做。字段判定与模型共用
-    :data:`_FRAME_FIELDS`：不在白名单的键、以及白名单内未出现的必带键，都判 ``malformed``。
+    长度检查先于 JSON 解析，避免把超限输入交给解析器。两级上限：``WS_MAX_INBOUND_CHARS`` 是总闸
+    （含 prompt），``WS_MAX_COMMAND_CHARS`` 再把非 ``run`` 命令（``cancel`` / ``cancel_run`` /
+    ``ping``）钉回小上限——解析出命令之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后
+    做。字段判定与模型共用 :data:`_FRAME_FIELDS`：不在白名单的键、以及白名单内未出现的必带键，
+    都判 ``malformed``（``cancel_run`` 因此缺 ``run_id`` 即 ``malformed``、带 ``project_id`` 也
+    是 ``malformed``）。
     """
 
     if len(text) > WS_MAX_INBOUND_CHARS:
@@ -282,6 +404,10 @@ __all__ = [
     "WS_MAX_INBOUND_CHARS",
     "WS_PING_INTERVAL_SECONDS",
     "WS_PING_TIMEOUT_SECONDS",
+    "ProjectChannelService",
+    "RunWebSocketService",
+    "SubmittedRun",
+    "WebSocketLike",
     "WsAckFrame",
     "WsCliAckFrame",
     "WsCliEventFrame",

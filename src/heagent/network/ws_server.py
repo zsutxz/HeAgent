@@ -11,36 +11,34 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from typing import TYPE_CHECKING, Any, Protocol
-
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from typing import TYPE_CHECKING, Any
 
 from heagent.network.http_protocol import (
     HttpErrorCode,
-    HttpRunConflictError,
     RunEventPayload,
-    RunRequest,
-    RunStatus,
-    error_envelope,
     replay_then_follow,
 )
 from heagent.network.ws_auth import client_source
+from heagent.network.ws_commands import (
+    _handle_commands,
+    _handle_submit_commands,
+    _next_command,
+    _send_error,
+    _send_error_frame,
+)
 from heagent.network.ws_protocol import (
     WS_CLOSE_GOING_AWAY,
     WS_CLOSE_POLICY,
-    WS_CLOSE_TOO_LARGE,
-    WsAckFrame,
+    ProjectChannelService,
+    RunWebSocketService,
+    SubmittedRun,
+    WebSocketLike,
     WsCliAckFrame,
     WsCliEventFrame,
     WsCommand,
-    WsCommandFrame,
-    WsErrorFrame,
     WsEventFrame,
-    WsFrameError,
-    WsFrameErrorKind,
     WsHelloFrame,
     WsNotificationFrame,
-    parse_command_frame,
 )
 
 # int64 的十进制最大位数（越长即非合法事件 id，不必再解析）。
@@ -54,121 +52,9 @@ if TYPE_CHECKING:
     from heagent.network.notification_hub import NotificationHub, NotificationSubscription
 
 
-class WebSocketLike(Protocol):
-    """Starlette WebSocket 的最小结构化接口。"""
-
-    scope: dict[str, Any]
-    path_params: dict[str, Any]
-    query_params: Any
-
-    async def accept(self) -> None:
-        """实现方在此完成握手（对应真实 websocket 的 `accept`）。"""
-
-    ...
-
-    async def close(self, code: int = 1000) -> None:
-        """实现方以给定关闭码结束连接（认证失败用 1008）。"""
-
-    ...
-
-    async def receive_text(self) -> str:
-        """实现方读一条文本帧；超长帧由实现方按 `WS_MAX_INBOUND_CHARS` 拒绝。"""
-
-    ...
-
-    async def send_text(self, data: str) -> None:
-        """实现方发一条文本帧（服务端到客户端的唯一出口）。"""
-
-    ...
-
-
 OriginCheck = Callable[[dict[str, Any]], str | None]
 #: 认证回调：``None`` = 通过，否则是拒绝原因。accept **之前**执行。
 AuthCheck = Callable[[Mapping[str, Any]], str | None]
-
-
-class RunWebSocketService(Protocol):
-    """ws_server 所需的最小运行服务端口。
-
-    Epic 56 D1：WS 连接额度自 ``HttpServerConfig`` 迁入 ``WsServerConfig``，经
-    :func:`build_ws_endpoint` 的 ``max_connections`` 参数注入——端点因此不感知任何配置类。
-    Epic 56 D2：``start_run`` 是**集合级端点**（经 WS 提交 run）的入口，与 ``POST /api/runs``
-    共用同一个实现（名额判定/记录/任务生成只有一处）。
-    """
-
-    _closing: bool
-
-    def run(self, run_id: str) -> Any | None:
-        """按 run_id 取 run 记录；不存在返回 `None`（与「已结束但记录还在」区分开）。"""
-
-    ...
-
-    def needs_resync(self, record: Any, last_event_id: int | None) -> bool:
-        """判断客户端是否需要重置：`last_event_id` 落后于记录的可回放窗口时为真。"""
-
-    ...
-
-    async def start_run(self, prompt: str) -> Any:
-        """为一条 prompt 起 run 并返回记录（提交端点背后的一次调用）。"""
-
-    ...
-
-    async def cancel_run(self, run_id: str) -> Any | None:
-        """取消指定 run；不存在或已终止返回 `None`。"""
-
-    ...
-
-    def register_ws(self, connection_id: str, run_id: str, websocket: WebSocketLike) -> None:
-        """登记一个 WS 连接与 run 的绑定（推送与断线清理都靠这张表）。"""
-
-    ...
-
-    def unregister_ws(self, connection_id: str) -> None:
-        """注销连接绑定；对未知 id 幂等无操作。"""
-
-    ...
-
-
-class SubmittedRun(BaseModel):
-    """提交成功的**收窄**结果：刻意不含 ``session_id``。
-
-    入口层的 ``ProjectRunResponse`` 带 ``session_id``；网络层若原样透传，就等于把「这个 run
-    接续了服务端的哪个会话」交给远程客户端，而帧面只需要客户端能操作的两项。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str = Field(min_length=1)
-    status: RunStatus
-
-
-class ProjectChannelService(Protocol):
-    """项目通道端口（与 :class:`RunWebSocketService` **并列**，不并入它）。
-
-    实现方住在入口层（``cli/ws_project_adapter``），网络层只按这两个签名调用。签名里没有
-    路径 / workspace / session 类参数，``project_id`` 是不透明短 id——「传输层不认识项目目录」
-    因此是结构保证，而不是纪律要求。失败一律抛 :class:`HttpRunConflictError`（``code`` 取自
-    ``HttpErrorCode``），端点侧只转译错误码、不改写语义。
-    """
-
-    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
-        """在该项目围栏内起 run 并返回收窄后的提交结果。"""
-        ...
-
-    async def ensure_available(self, project_id: str) -> str:
-        """提交前置校验（不占名额）：可用时原样返回 ``project_id``，否则抛 ``HttpRunConflictError``。"""
-        ...
-
-
-async def _send_error_frame(websocket: WebSocketLike, code: HttpErrorCode, message: str) -> None:
-    """只发一条错误帧、**不关闭**连接（客户端可以继续发命令后重试）。"""
-    envelope = error_envelope(code, message)
-    await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
-
-
-async def _send_error(websocket: WebSocketLike, code: HttpErrorCode, message: str, *, close_code: int) -> None:
-    await _send_error_frame(websocket, code, message)
-    await websocket.close(code=close_code)
 
 
 async def _send_hello(websocket: WebSocketLike, version: str) -> None:
@@ -199,80 +85,6 @@ async def _send_event_stream(
     is_terminal = record.is_terminal
     async for event in replay_then_follow(snapshot, cursor=cursor, is_terminal=is_terminal, queue=queue):
         await websocket.send_text(WsEventFrame(event=event).model_dump_json())
-
-
-async def _next_command(websocket: WebSocketLike) -> WsCommandFrame | None:
-    """命令循环前导（四条 listener 共用）：收一帧并解析，异常一律收敛为「连接结束」信号。
-
-    返回 ``None`` = 连接到此为止，调用方直接 ``return``：对端断开（``WebSocketDisconnect``）
-    静默结束；帧违规则已按口径处置——``TOO_LARGE`` 以 ``1009`` close，其余回
-    ``invalid_request`` 错误帧并以 ``WS_CLOSE_POLICY`` close。四条命令循环曾各抄一份
-    这段前导（逐字重复），收单处后协议变化只改这里。
-    """
-    try:
-        text = await websocket.receive_text()
-    except Exception as exc:
-        if type(exc).__name__ == "WebSocketDisconnect":
-            return None
-        raise
-    try:
-        return parse_command_frame(text)
-    except WsFrameError as exc:
-        if exc.kind is WsFrameErrorKind.TOO_LARGE:
-            await websocket.close(code=WS_CLOSE_TOO_LARGE)
-        else:
-            await _send_error(
-                websocket,
-                HttpErrorCode.INVALID_REQUEST,
-                "invalid WebSocket command",
-                close_code=WS_CLOSE_POLICY,
-            )
-        return None
-
-
-async def _handle_commands(
-    websocket: WebSocketLike,
-    service: RunWebSocketService,
-    run_id: str,
-    *,
-    readonly: bool = False,
-) -> None:
-    """处理 cancel/ping 两条命令；断线异常由调用方收敛为连接结束。
-
-    ``readonly``（只读旁观 listener）只禁**控制面**命令：``cancel`` 回 ``invalid_request`` 且
-    **不断连**（订阅者继续收事件），``ping`` 照常。用「不支持」而不是「静默忽略」——客户端必须
-    知道它连的是观众席。
-    """
-    while True:
-        frame = await _next_command(websocket)
-        if frame is None:
-            return
-        command = frame.command
-
-        if command is WsCommand.RUN:
-            # 提交能力只在集合级端点：这条连接早已绑定某个 run，回错误帧但**不断连**。
-            await _send_error_frame(
-                websocket,
-                HttpErrorCode.INVALID_REQUEST,
-                "the run command is only accepted on the run collection endpoint",
-            )
-            continue
-
-        if command is WsCommand.CANCEL:
-            if readonly:
-                await _send_error_frame(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "this listener is read-only; cancel is not available",
-                )
-                continue
-            current = await service.cancel_run(run_id)
-        else:
-            current = service.run(run_id)
-        if current is None:
-            await _send_error(websocket, HttpErrorCode.UNKNOWN_RUN, "no such run", close_code=WS_CLOSE_POLICY)
-            return
-        await websocket.send_text(WsAckFrame(command=command, run_id=run_id, status=current.status).model_dump_json())
 
 
 async def _run_connection_tasks(
@@ -317,108 +129,6 @@ class _SubmissionSlots:
         """归还一个席位（下限守 0，重复归还不放大额度）。"""
         if self._in_use > 0:
             self._in_use -= 1
-
-
-def _is_blank_prompt(error: ValidationError) -> bool:
-    """``RunRequest`` 的「非空」校验失败 ⇒ ``empty_prompt``（与 HTTP 400 的分类口径一致）。"""
-    return any("blank" in str(item.get("msg", "")) for item in error.errors())
-
-
-async def _start_project_run(
-    websocket: WebSocketLike,
-    project_service: ProjectChannelService | None,
-    project_id: str,
-    prompt: str,
-) -> SubmittedRun | None:
-    """带 ``project_id`` 的提交分支（未装配护栏**唯一**一处）：先 ``ensure_available`` 后提交。
-
-    ``project_service`` 为 ``None`` 时回 ``invalid_request`` 并返回 ``None``——静默按启动工作区执行
-    会把「装配漏了」变成「跑错项目」。前置校验不占名额，其返回值才是后续用的 ``project_id``。
-    """
-    if project_service is None:
-        await _send_error_frame(
-            websocket,
-            HttpErrorCode.INVALID_REQUEST,
-            "project addressing is not available on this listener",
-        )
-        return None
-    resolved = await project_service.ensure_available(project_id)
-    return await project_service.start_project_run(resolved, prompt)
-
-
-async def _submit_run(
-    websocket: WebSocketLike,
-    service: RunWebSocketService,
-    prompt: str,
-    *,
-    project_id: str | None = None,
-    project_service: ProjectChannelService | None = None,
-) -> None:
-    """提交一次运行：校验复用 ``RunRequest``，创建复用 ``HttpRunService.start_run``。
-
-    错误一律走错误帧且**不断连**（客户端可继续提交）：输入类 ``empty_prompt`` / ``invalid_request``、
-    名额类 ``run_conflict`` / ``total_inflight_limit`` / 关停 ``shutting_down``——与
-    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。``project_id`` 缺省时创建路径逐字
-    不变；带值时改走 :func:`_start_project_run`（项目端口），``RunRequest`` 校验两条路径共用。
-    """
-    try:
-        request = RunRequest.model_validate({"prompt": prompt})
-    except ValidationError as exc:
-        code = HttpErrorCode.EMPTY_PROMPT if _is_blank_prompt(exc) else HttpErrorCode.INVALID_REQUEST
-        await _send_error_frame(websocket, code, "prompt is invalid")
-        return
-    try:
-        if project_id is None:
-            record = await service.start_run(request.prompt)
-        else:
-            record = await _start_project_run(websocket, project_service, project_id, request.prompt)
-    except HttpRunConflictError as exc:
-        await _send_error_frame(websocket, exc.code, str(exc))
-        return
-    if record is None:
-        return
-    await websocket.send_text(
-        WsAckFrame(command=WsCommand.RUN, run_id=record.run_id, status=record.status).model_dump_json()
-    )
-
-
-async def _handle_submit_commands(
-    websocket: WebSocketLike,
-    service: RunWebSocketService,
-    project_service: ProjectChannelService | None = None,
-) -> None:
-    """集合级连接的命令循环：``run``（提交）与 ``ping``；``cancel`` 明确拒绝且不断连。
-
-    这条连接**不绑定任何 run**（D2 的期一形状：提交连接不转事件流）。客户端拿到 ack 里的
-    ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
-
-    ``project_service`` 是项目寻址提交的注入端口，原样转发给 :func:`_submit_run`——「未装配却带
-    ``project_id``」的护栏住在 :func:`_start_project_run`（单处），本循环不做第二道判定。
-    """
-    while True:
-        frame = await _next_command(websocket)
-        if frame is None:
-            return
-
-        if frame.command is WsCommand.RUN:
-            await _submit_run(
-                websocket,
-                service,
-                frame.prompt or "",
-                project_id=frame.project_id,
-                project_service=project_service,
-            )
-            continue
-        if frame.command is WsCommand.CANCEL:
-            # 没有 run 绑定就没有可取消对象：与 CLI 旁路的处理同形（显式不支持，不静默忽略）。
-            await _send_error_frame(
-                websocket,
-                HttpErrorCode.INVALID_REQUEST,
-                "cancel requires a run subscription (use /api/runs/{run_id}/ws)",
-            )
-            continue
-        # ping：连接级 ack（不带 RunStatus，run_id 为空串 = 此刻无绑定）。
-        await websocket.send_text(WsCliAckFrame(command=frame.command, run_id="").model_dump_json())
 
 
 async def _ws_session(
@@ -774,7 +484,7 @@ async def _cli_handle_commands(websocket: WebSocketLike, hub: CliEventHub) -> No
             return
         command = frame.command
 
-        if command is WsCommand.CANCEL:
+        if command is WsCommand.CANCEL or command is WsCommand.CANCEL_RUN:
             await _send_error_frame(
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,
@@ -895,7 +605,7 @@ async def _notification_handle_commands(websocket: WebSocketLike) -> None:
                 "the run command is only accepted on the run collection endpoint",
             )
             continue
-        if command is WsCommand.CANCEL:
+        if command is WsCommand.CANCEL or command is WsCommand.CANCEL_RUN:
             await _send_error_frame(
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,
