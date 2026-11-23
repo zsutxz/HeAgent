@@ -8,7 +8,7 @@
 | ------ | ------ |
 | 了解全周期与编号 + 活动台账 | [`open-items.md`](open-items.md)（2026-11-15 由 consolidated-overview.md 并入活动台账后定名） |
 | 查历史记录与跨周期教训 | [`retrospective-all-cycles.md`](retrospective-all-cycles.md) |
-| 查已定型的系统决策（ADR） | [`decisions/`](../decisions/)（仓库根，2026-11-18 起；2026-11-20 上移） |
+| 查已定型的系统决策（ADR） | [`docs/decisions/`](../docs/decisions/)（2026-11-18 起；2026-11-23 移入 docs/） |
 | 查看未闭合遗留项 | [`open-items.md`](open-items.md) 的「活动（未闭合）条目」节（**活动项 4 条**：A65 `frozen`；A55/A67/A76 `active`） |
 | 查看单一状态来源 | [`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml)（已归档） |
 | 深入某个周期 | `epics/<周期>/` 下的 `brief.md`、`prd.md`、`architecture.md`、`epics.md` 和 `stories/` |
@@ -25,7 +25,7 @@ _bmad-output/
 ├── Goal-2-v6/                        第二代：BMad v6 时代归档（规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61–69 含 retrospective；只读）
 └── Goal-3/                           第三代：goal-3 活跃票树（Epic 70–73 + 根 tickets.toml）
 ```
-（ADR 决策记录在仓库根 `decisions/`，不属本目录。）
+（ADR 决策记录在 `docs/decisions/`，不属本目录。）
 
 ## 归档规则
 

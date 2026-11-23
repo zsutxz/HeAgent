@@ -20,7 +20,7 @@ headless: false
 `ff68e476`（73.3）/ `95b16c5b`（73.4，与 73.3 并行开发）/ `4a82b276`（73.5）/ `2f1e8ff4`（73.6）。
 
 **需求真源**：`docs/tls-connect-guide.md`「第二步」节（gitignored）+ ADR-004
-（`decisions/adr-ws-tls-install-time-trust.md`）。客户端改造属 `aihome-client` 仓库，不在本 epic。
+（`docs/decisions/adr-0004-ws-tls-install-time-trust.md`）。客户端改造属 `aihome-client` 仓库，不在本 epic。
 
 | Entry | 交付 | 关键判据 |
 |---|---|---|

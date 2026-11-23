@@ -2,7 +2,7 @@
 type: epic
 parent: initiative-heagent
 covers: []
-sources: ["docs/tls-connect-guide.md", "_bmad-output/decisions/adr-ws-tls-install-time-trust.md"]
+sources: ["docs/tls-connect-guide.md", "docs/decisions/adr-0004-ws-tls-install-time-trust.md"]
 companions: ["docs/frame.md"]
 after: []
 risk: high
@@ -11,7 +11,7 @@ risk: high
 # WS TLS 安装期信任（第二步：wss + token，客户端只认 pin）
 
 > 状态唯一写目标 = 同目录 `tickets/tickets.toml`；本信封只描述范围、缺口与契约。
-> 决策真源 = `decisions/adr-ws-tls-install-time-trust.md`（ADR-004）。
+> 决策真源 = `docs/decisions/adr-0004-ws-tls-install-time-trust.md`（ADR-004）。
 > 需求真源 = `docs/tls-connect-guide.md`「第二步」节（该页 gitignored，故决策正文以 ADR 为准）。
 
 ## Description
@@ -115,7 +115,7 @@ risk: high
 
 ## References
 
-- 决策：`_bmad-output/decisions/adr-ws-tls-install-time-trust.md`
+- 决策：`docs/decisions/adr-0004-ws-tls-install-time-trust.md`
 - 需求与实测：`docs/tls-connect-guide.md`「第二步」节 / 附录 A / 常见排障 / 红线
 - 现有签发脚本：`scripts/gen_ws_cert.py`（`issue_leaf` 换密钥的那一行是 73.1 的改动点）
 - 材料布局：`.heagent/tls/`（`ca.pem` / `ca.key` / `cert.pem` / `key.pem` / `cert-chain.pem` /

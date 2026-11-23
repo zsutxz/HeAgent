@@ -51,7 +51,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 **工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
-**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；BMAD v7 体系 2026-11-15 起，2026-11-20 三代定名）**：**第一代 `epics/`**（27 周期目录，最早产物，67-ID 契约钉死勿动）；**第二代 `Goal-2-v6/`**（BMad v6 时代归档：规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61-69 含 retrospective，只读）；**第三代 `Goal-3/tickets/`**（goal-3 活跃票树，Epic 70-73 + 根 tickets.toml——**Epic/Story 状态唯一写目标**，entry 引用 `<epic>.<entry>` 如 `62.1`）；ADR 四件在**仓库根 `decisions/`**。根级台账：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体；§二编号位**有意空缺**保 §三 锚点，勿当缺陷修）、`migration-v6-v7.md`（迁移记录）。`implementation-artifacts/` 已整体解除（2026-11-20），勿再引用。`_bmad/custom/config.user.toml` 的 `active_initiative` 尚指旧名（gitignored 用户配置），走 bmad 流程前需同步 `Goal-3`。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
+**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；BMAD v7 体系 2026-11-15 起，2026-11-20 三代定名）**：**第一代 `epics/`**（27 周期目录，最早产物，67-ID 契约钉死勿动）；**第二代 `Goal-2-v6/`**（BMad v6 时代归档：规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61-69 含 retrospective，只读）；**第三代 `Goal-3/tickets/`**（goal-3 活跃票树，Epic 70-73 + 根 tickets.toml——**Epic/Story 状态唯一写目标**，entry 引用 `<epic>.<entry>` 如 `62.1`）；ADR 在 `docs/decisions/`。根级台账：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体；§二编号位**有意空缺**保 §三 锚点，勿当缺陷修）、`migration-v6-v7.md`（迁移记录）。`implementation-artifacts/` 已整体解除（2026-11-20），勿再引用。`_bmad/custom/config.user.toml` 的 `active_initiative` 尚指旧名（gitignored 用户配置），走 bmad 流程前需同步 `Goal-3`。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
 
 ## 硬约束
 
