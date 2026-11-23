@@ -3,7 +3,7 @@ ticket: 1
 ref: 74.1
 code: E74-S01
 epic: epic-74-ws-frame-contract
-status: built
+status: done
 baseline_revision: 7ba444cc80ee48713c9b1d3deb90d71fbd7ff2d5
 risk: medium
 hitl: false

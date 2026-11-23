@@ -3,7 +3,7 @@ ticket: 1
 ref: 75.1
 code: E75-S01
 epic: epic-75-project-channel-runtime
-status: built
+status: done
 baseline_revision: 604b4fb4cfebc7a47f8cfe8a2d342c50dbbd1de4
 risk: medium
 hitl: false

@@ -1,7 +1,7 @@
 ---
 ticket: 6
 title: E75-S06 · 契约基线与文档收口
-status: built
+status: done
 baseline_revision: e9d6bfd4
 covers: [R1, R5, R7]
 ---

@@ -1,7 +1,7 @@
 ---
 ticket: 5
 title: E75-S05 · 装配注入：`build_ws_servers` 透传与两处注入
-status: built
+status: done
 baseline_revision: 63cd3528
 covers: [R6, R7]
 ---

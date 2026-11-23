@@ -3,7 +3,7 @@ ticket: 3
 ref: 75.3
 code: E75-S03
 epic: epic-75-project-channel-runtime
-status: built
+status: done
 baseline_revision: 745b251a
 risk: medium
 hitl: false

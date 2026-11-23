@@ -2,8 +2,8 @@
 
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
-- 状态：in-progress
-- 当前步骤：step-07-implement-story（E74 / E75 均已收口；下一步 = E76 首批 76.1–76.4）
+- 状态：done（2026-11-23 Step 08 最终放行）
+- 当前步骤：全部完成（01–08）
 
 ## 步骤状态
 
@@ -15,7 +15,8 @@
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
 | 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
 | 06 | refine-stories | completed（approved 2026-11-23） | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
-| 07 | implement-story | in-progress（E74 / E75 已收口；续跑 E76 六条 entry） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
+| 07 | implement-story | completed（E74 5 / E75 6 / E76 6 全部 built；E74/E75 收口三审 + 回顾） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
+| 08 | system-integration-test | completed（approved 2026-11-23） | `step-08-system-integration-test/report.md` + 三份 `<E编号>-<slug>-integration-report.md` |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
@@ -81,24 +82,14 @@
   - 落改后门禁：`829 passed` / ruff / format / mypy / bandit / `mkdocs --strict` 0 warning / 契约基线五份 `[OK]`。
 - 2026-11-23 **E75 收口结论**：epic 容器 `status: done` 写进 epic frontmatter ⇒ E76 六条解锁；回顾落 `-retrospective.md`（含 `## 三审记录`）。六条 entry 的 `done` 仍等 Step 08 的人工 `approve`。
 
+## 决策日志（Step 08 放行）
+
+- 2026-11-23 Decision: 用户回复原文 `approve`（承接「Step 08 报告已呈报」）⇒ 按契约把 E74（5 条）+ E75（6 条）entry 逐条 `mark done`（E76 六条已于 2026-11-23 早前 approve 置 done），`progress.md` 状态置 `done`。三棵票树 `tickets.py status` 实测 `{E74: 5 done, E75: 6 done, E76: 6 done}`，`problems` / `unpinned_after` / `undeclared_after` / `order_conflict` 全空。
+
 ## 交接块（下一轮入口）
 
-- 下一条：**无** —— E76 六条 entry 已由 Step 08 人工 `approve` 全部置 `done`（`tickets.py status epic-76-remote-surface-closeout` → `{total: 6, done: 6}`），epic 容器 `status: done`；Goal-4 三条 epic（E74/E75/E76）交付面闭合。
-- 票树实测：`status docs/Goal-4` → `{total: 17, review: 17}`、problems 空（E74/E75/E76 全 built）。
-- **E76 收口三审（R1 → R2 → R3，本会话连跑）**：三份报告落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-review-r{1,2,3}.md`。
-  - **R1**（规格对账）有条件的通过：Critical 0 / High 0 / Medium 4 / Low 3。口径差 2 条记 epic Notes（R2 的 `project_busy` 在生产 WS 链上实为 `run_conflict`；R7 快照是 5 份不是 4 份），延期项 4 条（`lan` 档零告警 / 回落链取请求值 / 端到端仍用端口替身 / 两处公告口径不一致），当轮落改 1 处。
-  - **R2**（不变量与守卫反证）通过：G1–G7 全可反证。两条实跑反证 —— ① `_warn_external_without_sandbox` 注入 `return None` ⇒ `test_external_listener_on_a_non_docker_backend_warns_exactly_once` 红，回退绿；② `_assert_single_adapter` 补 `assert "sandbox_backend" in calls[0]` 前，「入口漏传」也能过（回落链掩盖）。
-  - **R3**（三镜头）通过（有条件）：Critical 0 / High 0 / Medium 3 / Low 3，全转延期项。
-- 当轮落改 **1 处**：`tests/test_cli_http_lifecycle.py` 的 `_assert_single_adapter` 增 `sandbox_backend` 注入断言（R6 判据必须取**生效**档位，不能靠回落值蒙过）。
-- **E76 收口门禁实测**：`pytest tests/network tests/test_cli_http_lifecycle.py tests/test_architecture_contracts.py tests/test_contract_baselines.py tests/test_docs_links.py -q` = **795 passed**；`contract_snapshot.py --check` = 五份 `[OK]`；`mkdocs build --strict` 0 warning（9.14s）；`ruff check` / `format --check` / `mypy src`（240 files）/ `bandit -r src/ -ll`（No issues identified）全绿。
-- 回顾落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-retrospective.md`（含 `## 三审记录`）。
-- 2026-11-23 **E76 延期项全部回捞闭合**（用户裁决 1/2/3 连跑）：
-  - ① `lan` 档补独立告警锚点：`_warn_remote_without_sandbox` 返回 `(锚点, 正文)`，`external` → `ws event=external_without_sandbox`、`lan` → `ws event=lan_without_sandbox`（文案点名「no token」，因为同网段任何设备都能驱使代理）；`docker` 档两档都 0 条。判据 `test_lan_listener_without_docker_warns_with_its_own_anchor` / `test_lan_listener_on_docker_stays_quiet`。
-  - ② 回落链「静默窗口」经核**生产不可达**：`HttpAgentHandler.__init__` 无条件 `self.engine = engine or EngineContainer.default(...)`，而 `EngineContainer.default` 必写 `sandbox_decision` ⇒ `_effective_sandbox_backend` 在生产路径不含 None，`or sandbox or settings.sandbox_backend` 只服务注入替身。判据 `test_a_real_handler_always_reports_an_effective_backend`；`http.py` 的注释点明该尾巴的适用范围。
-  - ③ ADR-005 端到端补**真 listener** 判据：新增 `tests/network/test_ws_remote_flow_live.py`（真 `WsServer` 随机端口 + 真 `HttpRunService` + 真 `HttpProjectConsole` + 真 `AgentLoop`，生产装配走 `_project_channel`）。两条用例覆盖：列项目帧 / 提交 / 取消到 `cancelled` 终态 / 跑到 `done` 终态（seq 连续）/ `last_event_id` 续流无空洞；以及「真 AgentLoop 跑完并落会话文件」。
-- 2026-11-23 **E74/E75 时代延期项复核（逐条取证后收口）**：`brief.md` 的延期项从 15 条收到 **2 条待裁决**。
-  - 已闭合且带新判据：R1 L-4（`project_id` 1–16 界值：空串 / 17 字符 ⇒ `malformed`，16 字符合法）· R2 M-2（真链路的错误帧不含项目路径：注册后删目录 ⇒ `project_unavailable` 且 message 无路径形态）· R1 M-1（名额仍是一套计数：同项目第二个 run ⇒ `run_conflict`、另一项目照常受理）。
-  - 已闭合（取证为既有交付）：R2 M-1（`docs/framework.md` 目录树含 `ws_commands.py:1792`）· R2 M-3（命令集已五值，无 `{run,cancel,ping}` 残留）· R1 L-6（`ws event=project_service_ignored` debug 已在）· R1 L-3 / L-5 / L-7（口径/冻结段，按实测定位）· R3 M-1（生产装配已注入项目通道，E76 用例断言）· R3 M-3（端口三条义务已写进 docstring 并有判据）· R1 M-2（环境产物归档）。
-  - 本轮补的落改：`ws_server.build_runs_collection_endpoint` docstring 明示「只读 listener 根本不注册该端点」（R1 L-2）· `docs/framework.md` 帧契约行补断连口径唯一例外（R1 L-1）。
-- 未关闭的门：**2 条待用户裁决**（`request_id` 幂等键、`invalid_request` 是否拆具名码）。
-- 本轮结论：ADR-005 验收基线在组合层面闭合（并发隔离 / cursor 续流 / 可见面不扩张 / 契约与文档收口），远程面「`external` 必须 wss + token，非 docker 后端每次启动喊一条」已落地；端到端真 listener 仍是已知缺口。
+- 下一条：**无** —— Goal-4 三个 epic / 17 条 entry 全部 `done`，goal 状态 `done`；Step 08 报告与三份 epic 集成报告已落盘。
+- 票树实测：E74 `{total:5, done:5}` / E75 `{total:6, done:6}` / E76 `{total:6, done:6}`，三棵 `problems` 全空。
+- 质量门禁（Step 08 实测）：`python scripts/quality_gate.py` = **all gates passed**（五份契约基线 `[OK]`、冒烟 2 passed、全量 5869 passed / 覆盖率 93.50% / ruff / format / mypy 240 / bandit 0）；`mkdocs build --strict` 0 warning；逐 epic 场景 116 / 53 / 31 passed；跨 epic 端到端 83 passed。
+- 未关闭的门：**待用户裁决 3 条**（`brief.md` 延期项 R3 M-4 `request_id` 幂等键、R3 M-7 `invalid_request` 是否拆具名码；E75 Notes H-2 只读 listener 是否要能列项目清单）。三条均不阻塞本 goal 收口。
+- 恢复入口：新一轮 `/loop` 先读本节与 `brief.md` 延期项，再决定是开新 goal 还是先裁决上述三条。

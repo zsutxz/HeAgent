@@ -1,7 +1,7 @@
 ---
 ticket: 4
 title: E75-S04 · 控制台编排：六项落点与会话续接/新建
-status: built
+status: done
 baseline_revision: c232181b
 covers: R3 / R4
 risk: high

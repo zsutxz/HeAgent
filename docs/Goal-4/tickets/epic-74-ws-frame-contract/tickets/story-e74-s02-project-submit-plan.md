@@ -3,7 +3,7 @@ ticket: 2
 ref: 74.2
 code: E74-S02
 epic: epic-74-ws-frame-contract
-status: built
+status: done
 baseline_revision: d6e705de2f05274e051cfa6d22c7fe2b233d53be
 risk: medium
 hitl: false
