@@ -8,7 +8,7 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 MAX_PROJECTS = 32
 MAX_PROJECT_NAME_CHARS = 64
 MAX_PROJECT_PATH_CHARS = 4096
+MAX_HEALTH_DETAIL_CHARS = 200
+
+# 不可读告警的去重键：按**成因**分两类，同一句柄上每类只出一条 WARNING。
+_READ_FAILED = "read_failed"
+_CONTENT_CORRUPT = "content_corrupt"
 
 
 class ProjectRegistryError(ValueError):
@@ -60,6 +65,43 @@ class _StoredProject(BaseModel):
     last_opened_at: str | None = None
 
 
+class ProjectRegistryHealth(BaseModel):
+    """注册表健康探针结果（只读、不含路径）。
+
+    ``code`` 是机读判据：``ok`` = 读得到且解析得了（文件不存在也算——空表是合法状态）；
+    ``unreadable`` = 读不出（``OSError`` / ``UnicodeError``）或解析不了（内容不合规）。
+
+    ``detail`` 只在 ``unreadable`` 时非空，是给服务端日志与本地排查看的一句原因：**不含注册表
+    路径、不含异常类名**（路径只出现在 WARNING 行里）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    code: Literal["ok", "unreadable"] = "ok"
+    detail: str = Field(default="", max_length=MAX_HEALTH_DETAIL_CHARS)
+
+
+def _read_failure_detail(error: OSError | UnicodeError) -> str:
+    """把读盘失败折叠成一句无路径原因（``strerror`` 不含路径，也不回显异常类名）。"""
+    if isinstance(error, UnicodeError):
+        return "registry file is not valid UTF-8 text"
+    strerror = getattr(error, "strerror", None)
+    return f"registry file cannot be read ({strerror})" if strerror else "registry file cannot be read"
+
+
+def _corrupt_detail(error: _RegistryCorrupt) -> str:
+    """把解析失败折叠成一句原因。
+
+    只按成因归类，不回显原始报错——Pydantic 的校验消息会把条目字段（含登记路径）原样带出来。
+    """
+    cause = error.__cause__
+    if isinstance(cause, json.JSONDecodeError):
+        return f"registry file is not valid JSON (line {cause.lineno} column {cause.colno})"
+    if isinstance(cause, ValidationError):
+        return "registry entries do not match the expected schema"
+    return "registry entries are invalid"
+
+
 def normalize_project_path(path: str | Path) -> str:
     """Expand, resolve, and remove redundant trailing separators from a path."""
     raw = str(path)
@@ -87,15 +129,55 @@ class ProjectRegistry:
     def __init__(self, path: str | Path, *, default_path: str | Path) -> None:
         self._path = Path(path)
         self._default_path = normalize_project_path(default_path)
+        # 已告警的成因键：同一句柄上 `health()` + `list()` 合计每类只留 1 条，不随请求数刷屏。
+        self._warned: set[str] = set()
+
+    def _read_raw(self) -> tuple[str | None, OSError | UnicodeError | None]:
+        """唯一的读盘内核：返回 ``(原文, 读失败异常)``；文件不存在 ⇒ ``(None, None)``。
+
+        刻意不在这里打日志：``load()`` 与 ``health()`` 共用这一次读径，各自决定是否经
+        :meth:`_warn_once` 告警，两个调用方的告警文案因此不会漂移。
+        """
+        try:
+            return self._path.read_text(encoding="utf-8"), None
+        except FileNotFoundError:
+            return None, None
+        except (OSError, UnicodeError) as exc:
+            return None, exc
+
+    def _warn_once(self, reason: str, message: str, *args: object) -> None:
+        """同一句柄上同一成因只在**首次**判定不可读时打一条 WARNING（重复请求静默）。"""
+        if reason in self._warned:
+            return
+        self._warned.add(reason)
+        logger.warning(message, *args)
+
+    def health(self) -> ProjectRegistryHealth:
+        """只读健康探针：不写盘、不改文件，读不出或解析不了一律映射为 ``unreadable``。
+
+        与 :meth:`load` 共用 :meth:`_read_raw`；解析走严格内核 :meth:`_parse`（不用 fail-soft 的
+        ``_decode``），否则「解析不了」与「空表」在探针里无法区分。
+        """
+        raw, error = self._read_raw()
+        if error is not None:
+            self._warn_once(_READ_FAILED, "Unable to read project registry %s: %s", self._path, error)
+            return ProjectRegistryHealth(code="unreadable", detail=_read_failure_detail(error))
+        if raw is None:
+            return ProjectRegistryHealth()
+        try:
+            self._parse(raw)
+        except _RegistryCorrupt as exc:
+            self._warn_once(_CONTENT_CORRUPT, "Invalid project registry; using an empty registry (%s)", exc)
+            return ProjectRegistryHealth(code="unreadable", detail=_corrupt_detail(exc))
+        return ProjectRegistryHealth()
 
     def load(self) -> builtins_list[_StoredProject]:
         """读取登记表文件并解析为内部条目；文件不存在视作空表（默认项由 `list()` 补齐）。"""
-        try:
-            raw = self._path.read_text(encoding="utf-8")
-        except FileNotFoundError:
+        raw, error = self._read_raw()
+        if error is not None:
+            self._warn_once(_READ_FAILED, "Unable to read project registry %s: %s", self._path, error)
             return []
-        except (OSError, UnicodeError) as exc:
-            logger.warning("Unable to read project registry %s: %s", self._path, exc)
+        if raw is None:
             return []
         return self._decode(raw)
 
@@ -227,23 +309,21 @@ class ProjectRegistry:
             project_id, "touch", lambda entry: entry.model_copy(update={"last_opened_at": timestamp})
         )
 
-    @classmethod
-    def _decode(cls, raw: str) -> builtins_list[_StoredProject]:
+    def _decode(self, raw: str) -> builtins_list[_StoredProject]:
         """**读路径**口径：fail-soft —— 解析失败返回空表（脊柱 §4：不阻断 HTTP 服务）。"""
         try:
-            return cls._parse(raw)
+            return self._parse(raw)
         except _RegistryCorrupt as exc:
-            logger.warning("Invalid project registry; using an empty registry (%s)", exc)
+            self._warn_once(_CONTENT_CORRUPT, "Invalid project registry; using an empty registry (%s)", exc)
             return []
 
     @classmethod
     def _decode_or_raise(cls, raw: str) -> builtins_list[_StoredProject]:
         """**写路径**口径：fail-closed —— 绝不在自己解析不了的内容上做「解码 → 改 → 编码」写回。
 
-        评审发现（镜头一 H2）：写路径原先复用 fail-soft 的 ``_decode``，于是「解析失败 ⇒ 空表」
-        被回写进文件——一次坏字节（BOM / 超 32 条 / 重复 id / 任何一条缺字段）就会在下次
-        register / rename / remove / touch 时**静默清空全部已登记项目**（只留一行 WARNING）。
-        读到脏数据时宁可让这次写失败（响亮），也不要把用户的注册表变成空表。
+        写路径若复用 fail-soft 的 ``_decode``，「解析失败 ⇒ 空表」就会被回写进文件：一次坏字节
+        （BOM / 超 32 条 / 重复 id / 任何一条缺字段）会在下次 register / rename / remove / touch 时
+        **静默清空全部已登记项目**。读到脏数据时宁可让这次写失败（响亮），也不把用户的注册表变成空表。
         """
         try:
             return cls._parse(raw)
@@ -288,12 +368,14 @@ def default_project_registry(workspace: str | Path, configured_path: str | Path 
 
 
 __all__ = [
+    "MAX_HEALTH_DETAIL_CHARS",
     "MAX_PROJECT_NAME_CHARS",
     "MAX_PROJECT_PATH_CHARS",
     "MAX_PROJECTS",
     "ProjectEntry",
     "ProjectRegistry",
     "ProjectRegistryError",
+    "ProjectRegistryHealth",
     "default_project_registry",
     "normalize_project_path",
     "project_id_for",

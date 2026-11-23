@@ -66,6 +66,7 @@
     project_not_removable: "默认项目（服务工作区）不能移除登记。",
     project_busy: "该项目有运行在进行：请等它结束或先停止，再移除登记。",
     project_limit_reached: "已登记项目数达到上限：请先移除一些项目。",
+    project_registry_unreadable: "项目登记表无法读取（内容损坏或被外部改动）：请修复或删除它后重启服务。",
     unknown_session: "会话不存在或已被删除：请刷新会话列表。",
     invalid_session_id: "会话标识非法：服务端拒绝了这个请求。",
     session_conflict: "会话已被其它地方（CLI 或另一个页面）修改：请重新加载后再试。",

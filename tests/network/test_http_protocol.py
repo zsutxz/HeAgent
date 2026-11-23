@@ -57,6 +57,7 @@ class TestErrorCodes:
             "project_not_removable",
             "project_busy",
             "project_limit_reached",
+            "project_registry_unreadable",
             "unknown_session",
             "invalid_session_id",
             "session_conflict",

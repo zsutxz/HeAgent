@@ -136,6 +136,8 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     HttpErrorCode.CONFIG_WRITE_FAILED: 500,
     # 服务端状态类失败（如注册表内容无法解析 ⇒ 拒绝改写）：显式 500，别落到默认 400。
     HttpErrorCode.SERVER_ERROR: 500,
+    # 注册表内容不可读 ⇒ 服务端状态类失败：显式 500，别落到默认 400。
+    HttpErrorCode.PROJECT_REGISTRY_UNREADABLE: 500,
 }
 
 

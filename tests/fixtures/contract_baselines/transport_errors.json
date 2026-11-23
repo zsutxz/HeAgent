@@ -191,6 +191,16 @@
       "status_source": "console_status_map"
     },
     {
+      "code": "project_registry_unreadable",
+      "enum_member": "PROJECT_REGISTRY_UNREADABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 500,
+      "status_source": "console_status_map"
+    },
+    {
       "code": "project_unavailable",
       "enum_member": "PROJECT_UNAVAILABLE",
       "keys": [
@@ -360,7 +370,7 @@
   "status_sources": {
     "call_site_ambiguous": 0,
     "call_site_literal": 6,
-    "console_status_map": 24,
+    "console_status_map": 25,
     "unmapped": 5
   },
   "unmapped_codes": [

@@ -62,6 +62,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `project_not_removable` | 409 | 该项目不允许被移除 | **默认项目**不能移除（注册表的兜底条目） | 先移除其它项目；注册表落点是 `HTTP_CONSOLE_PROJECTS_FILE`（缺省 `.heagent/console/projects.json`） |
 | `project_busy` | 409 | 该项目被占用（有在途运行 / 正在被删除） | 同一项目同时跑多个运行 | 等当前运行结束；或 `DELETE /api/runs/{run_id}` 取消 |
 | `project_limit_reached` | 409 | 项目注册表已满 | 注册表条目数达到上限 | 移除不用的项目后重试；注册表落点见 `HTTP_CONSOLE_PROJECTS_FILE` |
+| `project_registry_unreadable` | 500 | 项目注册表读不出或解析不了 | 注册表文件被改坏（坏 JSON / BOM / 超 32 条 / 无读权限），只有提交径会回它 | 备份并重建 `HTTP_CONSOLE_PROJECTS_FILE` 指向的文件；日志里有 `Unable to read project registry` 或 `Invalid project registry` |
 | `unknown_session` | 404 | 没有该会话 | 会话 id 拼错，或会话文件已被保留期清理 | `ls .heagent/sessions/` 核对 id；清理周期由 `SESSION_RETENTION_DAYS` 控制 |
 | `invalid_session_id` | 400 | 会话 id 形态非法 | 含路径分隔符、控制字符、保留名（如 Windows 的 `NUL`） | 用服务端返回的会话 id，不要自己拼路径 |
 | `session_conflict` | 409 | 会话文件在读取后被改动（乐观锁冲突） | 两处同时写同一会话（显式传了 `expected_version` 时才会发生） | 重新读取会话内容再提交；不传 `expected_version` 即 last-write-wins |
