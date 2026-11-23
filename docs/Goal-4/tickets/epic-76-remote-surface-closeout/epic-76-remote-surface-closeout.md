@@ -55,3 +55,7 @@ refined: true
 - 启动日志：`external` + 非 docker 沙箱恰 1 条可 grep 的 WARNING，docker 档 0 条，两者退出码正常。
 - 4 份契约快照 diff 只含预期新增；`docs/errors.md` 与客户端对接说明含新错误码与「id path-derived、目录移动需重选」口径。
 - 回归面全绿：`pytest`、`ruff check`、`ruff format --check`、`mypy src`、`bandit -r src/ -ll`。
+
+## Notes
+
+- 2026-11-23 Decision（76.3 实现期，`bad_spec` 记录）：票面 verify 写「`content_search` 在 `src/heagent/network/` 内对 `set_setting|write_config|register_project|list_sessions` 恒 0 命中」——该字面在 HEAD 上为假，因为**回环 HTTP 控制台本身就住 `network/`**（`http_console_protocol.py` 的 `ConsoleHandler.register_project` / `list_sessions` 等）。R5 的真口径是「**WS 面**不扩张」（远程注册仍走 HTTP 且回 403）⇒ 守卫按模块面实施：五个 WS 面模块 0 命中，回环控制台三模块显式白名单。Requirements 冻结不回改，本行即裁定载体。

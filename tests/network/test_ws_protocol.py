@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import ast
 import json
+import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from heagent.network.http_protocol import (
     HttpErrorCode,
@@ -18,6 +20,7 @@ from heagent.network.http_protocol import (
     error_envelope,
 )
 from heagent.network.ws_protocol import (
+    _FRAME_FIELDS,
     WS_CLOSE_GOING_AWAY,
     WS_CLOSE_INTERNAL,
     WS_CLOSE_POLICY,
@@ -28,6 +31,11 @@ from heagent.network.ws_protocol import (
     WS_PING_INTERVAL_SECONDS,
     WS_PING_TIMEOUT_SECONDS,
     WsAckFrame,
+    ProjectChannelEntry,
+    SubmittedRun,
+    WsAckFrame,
+    WsCliAckFrame,
+    WsCliEventFrame,
     WsCommand,
     WsCommandFrame,
     WsErrorFrame,
@@ -36,6 +44,8 @@ from heagent.network.ws_protocol import (
     WsFrameErrorKind,
     WsFrameType,
     WsHelloFrame,
+    WsNotificationFrame,
+    WsProjectsFrame,
     parse_command_frame,
 )
 
@@ -282,3 +292,176 @@ def test_json_that_is_not_an_object_is_malformed(text: str) -> None:
         parse_command_frame(text)
 
     assert excinfo.value.kind is WsFrameErrorKind.MALFORMED
+
+
+# ── E76-S03（R5）：远程可见面白名单收口 ──────────────────────────────────────
+#
+# R5 = 「远程能做的事」不扩张。判据分两层：
+#  1. 命令值与帧字段名是**封闭白名单**（集合相等，不是子集）：多一条命令、多一个入站字段都是
+#     「多一层远程能力」，必须在这里显性变红，而不是被顺手漏出；
+#  2. 白名单里不出现配置读写 / 项目注册 / 会话历史族的词根（命令值与帧字段名双向），解析器对
+#     这类帧回 ``unknown_command``，WS 面源码里也不出现这些能力的实现符号。
+# 端点面（四条 WS 路径）已由 ``tests/test_architecture_contracts.py`` 钉死，此处不重复。
+
+_NETWORK_DIR = Path("src/heagent/network")
+
+#: WS 面全部模块。远程可达面只由这几个文件构成，配置 / 注册 / 会话能力一律不得出现在其中。
+_WS_SURFACE_MODULES = ("ws_auth.py", "ws_commands.py", "ws_host.py", "ws_protocol.py", "ws_server.py")
+
+#: ``network/`` 内**唯一**允许出现配置写入 / 项目注册 / 会话浏览符号的模块：回环 HTTP 控制台。
+#: R5 允许这些能力留在本机 HTTP 面（远程注册回 403），只要求它们不跨越到 WS 面。
+_LOOPBACK_CONSOLE_MODULES = frozenset(
+    {"http_console_protocol.py", "http_server/app.py", "http_server/endpoints_console.py"}
+)
+
+#: 远程面禁止的能力族词根（口径：**子串**、大小写不敏感）。
+#:
+#: 取子串而非前缀是刻意的：``set_setting`` / ``update_setting`` / ``setting_value`` 都要命中。
+#: 不误伤的边界例子：``registry_state``（项目列表帧的注册表健康态）含 ``registr`` 但**不含**
+#: ``register``，因此不会把既有的只读项目列表判成「项目注册」。
+_FORBIDDEN_REMOTE_STEMS = (
+    "setting",
+    "config",
+    "register",
+    "session",
+    "history",
+    "write",
+    "delete",
+    "remove",
+    "rename",
+    "approve",
+    "dialog",
+)
+
+#: 命令 → 字段白名单的完整期望值（``_FRAME_FIELDS`` 的逐条镜像）。
+_EXPECTED_REMOTE_FRAME_FIELDS: dict[str, frozenset[str]] = {
+    "cancel": frozenset({"command"}),
+    "cancel_run": frozenset({"command", "run_id"}),
+    "ping": frozenset({"command"}),
+    "projects": frozenset({"command"}),
+    "run": frozenset({"command", "prompt", "project_id"}),
+}
+
+#: 协议层入站 + 出站帧模型：帧面冻结，新增一格的字段就等于新开一格对外可见面。
+_REMOTE_FRAME_MODELS: dict[str, type[BaseModel]] = {
+    "WsCommandFrame": WsCommandFrame,
+    "WsHelloFrame": WsHelloFrame,
+    "WsEventFrame": WsEventFrame,
+    "WsAckFrame": WsAckFrame,
+    "WsCliEventFrame": WsCliEventFrame,
+    "WsCliAckFrame": WsCliAckFrame,
+    "WsNotificationFrame": WsNotificationFrame,
+    "WsProjectsFrame": WsProjectsFrame,
+    "WsErrorFrame": WsErrorFrame,
+    "ProjectChannelEntry": ProjectChannelEntry,
+    "SubmittedRun": SubmittedRun,
+}
+
+_EXPECTED_REMOTE_MODEL_FIELDS: dict[str, frozenset[str]] = {
+    "WsCommandFrame": frozenset({"command", "prompt", "project_id", "run_id"}),
+    "WsHelloFrame": frozenset({"type", "version"}),
+    "WsEventFrame": frozenset({"type", "event"}),
+    "WsAckFrame": frozenset({"type", "command", "run_id", "status"}),
+    "WsCliEventFrame": frozenset({"type", "run_id", "event"}),
+    "WsCliAckFrame": frozenset({"type", "command", "run_id"}),
+    "WsNotificationFrame": frozenset({"type", "notification"}),
+    "WsProjectsFrame": frozenset({"type", "projects", "registry_state"}),
+    "WsErrorFrame": frozenset({"type", "error"}),
+    "ProjectChannelEntry": frozenset({"id", "name", "available"}),
+    "SubmittedRun": frozenset({"run_id", "status"}),
+}
+
+#: 配置 / 注册 / 会话能力的运行期符号。与上面的**名字**守卫互补：名字守卫挡「帧面变宽」，这一条
+#: 挡「WS 模块偷偷去调控制台回调」——只扩字段不扩命令也能漏出能力，所以两层都要有。
+_FORBIDDEN_RUNTIME_SYMBOLS = re.compile(
+    r"\b(set_setting|write_config|update_project_config|register_project|remove_project"
+    r"|rename_project|list_sessions|read_session|session_history)\b"
+)
+
+
+def _forbidden_family_names(names: Iterable[str]) -> list[str]:
+    """落在 R5 禁用能力族里的名字（子串、大小写不敏感，返回排序后的去重结果）。"""
+    return sorted({name.lower() for name in names if any(stem in name.lower() for stem in _FORBIDDEN_REMOTE_STEMS)})
+
+
+def test_remote_command_surface_is_exactly_five_values() -> None:
+    """R5：远程命令集合是**集合相等**的封闭契约——多一条即红，不是「包含这五个」。"""
+    assert {command.value for command in WsCommand} == {"cancel", "cancel_run", "ping", "projects", "run"}
+    assert len(WsCommand) == 5
+
+
+def test_remote_command_frame_fields_are_pinned_per_command() -> None:
+    """R5：命令 → 字段白名单逐条镜像（给某条命令加字段 = 帧面变宽，必须显性出现在这里）。"""
+    assert set(_FRAME_FIELDS) == set(WsCommand)
+    actual = {command.value: frozenset(fields) for command, fields in _FRAME_FIELDS.items()}
+    assert actual == _EXPECTED_REMOTE_FRAME_FIELDS
+
+
+def test_frame_models_stay_at_the_pinned_field_sets() -> None:
+    """帧面冻结：入站命令帧与七类出站帧的字段集合逐字钉死。"""
+    actual = {name: frozenset(model.model_fields) for name, model in _REMOTE_FRAME_MODELS.items()}
+    assert actual == _EXPECTED_REMOTE_MODEL_FIELDS
+
+
+def test_server_frame_types_stay_closed_to_six_values() -> None:
+    """帧类型不随命令扩张：``projects`` 是 E75 的响应帧，此后新增类型也要过同一道门。"""
+    assert {item.value for item in WsFrameType} == {"ack", "error", "event", "hello", "notification", "projects"}
+
+
+def test_no_config_register_or_session_family_on_the_remote_surface() -> None:
+    """R5 的双向守卫：命令值 + 帧字段名都不落在配置 / 注册 / 会话历史族。"""
+    inbound_fields = set(WsCommandFrame.model_fields)
+    whitelisted_fields = set().union(*_FRAME_FIELDS.values())
+    outbound_fields = set().union(*(set(model.model_fields) for model in _REMOTE_FRAME_MODELS.values()))
+
+    assert _forbidden_family_names(command.value for command in WsCommand) == []
+    assert _forbidden_family_names(inbound_fields) == []
+    assert _forbidden_family_names(whitelisted_fields) == []
+    assert _forbidden_family_names(outbound_fields) == []
+    # 阳性控制：匹配器本身必须是活的，否则上面四条断言恒真、什么都证明不了。
+    assert _forbidden_family_names({"set_config", "register_project", "list_sessions"}) == [
+        "list_sessions",
+        "register_project",
+        "set_config",
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"command":"set_config","key":"MAX_ITERATIONS","value":"30"}',
+        '{"command":"register_project","path":"/tmp/p","name":"p"}',
+        '{"command":"list_sessions","project_id":"default"}',
+        '{"command":"read_session","session_id":"s1"}',
+    ],
+)
+def test_family_commands_are_unknown_on_the_remote_surface(text: str) -> None:
+    """命令值层再挡一道：配置 / 注册 / 会话族命令在解析器上就是 ``unknown_command``。"""
+    with pytest.raises(WsFrameError) as exc_info:
+        parse_command_frame(text)
+    assert exc_info.value.kind is WsFrameErrorKind.UNKNOWN_COMMAND
+
+
+def test_ws_modules_never_reach_config_register_or_session_symbols() -> None:
+    """WS 面源码里不出现配置写入 / 项目注册 / 会话浏览的实现符号（R5 的执行面）。"""
+    hits = {
+        name: _FORBIDDEN_RUNTIME_SYMBOLS.findall((_NETWORK_DIR / name).read_text(encoding="utf-8"))
+        for name in _WS_SURFACE_MODULES
+    }
+    assert {name: found for name, found in hits.items() if found} == {}
+
+
+def test_config_register_and_session_symbols_stay_in_the_loopback_console() -> None:
+    """``network/`` 内这类符号只准住在回环 HTTP 控制台模块里。
+
+    口径说明：``network/`` **整棵树**不是零命中——``register_project`` / ``list_sessions`` 正是回环
+    HTTP 端点（``POST /api/projects`` 等）的实现符号，R5 只要求远程注册回 403、不要求删掉本机能力。
+    所以判据写成**集合相等**：命中文件集合恰为这三个控制台模块，既挡住「WS 面拿到这些能力」，也
+    用「这三个模块确实被匹配到」反证正则本身是活的。
+    """
+    hitting = {
+        path.relative_to(_NETWORK_DIR).as_posix()
+        for path in _NETWORK_DIR.rglob("*.py")
+        if _FORBIDDEN_RUNTIME_SYMBOLS.search(path.read_text(encoding="utf-8"))
+    }
+    assert hitting == _LOOPBACK_CONSOLE_MODULES
