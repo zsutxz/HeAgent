@@ -803,6 +803,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "tls_cmd",
         "wiring",
         "wizard",
+        "ws_project_adapter",
     ]
 
 

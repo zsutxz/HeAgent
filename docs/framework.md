@@ -162,6 +162,7 @@ AgentLoop.run(prompt)
 | `http_config.py` | HTTP/WS listener 配置装配：`Settings` + CLI 覆盖 → `HttpServerConfig` / `WsServerConfig`（纯派生，Story 62.8 自 `http.py` 拆出） | `cli_http.py` 拆出 |
 | `http_console.py` | 网页控制台的**项目/会话/配置面**（Epic 50；`HttpProjectConsole` / `HttpAgentHandler`） | `cli_http.py` 拆出 |
 | `http_status.py` | `GET /api/status` 的来源适配：把运行服务 / 三条 WS 流 / 后台任务注册表聚合成 `StatusResponse`（WS 计数晚绑定，Story 71.1） | 新增 |
+| `ws_project_adapter.py` | WS 项目通道适配器：`ProjectChannelService` 的入口层实现——项目列表 → `WsProjectsFrame`（每条恰三字段）、提交收窄成 `SubmittedRun`、控制台/注册表错误码逐字转成 `HttpRunConflictError`（Epic 75；只翻译，不含判据，不碰盘与注册表） | 新增 |
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
 | `errors.py` | CLI 错误的统一出口：描述 + `Try:` 可用选项 + `Docs:` 文档锚点（Story 64.5） | 新增 |
@@ -1620,7 +1621,8 @@ src/heagent/
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
 │   ├── tls_cmd.py           # heagent tls init|issue|rotate-key|fingerprint|verify：WS TLS 身份材料的唯一入口（Story 73.2）
-│   └── wiring.py            # provider 呈现薄壳（规则在 providers/composition.py，2026-11-07 迁出）+ ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
+│   ├── wiring.py            # provider 呈现薄壳（规则在 providers/composition.py，2026-11-07 迁出）+ ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
+│   └── ws_project_adapter.py # WS 项目通道适配器：控制台项目面 → 项目帧（只翻译不含判据，不碰盘与注册表；Epic 75）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）
 │   ├── exceptions.py        # 异常层级
