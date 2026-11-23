@@ -324,12 +324,42 @@ def _is_blank_prompt(error: ValidationError) -> bool:
     return any("blank" in str(item.get("msg", "")) for item in error.errors())
 
 
-async def _submit_run(websocket: WebSocketLike, service: RunWebSocketService, prompt: str) -> None:
+async def _start_project_run(
+    websocket: WebSocketLike,
+    project_service: ProjectChannelService | None,
+    project_id: str,
+    prompt: str,
+) -> SubmittedRun | None:
+    """带 ``project_id`` 的提交分支（未装配护栏**唯一**一处）：先 ``ensure_available`` 后提交。
+
+    ``project_service`` 为 ``None`` 时回 ``invalid_request`` 并返回 ``None``——静默按启动工作区执行
+    会把「装配漏了」变成「跑错项目」。前置校验不占名额，其返回值才是后续用的 ``project_id``。
+    """
+    if project_service is None:
+        await _send_error_frame(
+            websocket,
+            HttpErrorCode.INVALID_REQUEST,
+            "project addressing is not available on this listener",
+        )
+        return None
+    resolved = await project_service.ensure_available(project_id)
+    return await project_service.start_project_run(resolved, prompt)
+
+
+async def _submit_run(
+    websocket: WebSocketLike,
+    service: RunWebSocketService,
+    prompt: str,
+    *,
+    project_id: str | None = None,
+    project_service: ProjectChannelService | None = None,
+) -> None:
     """提交一次运行：校验复用 ``RunRequest``，创建复用 ``HttpRunService.start_run``。
 
     错误一律走错误帧且**不断连**（客户端可继续提交）：输入类 ``empty_prompt`` / ``invalid_request``、
     名额类 ``run_conflict`` / ``total_inflight_limit`` / 关停 ``shutting_down``——与
-    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。
+    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。``project_id`` 缺省时创建路径逐字
+    不变；带值时改走 :func:`_start_project_run`（项目端口），``RunRequest`` 校验两条路径共用。
     """
     try:
         request = RunRequest.model_validate({"prompt": prompt})
@@ -338,9 +368,14 @@ async def _submit_run(websocket: WebSocketLike, service: RunWebSocketService, pr
         await _send_error_frame(websocket, code, "prompt is invalid")
         return
     try:
-        record = await service.start_run(request.prompt)
+        if project_id is None:
+            record = await service.start_run(request.prompt)
+        else:
+            record = await _start_project_run(websocket, project_service, project_id, request.prompt)
     except HttpRunConflictError as exc:
         await _send_error_frame(websocket, exc.code, str(exc))
+        return
+    if record is None:
         return
     await websocket.send_text(
         WsAckFrame(command=WsCommand.RUN, run_id=record.run_id, status=record.status).model_dump_json()
@@ -357,9 +392,8 @@ async def _handle_submit_commands(
     这条连接**不绑定任何 run**（D2 的期一形状：提交连接不转事件流）。客户端拿到 ack 里的
     ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
 
-    ``project_service`` 是项目寻址提交的注入端口：为 ``None``（未装配）时带 ``project_id`` 的
-    ``run`` 帧回 ``invalid_request`` 且**不**触达 ``service.start_run``——静默按启动工作区执行
-    会把「装配漏了」变成「跑错项目」。不带 ``project_id`` 的帧走原路径，逐字不变。
+    ``project_service`` 是项目寻址提交的注入端口，原样转发给 :func:`_submit_run`——「未装配却带
+    ``project_id``」的护栏住在 :func:`_start_project_run`（单处），本循环不做第二道判定。
     """
     while True:
         frame = await _next_command(websocket)
@@ -367,14 +401,13 @@ async def _handle_submit_commands(
             return
 
         if frame.command is WsCommand.RUN:
-            if frame.project_id is not None and project_service is None:
-                await _send_error_frame(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "project addressing is not available on this listener",
-                )
-                continue
-            await _submit_run(websocket, service, frame.prompt or "")
+            await _submit_run(
+                websocket,
+                service,
+                frame.prompt or "",
+                project_id=frame.project_id,
+                project_service=project_service,
+            )
             continue
         if frame.command is WsCommand.CANCEL:
             # 没有 run 绑定就没有可取消对象：与 CLI 旁路的处理同形（显式不支持，不静默忽略）。
