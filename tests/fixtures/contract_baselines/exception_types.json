@@ -864,6 +864,41 @@
         "BaseModel"
       ],
       "module": "heagent.network.ws_protocol",
+      "name": "ProjectChannelEntry"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "ProjectChannelService"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "RunWebSocketService"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "SubmittedRun"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WebSocketLike"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
       "name": "WsAckFrame"
     },
     {
@@ -938,17 +973,10 @@
     },
     {
       "bases": [
-        "Protocol"
+        "BaseModel"
       ],
-      "module": "heagent.network.ws_server",
-      "name": "RunWebSocketService"
-    },
-    {
-      "bases": [
-        "Protocol"
-      ],
-      "module": "heagent.network.ws_server",
-      "name": "WebSocketLike"
+      "module": "heagent.network.ws_protocol",
+      "name": "WsProjectsFrame"
     },
     {
       "bases": [
@@ -1242,6 +1270,13 @@
     },
     {
       "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.pub.projects",
+      "name": "ProjectRegistryHealth"
+    },
+    {
+      "bases": [
         "Exception"
       ],
       "module": "heagent.pub.projects",
@@ -1365,6 +1400,7 @@
       "PROJECT_BUSY": "project_busy",
       "PROJECT_LIMIT_REACHED": "project_limit_reached",
       "PROJECT_NOT_REMOVABLE": "project_not_removable",
+      "PROJECT_REGISTRY_UNREADABLE": "project_registry_unreadable",
       "PROJECT_UNAVAILABLE": "project_unavailable",
       "RATE_LIMITED": "rate_limited",
       "REQUEST_TOO_LARGE": "request_too_large",
