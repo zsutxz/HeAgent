@@ -144,26 +144,50 @@ def _module_prefixes(module: str | None) -> set[str]:
     return {".".join(parts[:size]) for size in range(2, len(parts) + 1)}
 
 
-def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str]:
-    """把一条 import 语句映射为「heagent 子模块」集合（两种等价写法同样处理）。
+def _absolute_module(node: ast.ImportFrom, package: str | None) -> str | None:
+    """把 ``from`` 语句的模块名解析成绝对路径：相对写法按**文件所属包**补全。
+
+    ``from ..config import get_settings`` 写在 ``heagent/network/`` 里就是 ``heagent.config``——
+    只认 ``node.module`` 的绝对名，会让包内最惯用的相对写法整条绕过反向依赖断言。
+    ``package`` 缺省（纯源码文本用例）时退回旧口径：没有包上下文就推不出相对深度。
+    """
+    if not node.level or not package:
+        return node.module
+    anchor = package.split(".")
+    anchor = anchor[: len(anchor) - (node.level - 1)]
+    if not anchor:
+        return node.module
+    return ".".join([*anchor, node.module]) if node.module else ".".join(anchor)
+
+
+def _imported_roots(node: ast.Import | ast.ImportFrom, *, package: str | None = None) -> set[str]:
+    """把一条 import 语句映射为「heagent 子模块」集合（各种等价写法同样处理）。
 
     ``import heagent.providers.router``（子模块在 ``node.module`` 上）与
     ``from heagent import providers``（子模块在 alias 上）必须都被识别——此前只识别前者，
     后者可用于绕过反向依赖断言。别名形态只把**真实存在的模块路径**（``_KNOWN_MODULES``）计入，
     避免误伤 ``from heagent import Agent`` 这类包根符号再导出；``from heagent.pub import types``
-    同样展开出 ``heagent.pub.types``。
+    同样展开出 ``heagent.pub.types``。相对写法按 ``package`` 补全成绝对名后再匹配
+    （见 :func:`_absolute_module`）。
     """
     if isinstance(node, ast.Import):
         return {prefix for alias in node.names for prefix in _module_prefixes(alias.name)}
-    if not node.module or not node.module.startswith("heagent"):
+    module = _absolute_module(node, package)
+    if not module or not module.startswith("heagent"):
         return set()
-    prefixes = _module_prefixes(node.module)
-    tail = node.module.removeprefix("heagent").lstrip(".")
+    prefixes = _module_prefixes(module)
+    tail = module.removeprefix("heagent").lstrip(".")
     for alias in node.names:
         candidate = f"{tail}.{alias.name}".strip(".")
         if candidate in _KNOWN_MODULES:
             prefixes |= _module_prefixes(f"heagent.{candidate}")
     return prefixes
+
+
+def _package_of(path: Path) -> str:
+    """文件所属包（``network/ws_commands.py`` → ``heagent.network``）：相对导入靠它补全。"""
+    parts = list(path.relative_to(SRC).parts[:-1])
+    return ".".join(["heagent", *parts]) if parts else "heagent"
 
 
 def _imports(path: Path) -> tuple[set[str], set[str]]:
@@ -173,23 +197,24 @@ def _imports(path: Path) -> tuple[set[str], set[str]]:
     需要、运行期不需要），若把类型期导入也算违反，这条契约就只能靠放宽来维持。
     函数体内的局部导入**算**运行期依赖——它同样构成模块间的层次耦合。
     """
-    return _module_imports(path.read_text(encoding="utf-8"))
+    return _module_imports(path.read_text(encoding="utf-8"), package=_package_of(path))
 
 
-def _module_imports(source: str) -> tuple[set[str], set[str]]:
-    """按源码文本解析导入（``_imports`` 的可测内核：两种导入写法都必须被识别）。
+def _module_imports(source: str, *, package: str | None = None) -> tuple[set[str], set[str]]:
+    """按源码文本解析导入（``_imports`` 的可测内核：各种导入写法都必须被识别）。
 
-    两种等价写法都要记：``import heagent.providers.router``（子模块在 ``node.module`` 上）与
-    ``from heagent import providers``（子模块在 alias 上）。此前只识别前者，后者可用于绕过
-    反向依赖断言（如 ``from heagent import providers`` 在 ``network/`` 里不会被判违反）。
-    只把**真实存在的模块路径**计入，避免误伤 ``from heagent import Agent`` 这类包根符号再导出。
+    三种等价写法都要记：``import heagent.providers.router``（子模块在 ``node.module`` 上）、
+    ``from heagent import providers``（子模块在 alias 上）与 ``from ..config import x``
+    （相对写法，按 ``package`` 补全）。只认绝对名会让后两种写法绕过反向依赖断言；相对写法
+    尤其隐蔽——它是包内最惯用的形态。只把**真实存在的模块路径**计入，避免误伤
+    ``from heagent import Agent`` 这类包根符号再导出。
     """
     runtime: set[str] = set()
     typing_only: set[str] = set()
 
     def record(node: ast.stmt, bucket: set[str]) -> None:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            bucket |= _imported_roots(node)
+            bucket |= _imported_roots(node, package=package)
 
     def walk(body: list[ast.stmt], bucket: set[str]) -> None:
         for node in body:
@@ -351,6 +376,22 @@ def test_forbidden_import_detection_covers_top_level_modules() -> None:
         "heagent.pub.types",
         "heagent.pub.workspace",
     }
+    assert typing_only == set()
+
+
+def test_forbidden_import_detection_covers_relative_forms() -> None:
+    """相对导入同样计入运行期依赖：``from ..config import x`` 在 ``network/`` 里就是 ``heagent.config``。
+
+    E74 R2 反证（2026-11-23）：两条边界守卫此前只看 ``node.module`` 的绝对名，包内最惯用的相对写法
+    因此整条绕过——把 ``from ..config import get_settings`` 写进 ``network/ws_commands.py``，架构契约
+    与 ``tests/network/test_ws_error_codes.py`` 双绿（守卫无牙）。本用例钉住识别器本身。
+    """
+    runtime, typing_only = _module_imports(
+        "from ..config import get_settings\nfrom .ws_protocol import WsCommand\n",
+        package="heagent.network",
+    )
+
+    assert runtime == {"heagent.config", "heagent.network", "heagent.network.ws_protocol"}
     assert typing_only == set()
 
 

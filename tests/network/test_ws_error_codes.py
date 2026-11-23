@@ -48,16 +48,36 @@ def _network_sources() -> list[Path]:
     return sorted(_NETWORK.rglob("*.py"))
 
 
-def _imported_names(path: Path) -> set[str]:
-    """模块里出现的全部导入目标（含 ``from ... import`` 的模块名与 ``import`` 的别名）。"""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+def _package_of(path: Path) -> str:
+    """文件所属包（``ws_commands.py`` → ``heagent.network``）：相对导入靠它补全成绝对名。"""
+    parts = list(path.relative_to(_NETWORK).parts[:-1])
+    return ".".join(["heagent", "network", *parts])
+
+
+def _imported_modules(tree: ast.Module, package: str) -> set[str]:
+    """模块里出现的全部导入目标（``from ... import`` 的模块名、``import`` 的别名与**相对**写法）。
+
+    相对导入必须补全：``from ..config import get_settings`` 在 ``network/`` 里就是
+    ``heagent.config``——只认 ``node.module`` 的绝对名会让包内最惯用的写法整条绕过本守卫。
+    """
     names: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                anchor = package.split(".")
+                anchor = anchor[: len(anchor) - (node.level - 1)]
+                module = ".".join([*anchor, module]) if module else ".".join(anchor)
+            if module:
+                names.add(module)
         elif isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
     return names
+
+
+def _imported_names(path: Path) -> set[str]:
+    """单个源文件的导入面（含相对写法，按文件所属包补全）。"""
+    return _imported_modules(ast.parse(path.read_text(encoding="utf-8")), _package_of(path))
 
 
 @pytest.mark.parametrize("code", _E74_CODES)
@@ -68,10 +88,14 @@ def test_e74_error_codes_are_existing_members(code: str) -> None:
 
 @pytest.mark.parametrize("code", _E74_CODES)
 def test_e74_error_codes_are_registered_in_the_transport_baseline(code: str) -> None:
-    """每条 code 在 ``transport_errors`` 基线里有条目（或落在既有的未分派清单里）。"""
+    """每条 code 在 ``transport_errors`` 基线里**有具名条目**：不接受「落在未分派清单」这档。
+
+    ``unmapped_codes`` 是「服务端会产生但状态表不分派」的历史清单；让本判据容它，等于某条 code
+    掉出 entries 时用例仍绿而 R4 已不成立。
+    """
     baseline = json.loads(_BASELINE.read_text(encoding="utf-8"))
 
-    assert code in {entry["code"] for entry in baseline["entries"]} or code in baseline["unmapped_codes"]
+    assert code in {entry["code"] for entry in baseline["entries"]}
 
 
 def test_network_never_imports_the_runtime_stack_or_config() -> None:
@@ -85,13 +109,36 @@ def test_network_never_imports_the_runtime_stack_or_config() -> None:
 
 
 def test_network_never_touches_the_filesystem_to_resolve_projects() -> None:
-    """项目解析不进传输层：``network/`` 里没有 ``is_dir`` 调用（项目目录由注入端口自己解析）。"""
+    """项目解析不进传输层：``network/`` 里没有 ``is_dir`` 调用（项目目录由注入端口自己解析）。
+
+    按 **AST** 判（属性/名字引用），不按源码文本：docstring 与注释里提到 ``is_dir`` 属于说明，
+    文本匹配会把正当注释判成违规（与本文件其余断言的导入面口径一致）。
+    """
     offenders = [
         path.relative_to(_NETWORK).as_posix()
         for path in _network_sources()
-        if "is_dir" in path.read_text(encoding="utf-8")
+        if any(
+            (isinstance(node, ast.Attribute) and node.attr == "is_dir")
+            or (isinstance(node, ast.Name) and node.id == "is_dir")
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        )
     ]
     assert offenders == []
+
+
+def test_import_face_recognizer_resolves_relative_imports() -> None:
+    """相对导入同样算导入面：``from ..config import x`` 在 ``network/`` 里就是 ``heagent.config``。
+
+    E74 R2 反证（2026-11-23）：本守卫原先只看 ``node.module`` 的绝对名，把
+    ``from ..config import get_settings`` 写进 ``network/ws_commands.py`` 时这里与架构契约双绿
+    ——守卫对包内最惯用的写法没有牙。本用例钉住识别器本身。
+    """
+    tree = ast.parse("from ..config import get_settings\nfrom .ws_protocol import WsCommand\n")
+
+    assert _imported_modules(tree, "heagent.network") == {
+        "heagent.config",
+        "heagent.network.ws_protocol",
+    }
 
 
 def test_network_still_has_no_http_transport_import_cycle() -> None:
