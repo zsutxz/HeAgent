@@ -1,0 +1,32 @@
+# WS 远程项目通道 —— epic 表序即构建顺序（E74 → E75 → E76）
+# 人读编号三处一致：code / title 前缀 / epic 文件 frontmatter 的 code
+# covers 引用 brief.md 信封 Requirements 的 R1–R14（与 PRD §5 同编号）
+
+[[epic]]
+id = 74
+slug = "epic-74-ws-frame-contract"
+code = "E74"
+title = "E74 · WS 远程项目通道：协议与帧契约"
+description = "提交帧新增可选 project_id、未知项目的具名错误码、新增 cancel_run 帧、事件面零变更与传输层注入口形状（Protocol 与实现同改，network/ 仍哑传输）"
+covers = ["R2", "R5", "R6", "R8", "R10"]
+
+[[epic]]
+id = 75
+slug = "epic-75-project-channel-runtime"
+code = "E75"
+title = "E75 · WS 远程项目通道：项目链运行时与投影注入"
+description = "把 project_id 译成既有项目链的同一次调用：六项落点指向该项目、缺省续最近会话（无会话即新建）、项目列表只读投影三字段、注册表不可读分路处置"
+covers = ["R1", "R3", "R4", "R13"]
+after = [{ epic = "epic-74-ws-frame-contract", needs = "帧字段与错误码先定" }]
+
+[[epic]]
+id = 76
+slug = "epic-76-remote-surface-closeout"
+code = "E76"
+title = "E76 · WS 远程项目通道：并发隔离与远程面收口"
+description = "两项目并发隔离与断连续流判据、远程可见面白名单收口、external 档非 docker 沙箱启动告警、契约快照与文档一次性收口"
+covers = ["R7", "R9", "R11", "R12", "R14"]
+after = [
+  { epic = "epic-74-ws-frame-contract", needs = "帧与错误码定稿" },
+  { epic = "epic-75-project-channel-runtime", needs = "项目链落点与投影就绪" },
+]
