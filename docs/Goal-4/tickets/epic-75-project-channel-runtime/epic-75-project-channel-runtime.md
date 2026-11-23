@@ -54,3 +54,10 @@ refined: true
 - 「有历史会话 ⇒ 续最近」与「从未有会话 ⇒ 新建」各一例；WS 帧应答中无 `session_id`。
 - 注册表不可读两例：列表空表 + 可判定信号 + 恰好 1 条 WARNING；提交回 E74 的具名错误。
 - `available=false` 的提交被拒且不建 run，错误码与 E74 口径一致。
+
+## Notes
+
+- 2026-11-23 Decision: **R6 的 `cancel_run` 子句追认为规格过宽、不实现** —— `cancel_run` 按 `run_id` 取消（74.3 已交付「与 `cancel` 同源」），不经过项目寻址；在 `project_service is None` 时拒绝它会打断非项目 listener 的取消能力。实现保持 74.3 行为，`bad_spec` 记录见 `story-e75-s02-network-project-id-plan.md` 的 `## Design Notes`。
+- 2026-11-23 Decision: 75.2 与 74.2 在 Step 06 被**重复切片**（`project_id` 提交分支、未装配护栏、`ensure→start` 次序、码透传在 74.2 已交付）；75.2 收窄为「把 `projects` 命令接进网络侧 + R7 判据补齐」。
+- 2026-11-23 Decision: 75.3 的票面写 `docs/frame.md`（v6 命名遗留，该文件不存在），真源是 `docs/framework.md` §4.1 的 cli 子模块表与目录树；按真源同步，不新建 `frame.md`。
+- 2026-11-23 Decision: 75.4 六项落点实测**零偏差**（`http_console.py` 未改动），本 entry 的交付形态是判据（`tests/test_http_console_project_run.py` 5 例，真 `HttpAgentHandler` + 真 `AgentLoop` 跑一次）。
