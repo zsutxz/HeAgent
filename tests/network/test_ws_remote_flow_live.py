@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ from heagent.cli.http import _project_channel
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.config import get_settings, reset_settings
 from heagent.network.http_console_protocol import ProjectRegisterRequest
-from heagent.network.http_protocol import RunEventKind, RunStatus
+from heagent.network.http_protocol import HttpErrorCode, RunEventKind, RunStatus
 from heagent.network.http_server import HttpRunService, HttpServerConfig
 from heagent.network.ws_host import WsServer, WsServerConfig
 from heagent.providers.base import ProviderMetadata
@@ -215,6 +216,71 @@ async def test_adr_005_baseline_runs_against_a_real_listener_and_real_agent_loop
                 assert resumed_seqs[0] == 2  # 从游标 + 1 起
                 assert resumed_seqs == list(range(2, 2 + len(resumed_seqs)))  # 无空洞
                 assert resumed_seqs[-1] == done_seqs[-1]  # 补到与首段相同的终态
+    finally:
+        await stack.close()
+
+
+async def test_project_runs_share_the_single_inflight_allowance(tmp_path: Path) -> None:
+    """名额仍是**一套**计数（`_active` + `record.project_id`），项目通道没有新增计数或参数。
+
+    行为形态而不是读私有字段：默认 ``max_inflight_runs=1`` 时，同一项目第二个 run ⇒ ``run_conflict``
+    （会话级冲突：WS 提交恒续最近会话），另一个项目照常提交成功 ⇒ 名额按项目各自生效、跨项目不共享。
+    """
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    root_a = _project(tmp_path / "A")
+    root_b = _project(tmp_path / "B")
+    provider = _GatedProvider("gated")
+    stack = await _start(workspace, provider)
+    try:
+        entry_a = await stack.console.register_project(ProjectRegisterRequest(path=str(root_a), name="A"))
+        entry_b = await stack.console.register_project(ProjectRegisterRequest(path=str(root_b), name="B"))
+
+        async with websockets.connect(stack.uri("/api/runs/ws")) as cli:
+            await cli.send(json.dumps({"command": "run", "prompt": "first", "project_id": entry_a.id}))
+            first = await _recv(cli)
+            assert first["type"] == "ack" and first["status"] == RunStatus.RUNNING.value
+
+            # 同项目再来一个：名额满 ⇒ run_conflict（WS 提交不带 session_id，冲突落在会话层）
+            await cli.send(json.dumps({"command": "run", "prompt": "second", "project_id": entry_a.id}))
+            conflict = await _recv(cli)
+            assert conflict["type"] == "error"
+            assert conflict["error"]["error"]["code"] == HttpErrorCode.RUN_CONFLICT.value
+
+            # 另一个项目：名额按项目各自生效 ⇒ 照常受理
+            await cli.send(json.dumps({"command": "run", "prompt": "other", "project_id": entry_b.id}))
+            second = await _recv(cli)
+            assert second["type"] == "ack" and second["run_id"] != first["run_id"]
+    finally:
+        await stack.close()
+
+
+async def test_error_frames_never_carry_project_paths(tmp_path: Path) -> None:
+    """错误帧的文案不含项目目录：远程客户端看得见 message，路径是宿主侧信息。
+
+    走真链路（真适配器 + 真控制台）：注册一个项目后删掉它的目录，提交时控制台判「不可用」并回
+    ``project_unavailable``——这条 message 由控制台生成、经适配器原样搬进错误帧，正是最容易把
+    ``entry.path`` 顺手拼进去的地方（端口 docstring 的第三条义务）。
+    """
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    root = _project(tmp_path / "gone")
+    provider = _GatedProvider("never-runs")
+    provider.gate.set()
+    stack = await _start(workspace, provider)
+    try:
+        entry = await stack.console.register_project(ProjectRegisterRequest(path=str(root), name="Gone"))
+        shutil.rmtree(root)  # 目录失效 ⇒ 控制台回 project_unavailable
+
+        async with websockets.connect(stack.uri("/api/runs/ws")) as cli:
+            await cli.send(json.dumps({"command": "run", "prompt": "hi", "project_id": entry.id}))
+            frame = await _recv(cli)
+
+        assert frame["type"] == "error"
+        assert frame["error"]["error"]["code"] == HttpErrorCode.PROJECT_UNAVAILABLE.value
+        message = frame["error"]["error"]["message"]
+        assert str(root) not in message  # 不含该项目的真实目录
+        assert not message.startswith("/")  # 也不是绝对路径形态
     finally:
         await stack.close()
 

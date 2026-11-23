@@ -229,6 +229,30 @@ def test_cancel_run_frame_requires_exactly_a_run_id() -> None:
 
 
 @pytest.mark.parametrize(
+    "project_id",
+    ["", "x" * 17],
+)
+def test_run_project_id_is_bounded_to_sixteen_chars(project_id: str) -> None:
+    """``project_id`` 的长度界与 ``run_id`` 对称：``min_length=1`` / ``max_length=16``。
+
+    界值本身在帧模型上（``ProjectChannelEntry.id`` 与命令帧同一上限），这里钉的是**解析面**：
+    空串与超长都在 ``parse_command_frame`` 就回 ``malformed``，不会漏到端点去查一个不存在的项目。
+    """
+    text = json.dumps({"command": "run", "prompt": "hi", "project_id": project_id})
+
+    with pytest.raises(WsFrameError) as exc_info:
+        parse_command_frame(text)
+    assert exc_info.value.kind is WsFrameErrorKind.MALFORMED
+
+
+def test_run_project_id_accepts_exactly_sixteen_chars() -> None:
+    """上界是闭区间：16 字符合法（17 才是越界），免得把「刚好满」判成非法。"""
+    text = json.dumps({"command": "run", "prompt": "hi", "project_id": "x" * 16})
+
+    assert parse_command_frame(text).project_id == "x" * 16
+
+
+@pytest.mark.parametrize(
     "text",
     [
         '{"command":"cancel_run"}',  # run_id 必带

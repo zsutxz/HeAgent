@@ -96,5 +96,9 @@
   - ① `lan` 档补独立告警锚点：`_warn_remote_without_sandbox` 返回 `(锚点, 正文)`，`external` → `ws event=external_without_sandbox`、`lan` → `ws event=lan_without_sandbox`（文案点名「no token」，因为同网段任何设备都能驱使代理）；`docker` 档两档都 0 条。判据 `test_lan_listener_without_docker_warns_with_its_own_anchor` / `test_lan_listener_on_docker_stays_quiet`。
   - ② 回落链「静默窗口」经核**生产不可达**：`HttpAgentHandler.__init__` 无条件 `self.engine = engine or EngineContainer.default(...)`，而 `EngineContainer.default` 必写 `sandbox_decision` ⇒ `_effective_sandbox_backend` 在生产路径不含 None，`or sandbox or settings.sandbox_backend` 只服务注入替身。判据 `test_a_real_handler_always_reports_an_effective_backend`；`http.py` 的注释点明该尾巴的适用范围。
   - ③ ADR-005 端到端补**真 listener** 判据：新增 `tests/network/test_ws_remote_flow_live.py`（真 `WsServer` 随机端口 + 真 `HttpRunService` + 真 `HttpProjectConsole` + 真 `AgentLoop`，生产装配走 `_project_channel`）。两条用例覆盖：列项目帧 / 提交 / 取消到 `cancelled` 终态 / 跑到 `done` 终态（seq 连续）/ `last_event_id` 续流无空洞；以及「真 AgentLoop 跑完并落会话文件」。
-- 未关闭的门：E76 无（延期项清零）。`brief.md` 里仍挂着 E74/E75 时代的既有延期项，与本 epic 无关。
+- 2026-11-23 **E74/E75 时代延期项复核（逐条取证后收口）**：`brief.md` 的延期项从 15 条收到 **2 条待裁决**。
+  - 已闭合且带新判据：R1 L-4（`project_id` 1–16 界值：空串 / 17 字符 ⇒ `malformed`，16 字符合法）· R2 M-2（真链路的错误帧不含项目路径：注册后删目录 ⇒ `project_unavailable` 且 message 无路径形态）· R1 M-1（名额仍是一套计数：同项目第二个 run ⇒ `run_conflict`、另一项目照常受理）。
+  - 已闭合（取证为既有交付）：R2 M-1（`docs/framework.md` 目录树含 `ws_commands.py:1792`）· R2 M-3（命令集已五值，无 `{run,cancel,ping}` 残留）· R1 L-6（`ws event=project_service_ignored` debug 已在）· R1 L-3 / L-5 / L-7（口径/冻结段，按实测定位）· R3 M-1（生产装配已注入项目通道，E76 用例断言）· R3 M-3（端口三条义务已写进 docstring 并有判据）· R1 M-2（环境产物归档）。
+  - 本轮补的落改：`ws_server.build_runs_collection_endpoint` docstring 明示「只读 listener 根本不注册该端点」（R1 L-2）· `docs/framework.md` 帧契约行补断连口径唯一例外（R1 L-1）。
+- 未关闭的门：**2 条待用户裁决**（`request_id` 幂等键、`invalid_request` 是否拆具名码）。
 - 本轮结论：ADR-005 验收基线在组合层面闭合（并发隔离 / cursor 续流 / 可见面不扩张 / 契约与文档收口），远程面「`external` 必须 wss + token，非 docker 后端每次启动喊一条」已落地；端到端真 listener 仍是已知缺口。

@@ -236,6 +236,10 @@ def build_runs_collection_endpoint(
     ``max_connections`` 是这条**连接**面自己的席位池（见 :class:`_SubmissionSlots`）：额度取
     ``WsServerConfig.ws_max_connections``，与 run 订阅额度同值但各自计数（一条连接只做提交、
     不订阅，混在一个池里会让调订阅额度意外地限制提交通道）。
+
+    本构造器没有 ``readonly`` 形参：只读 listener（``WsServerConfig.readonly``）**根本不注册**这条
+    端点，提交能力连「试一下拿 ``run_conflict``」的机会都没有。改装配时别在命令循环里补判——那会
+    让只读 listener 也拥有一条可探测的提交路径。
     """
     slots = _SubmissionSlots(max_connections)
 
