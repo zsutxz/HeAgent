@@ -13,13 +13,14 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from heagent.network.http_protocol import (
     HttpErrorCode,
     HttpRunConflictError,
     RunEventPayload,
     RunRequest,
+    RunStatus,
     error_envelope,
     replay_then_follow,
 )
@@ -126,6 +127,37 @@ class RunWebSocketService(Protocol):
         """注销连接绑定；对未知 id 幂等无操作。"""
 
     ...
+
+
+class SubmittedRun(BaseModel):
+    """提交成功的**收窄**结果：刻意不含 ``session_id``。
+
+    入口层的 ``ProjectRunResponse`` 带 ``session_id``；网络层若原样透传，就等于把「这个 run
+    接续了服务端的哪个会话」交给远程客户端，而帧面只需要客户端能操作的两项。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(min_length=1)
+    status: RunStatus
+
+
+class ProjectChannelService(Protocol):
+    """项目通道端口（与 :class:`RunWebSocketService` **并列**，不并入它）。
+
+    实现方住在入口层（``cli/ws_project_adapter``），网络层只按这两个签名调用。签名里没有
+    路径 / workspace / session 类参数，``project_id`` 是不透明短 id——「传输层不认识项目目录」
+    因此是结构保证，而不是纪律要求。失败一律抛 :class:`HttpRunConflictError`（``code`` 取自
+    ``HttpErrorCode``），端点侧只转译错误码、不改写语义。
+    """
+
+    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
+        """在该项目围栏内起 run 并返回收窄后的提交结果。"""
+        ...
+
+    async def ensure_available(self, project_id: str) -> str:
+        """提交前置校验（不占名额）：可用时原样返回 ``project_id``，否则抛 ``HttpRunConflictError``。"""
+        ...
 
 
 async def _send_error_frame(websocket: WebSocketLike, code: HttpErrorCode, message: str) -> None:
@@ -315,11 +347,19 @@ async def _submit_run(websocket: WebSocketLike, service: RunWebSocketService, pr
     )
 
 
-async def _handle_submit_commands(websocket: WebSocketLike, service: RunWebSocketService) -> None:
+async def _handle_submit_commands(
+    websocket: WebSocketLike,
+    service: RunWebSocketService,
+    project_service: ProjectChannelService | None = None,
+) -> None:
     """集合级连接的命令循环：``run``（提交）与 ``ping``；``cancel`` 明确拒绝且不断连。
 
     这条连接**不绑定任何 run**（D2 的期一形状：提交连接不转事件流）。客户端拿到 ack 里的
     ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
+
+    ``project_service`` 是项目寻址提交的注入端口：为 ``None``（未装配）时带 ``project_id`` 的
+    ``run`` 帧回 ``invalid_request`` 且**不**触达 ``service.start_run``——静默按启动工作区执行
+    会把「装配漏了」变成「跑错项目」。不带 ``project_id`` 的帧走原路径，逐字不变。
     """
     while True:
         frame = await _next_command(websocket)
@@ -327,6 +367,13 @@ async def _handle_submit_commands(websocket: WebSocketLike, service: RunWebSocke
             return
 
         if frame.command is WsCommand.RUN:
+            if frame.project_id is not None and project_service is None:
+                await _send_error_frame(
+                    websocket,
+                    HttpErrorCode.INVALID_REQUEST,
+                    "project addressing is not available on this listener",
+                )
+                continue
             await _submit_run(websocket, service, frame.prompt or "")
             continue
         if frame.command is WsCommand.CANCEL:
@@ -435,6 +482,7 @@ def build_runs_collection_endpoint(
     max_connections: int,
     authorize: AuthCheck | None = None,
     version: str = "",
+    project_service: ProjectChannelService | None = None,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造**集合级**端点（``WS /api/runs/ws``）：经 WS 提交 run（Epic 56 D2）。
 
@@ -473,7 +521,7 @@ def build_runs_collection_endpoint(
                 )
                 return
             logger.info("ws event=submit_open connection_id=%s", connection_id)
-            await _handle_submit_commands(ws, service)
+            await _handle_submit_commands(ws, service, project_service)
 
         def finalize(connection_id: str) -> None:
             if acquired:
@@ -568,10 +616,14 @@ def build_ws_endpoint(
     authorize: AuthCheck | None = None,
     readonly: bool = False,
     version: str = "",
+    project_service: ProjectChannelService | None = None,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造单 run WebSocket endpoint；Origin 规则、连接额度与认证由宿主单点注入。
 
     ``readonly`` 透传给命令处理：只读 listener 上 ``cancel`` 被拒绝、事件流照常。
+
+    ``project_service`` 与集合级端点同名同义（默认 ``None`` = 没有项目通道）。单 run 端点本来
+    就不接受 ``run`` 命令，所以本参数只保证两个构造器签名同形，当下的行为不随它改变。
     """
 
     async def endpoint(websocket: WebSocketLike) -> None:
@@ -892,7 +944,9 @@ def build_notification_ws_endpoint(
 
 __all__ = [
     "AuthCheck",
+    "ProjectChannelService",
     "RunWebSocketService",
+    "SubmittedRun",
     "WebSocketLike",
     "build_cli_ws_endpoint",
     "build_notification_ws_endpoint",

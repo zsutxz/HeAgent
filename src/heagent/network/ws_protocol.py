@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from heagent.network.http_protocol import (
     JSON_ENVELOPE_ALLOWANCE_BYTES,
@@ -73,6 +73,30 @@ class WsCommand(StrEnum):
     CANCEL = "cancel"
     PING = "ping"
     RUN = "run"
+
+
+#: 命令 → **允许出现**的键（字段白名单）。解析器与模型校验器共读这一张表：新增命令不登记即
+#: 被 ``set(_FRAME_FIELDS) == set(WsCommand)`` 判据拦下，「按命令判字段」的规则因此只有一份。
+_FRAME_FIELDS: dict[WsCommand, frozenset[str]] = {
+    WsCommand.RUN: frozenset({"command", "prompt", "project_id"}),
+    WsCommand.CANCEL: frozenset({"command"}),
+    WsCommand.PING: frozenset({"command"}),
+}
+
+#: 允许**缺席**（一旦出现仍须合法）的字段：只有 ``run`` 的 ``project_id``——缺省即「启动工作区」，
+#: 与这条字段出现之前的旧路径逐字等价。白名单内其余键一律必带，所以不需要第二张「必带表」，
+#: 也就没有两表漂移的余地。
+_OPTIONAL_FRAME_FIELDS: frozenset[str] = frozenset({"project_id"})
+
+
+def required_frame_fields(command: WsCommand) -> frozenset[str]:
+    """按白名单推出**必带**键：命令允许出现的键里，除可选字段外都要出现。"""
+    return _FRAME_FIELDS[command] - _OPTIONAL_FRAME_FIELDS
+
+
+def _unexpected_fields(command: WsCommand, present: frozenset[str]) -> frozenset[str]:
+    """出现在帧里、但不属于该命令白名单的键。"""
+    return present - _FRAME_FIELDS[command]
 
 
 class WsFrameErrorKind(StrEnum):
@@ -181,22 +205,32 @@ class WsErrorFrame(BaseModel):
 class WsCommandFrame(BaseModel):
     """客户端发来的命令帧。
 
-    ``prompt`` 与 ``run`` **互斥绑定**：``run`` 必须带 prompt，其余命令带 prompt 一律 MALFORMED。
-    这种「按命令判字段」的校验放在模型里而不是解析器里，是为了让运行时与测试共用同一份规则。
+    字段规则由 :data:`_FRAME_FIELDS` 单一映射表决定：``prompt`` 与 ``project_id`` **只对**
+    ``run`` 有效，其中 ``prompt`` 必带、``project_id`` 可选（缺省 = 启动工作区，旧路径逐字不变）。
+    规则放在模型里而不是只放解析器里，是为了让运行时与测试共用同一份；解析器另在 JSON 层先按
+    同一张表判一次，好让「字段拼错」在进模型之前就是 ``malformed``。
+
+    ``project_id`` **不做 strip**：它由项目注册表的 ``project_id_for()``（``"p" + sha256[:8]``）
+    或字面量 ``"default"`` 产出，客户端必须原样回传——strip 会造出第二个合法拼写。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     command: WsCommand
     prompt: str | None = None
+    project_id: str | None = Field(default=None, min_length=1, max_length=16)
 
     @model_validator(mode="after")
-    def _validate_prompt_presence(self) -> WsCommandFrame:
-        if self.command is WsCommand.RUN:
-            if self.prompt is None:
-                raise ValueError("the run command requires a prompt")
-        elif self.prompt is not None:
-            raise ValueError("prompt is only valid for the run command")
+    def _validate_fields_per_command(self) -> WsCommandFrame:
+        # 显式 null 与缺席同义（值为 None 不计入「出现」）：``{"command":"run","prompt":null}``
+        # 因此按「缺 prompt」处理，与 ``_FRAME_FIELDS`` 的白名单语义保持一致。
+        present = frozenset(self.model_dump(exclude_none=True))
+        missing = required_frame_fields(self.command) - present
+        if missing:
+            raise ValueError(f"the {self.command.value} command requires {', '.join(sorted(missing))}")
+        unexpected = _unexpected_fields(self.command, present)
+        if unexpected:
+            raise ValueError(f"{', '.join(sorted(unexpected))} is not valid for the {self.command.value} command")
         return self
 
 
@@ -205,7 +239,8 @@ def parse_command_frame(text: str) -> WsCommandFrame:
 
     长度检查先于 JSON 解析，避免把超限输入交给解析器。两级上限：``WS_MAX_INBOUND_CHARS``
     是总闸（含 prompt），``WS_MAX_COMMAND_CHARS`` 再把非 ``run`` 命令钉回小上限——解析出命令
-    之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后做。
+    之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后做。字段判定与模型共用
+    :data:`_FRAME_FIELDS`：不在白名单的键、以及白名单内未出现的必带键，都判 ``malformed``。
     """
 
     if len(text) > WS_MAX_INBOUND_CHARS:
@@ -223,11 +258,12 @@ def parse_command_frame(text: str) -> WsCommandFrame:
     if not isinstance(command, str) or command not in {item.value for item in WsCommand}:
         raise WsFrameError(WsFrameErrorKind.UNKNOWN_COMMAND)
 
-    allowed_keys = {"command", "prompt"} if command == WsCommand.RUN.value else {"command"}
-    if command != WsCommand.RUN.value and len(text) > WS_MAX_COMMAND_CHARS:
+    parsed_command = WsCommand(command)
+    if parsed_command is not WsCommand.RUN and len(text) > WS_MAX_COMMAND_CHARS:
         # 先判大小再判语义：上限是资源保护，比「字段拼错」更该优先给出。
         raise WsFrameError(WsFrameErrorKind.TOO_LARGE)
-    if set(raw) != allowed_keys:
+    keys = frozenset(raw)
+    if _unexpected_fields(parsed_command, keys) or not required_frame_fields(parsed_command) <= keys:
         raise WsFrameError(WsFrameErrorKind.MALFORMED)
 
     try:
@@ -258,5 +294,6 @@ __all__ = [
     "WsFrameType",
     "WsNotificationFrame",
     "parse_command_frame",
+    "required_frame_fields",
     "error_envelope",
 ]

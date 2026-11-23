@@ -7,7 +7,7 @@
 id = 1
 type = "story"
 title = "E74-S01 · 命令帧白名单单一映射表与可选 project_id 字段"
-description = "完成时 `network/ws_protocol.py` 的命令帧字段白名单由模块级 `_FRAME_FIELDS`（命令 → 允许键集合）单一映射表驱动，`WsCommandFrame` 增加可选 `project_id`（min_length=1 / max_length=16 / 不做 strip），`parse_command_frame` 与模型校验器读同一张表并按该表判「必带 / 禁带」；`network/ws_server.py` 定义 `ProjectChannelService` Protocol（三方法）与 `SubmittedRun`（`run_id` + `status`，刻意无 `session_id`），`build_runs_collection_endpoint` / `build_ws_endpoint` 新增关键字参数 `project_service: ProjectChannelService | None = None`，为 `None` 时带 `project_id` 的 `run` 帧回 `invalid_request` 且不调用 `service.start_run`；不带 `project_id` 的帧解析结果与解析后调用路径逐字不变。"
+description = "完成时 `network/ws_protocol.py` 的命令帧字段白名单由模块级 `_FRAME_FIELDS`（命令 → 允许键集合）单一映射表驱动，`WsCommandFrame` 增加可选 `project_id`（min_length=1 / max_length=16 / 不做 strip），`parse_command_frame` 与模型校验器读同一张表并按该表判「必带 / 禁带」；`network/ws_server.py` 定义 `ProjectChannelService` Protocol（**本 entry 只声明 `start_project_run(project_id, prompt) -> SubmittedRun` 与 `ensure_available(project_id) -> str` 两方法**，`list_projects` 由 75.3 追加）与 `SubmittedRun`（`run_id` + `status`，刻意无 `session_id`），`build_runs_collection_endpoint` / `build_ws_endpoint` 新增关键字参数 `project_service: ProjectChannelService | None = None`，为 `None` 时带 `project_id` 的 `run` 帧回 `invalid_request` 且不调用 `service.start_run`；不带 `project_id` 的帧解析结果与解析后调用路径逐字不变。"
 verify = "`pytest tests/network/test_ws_command_fields.py tests/network/test_ws_protocol.py -q`：五个新例全绿 —— `run` 帧带 `project_id` 解析出该值且不 strip、`project_id=\"\"` ⇒ `malformed`、`run` 帧带未知键 ⇒ `malformed`、未登记命令使 `set(_FRAME_FIELDS) == set(WsCommand)` 失败即红、`project_service=None` 时带 `project_id` 的提交回 `invalid_request` 且 `start_run` 调用 0 次。"
 covers = ["R1", "R2"]
 after = []
