@@ -35,7 +35,7 @@ from heagent.network.ws_protocol import (
     WsFrameType,
     WsProjectsFrame,
 )
-from heagent.pub.projects import ProjectRegistryError
+from heagent.pub.projects import MAX_PROJECTS, ProjectRegistry, ProjectRegistryError
 
 _PROJECT_ID = "p1234abcd"
 _FRAME_KEYS = {"id", "name", "available"}
@@ -252,3 +252,122 @@ def test_adapter_stays_inside_its_line_budget() -> None:
     source = Path(ws_project_adapter.__file__).read_text(encoding="utf-8")
 
     assert len(source.splitlines()) <= 150
+
+
+# ── 注册表健康守卫（R5 提交径） ──
+
+
+class _RegistryConsole:
+    """真注册表的只读投影（与 `HttpProjectConsole.list_projects` 同形态），供顺序与上限判据。"""
+
+    def __init__(self, registry: ProjectRegistry) -> None:
+        self.registry = registry
+
+    async def list_projects(self) -> ProjectListResponse:
+        return ProjectListResponse(
+            projects=[ProjectEntryResponse(**entry.model_dump()) for entry in self.registry.list()]
+        )
+
+
+def _write_registry(path: Path, entries: list[dict[str, str]]) -> None:
+    path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+
+
+@pytest.mark.parametrize("method", ["start_project_run", "ensure_available"])
+async def test_submit_path_rejects_an_unreadable_registry_with_the_named_code(tmp_path: Path, method: str) -> None:
+    """注册表坏了 ⇒ 提交径回 `project_registry_unreadable`，绝不当成「这个项目不存在」。"""
+    registry_file = tmp_path / "projects.json"
+    registry_file.write_text("{not json", encoding="utf-8")
+    registry = ProjectRegistry(registry_file, default_path=tmp_path)
+    console = _FakeConsole()
+    adapter = ProjectChannelAdapter(console, lambda: registry.health().code)  # type: ignore[arg-type]
+
+    with pytest.raises(HttpRunConflictError) as raised:
+        if method == "ensure_available":
+            await adapter.ensure_available(_PROJECT_ID)
+        else:
+            await adapter.start_project_run(_PROJECT_ID, "写个快排")
+
+    assert raised.value.code is HttpErrorCode.PROJECT_REGISTRY_UNREADABLE
+    assert str(raised.value.code) == "project_registry_unreadable"
+    # 不进控制台 ⇒ 下游没有机会把它译成 `unknown_project`；文案不含路径。
+    assert console.calls == []
+    assert str(tmp_path) not in str(raised.value)
+
+
+async def test_readable_registry_keeps_the_submit_path_working(tmp_path: Path) -> None:
+    """守卫只拦「不可读」：健康注册表照常走到控制台（否则等于给提交加了第二道门）。"""
+    registry_file = tmp_path / "projects.json"
+    _write_registry(registry_file, [])
+    registry = ProjectRegistry(registry_file, default_path=tmp_path)
+    console = _FakeConsole()
+    adapter = ProjectChannelAdapter(console, lambda: registry.health().code)  # type: ignore[arg-type]
+
+    result = await adapter.start_project_run(_PROJECT_ID, "写个快排")
+
+    assert result.run_id == "run-0001"
+    assert [name for name, _ in console.calls] == ["start_project_run"]
+
+
+async def test_frame_order_matches_the_registry_listing(tmp_path: Path) -> None:
+    """R1 的顺序判据：已登记项按 `last_opened_at` 倒序、`default` 末位，与 `list()` 逐位一致。"""
+    registry_file = tmp_path / "projects.json"
+    _write_registry(
+        registry_file,
+        [
+            {"id": "pold00001", "name": "旧", "path": str(tmp_path / "old"), "last_opened_at": "2026-11-20T09:00:00Z"},
+            {"id": "pnew00001", "name": "新", "path": str(tmp_path / "new"), "last_opened_at": "2026-11-23T09:00:00Z"},
+            {"id": "pnever01", "name": "未用", "path": str(tmp_path / "never")},
+        ],
+    )
+    registry = ProjectRegistry(registry_file, default_path=tmp_path)
+    adapter = ProjectChannelAdapter(  # type: ignore[arg-type]
+        _RegistryConsole(registry), lambda: registry.health().code
+    )
+
+    frame = await adapter.list_projects()
+
+    assert [item.id for item in frame.projects] == [item.id for item in registry.list()]
+    assert [item.id for item in frame.projects] == ["pnew00001", "pold00001", "pnever01", "default"]
+    assert frame.registry_state == "ok"
+
+
+async def test_all_thirty_two_projects_are_visible(tmp_path: Path) -> None:
+    """R1 的 32 上限判据：31 条登记 + `default` 全量可见（上限不是「不可读」）。"""
+    registry_file = tmp_path / "projects.json"
+    _write_registry(
+        registry_file,
+        [
+            {"id": f"p{index:08d}", "name": f"项目 {index}", "path": str(tmp_path / f"p{index}")}
+            for index in range(MAX_PROJECTS - 1)
+        ],
+    )
+    registry = ProjectRegistry(registry_file, default_path=tmp_path)
+    adapter = ProjectChannelAdapter(  # type: ignore[arg-type]
+        _RegistryConsole(registry), lambda: registry.health().code
+    )
+
+    frame = await adapter.list_projects()
+
+    assert len(frame.projects) == MAX_PROJECTS == 32
+    assert frame.projects[-1].id == "default"
+    assert frame.registry_state == "ok"
+
+
+@pytest.mark.parametrize("method", ["start_project_run", "ensure_available"])
+async def test_default_project_stays_usable_when_the_registry_is_unreadable(tmp_path: Path, method: str) -> None:
+    """`default` 由注册表句柄的启动工作区直接合成、不读注册表 ⇒ 登记表坏了也能提交。
+
+    否则「登记表被改坏」会升级成「整个服务不可用」，而同一条帧里 `default` 仍是 `available=true`。
+    """
+    registry_file = tmp_path / "projects.json"
+    registry_file.write_text("{not json", encoding="utf-8")
+    registry = ProjectRegistry(registry_file, default_path=tmp_path)
+    console = _FakeConsole()
+    adapter = ProjectChannelAdapter(console, lambda: registry.health().code)  # type: ignore[arg-type]
+
+    if method == "ensure_available":
+        assert await adapter.ensure_available("default") == "default"
+    else:
+        assert (await adapter.start_project_run("default", "写个快排")).run_id == "run-0001"
+    assert [name for name, _ in console.calls]  # 确实走到了控制台

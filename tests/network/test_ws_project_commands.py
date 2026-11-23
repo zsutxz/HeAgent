@@ -316,6 +316,20 @@ def test_projects_frame_is_closed_and_two_valued() -> None:
         ProjectChannelEntry(id="p1", name="x", available=True, path="/tmp")  # type: ignore[call-arg]
 
 
+def test_projects_frame_carries_the_architecture_bounds() -> None:
+    """帧面自带上下界，不靠上游「恰好有界」：条目 32 上限 / 名字 1–64 / `registry_state` 默认 `ok`。"""
+    entry = {"id": "p1", "name": "x", "available": True}
+    assert WsProjectsFrame(projects=[]).registry_state == "ok"  # 缺省两值里的 ok
+    assert len(WsProjectsFrame(projects=[ProjectChannelEntry(**entry)] * 32).projects) == 32
+
+    with pytest.raises(ValidationError):
+        WsProjectsFrame(projects=[ProjectChannelEntry(**entry)] * 33)  # 33 > MAX_PROJECTS
+    with pytest.raises(ValidationError):
+        ProjectChannelEntry(id="p1", name="", available=True)  # 空名
+    with pytest.raises(ValidationError):
+        ProjectChannelEntry(id="p1", name="x" * 65, available=True)  # 超 MAX_PROJECT_NAME_CHARS
+
+
 def test_projects_port_takes_no_arguments() -> None:
     """端口签名：``list_projects`` 不带参数（项目集合由实现方决定，客户端不能指定过滤条件）。"""
     params = set(inspect.signature(ProjectChannelService.list_projects).parameters) - {"self"}

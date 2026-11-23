@@ -292,6 +292,11 @@ async def test_untranslated_port_error_becomes_server_error_and_closes() -> None
 
 #: 项目侧错误码全集（``HttpErrorCode`` 里 ``unknown_project`` 起的连续分组的可抛成员）。
 #: 判据是**枚举成员**而不是字面量：码表改名时这条参数化会跟着红，不会静默少测。
+#:
+#: 口径：本节证明的是**转译层**（任意项目侧码都能逐字进错误帧），端口一律用桩抛码；其中
+#: ``PROJECT_REGISTRY_UNREADABLE`` 的**生产来源**（真注册表读不出）由
+#: ``tests/test_ws_project_adapter.py::test_submit_path_rejects_an_unreadable_registry_with_the_named_code``
+#: 用真 ``ProjectRegistry`` 钉住——桩用例不能替代它。
 _PROJECT_SIDE_CODES = [
     HttpErrorCode.UNKNOWN_PROJECT,
     HttpErrorCode.INVALID_PROJECT_PATH,

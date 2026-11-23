@@ -107,3 +107,20 @@
 - 2026-11-23 R3 M-8：集合级端点的 `cancel_run` 可取消任意 `run_id`（无所有权判定）——**这是设计意图**，但文档必须写成「入口口径：谁能连上谁就能取消，不是授权」（与安全声明第 3 条同型风险）。转 **76.6**。
 - 2026-11-23 R3 L-4：`ws_protocol.py:97` 的 `_OPTIONAL_FRAME_FIELDS` 粒度是字段名而非 (命令, 字段)，将来若某命令的 `run_id` 变可选，唯一表达方式是放宽全局集合并连带放开 `cancel_run` 的必带语义。转 **75.6**。
 - 2026-11-23 R3 L-5：`tests/network/test_ws_command_fields.py:23` 直接 import 私有 `_FRAME_FIELDS`（实现细节耦合）。转 **75.6**：加 `frame_fields(command)` 公开读口后测试改读。
+- 2026-11-23 R1(E75) M-1：`projects` 帧的「条目 ↔ `registry_state` 同源快照」未成立 —— `list()` 走线程池读一次、健康探针 `health()` 再读一次（`cli/http.py:377-379` 的闭包），两次读之间注册表可被外部改动。当轮只把探针挪进线程池（不占事件循环），**单次读单源**未做。转 E76（若要收，形态 = `ProjectChannelService.list_projects` 一次读产出 `(entries, state)`）。
+- 2026-11-23 R1(E75) M-2：R3 的「带 `project_id` 的 run 六项落点」缺 **WS 端到端**用例（现有判据停在 console 层：`tests/test_http_console_project_run.py`；adapter→console 只在假 console 上验）。转 E76-S05（ADR-005 五步串跑同面，端点级 fixture 一次建好）。
+- 2026-11-23 R1(E75) L-1：epic R7 正文的「`cli/http.py` 两处 `build_ws_servers` 调用（`:449` / `:789`）」是改动前行号，改后为 `:492` / `:843`。epic Requirements 冻结不回改；后续按符号定位（`build_http_service` / `http_server_cmd`）。
+- 2026-11-23 R1(E75) L-2：`tests/network/test_ws_server.py::test_build_ws_server_config_autofind_starts_from_ws_port` 首跑红、单跑与二次全跑绿（端口自动探测对环境敏感，非本 epic 引入）。按 `docs/testing.md` 当环境噪声。
+- 2026-11-23 R1(E75) L-3：`run` / `projects` 的「only accepted on the run collection endpoint」文案在四个端点各写一份（`ws_server.py:508/622` + `ws_commands.py:113`，`run` 同款另三处）；用例只断言 `in` 子串 ⇒ 文案漂移不会红。可提取 `_only_on_collection(command)`，属跨 E74/E75 的既有形态。
+- 2026-11-23 R1(E75) L-4：`ensure_available` 借 `get_project_config` ⇒ 每次提交多跑一次 `build_config_report` + 构 per-project 引擎（探针确认无落盘副作用，但这是巧合而非契约）。宜写进端口 docstring 的可 grep 义务。
+- 2026-11-23 R2(E75) M-1：一次提交现在读注册表 3 次（`_guard_registry` 的健康探针 + `ensure_available` / `start_project_run` 各一次 console 解析），两次读之间注册表被改会看到不同快照。最坏退化回 `unknown_project`（旧行为），**不会**「跑错项目」，故不阻塞收口。与 R1 M-1 同根（单次读单源）。
+- 2026-11-23 R2(E75) M-2：`_project_channel` 闭包（`cli/http.py:355-380`）无测试直调 —— 探针真被打到的只有经 75.5 wiring 用例的间接断言。补一条「闭包真调一次 `health()`」即可钉住。
+- 2026-11-23 R2(E75) L-1：`project_service` 在 `ws_host.build_ws_app` / `WsServer.__init__` / `build_ws_servers` 三处声明成 `Any | None`（同类 `run_service` 是具体 Protocol）。宜收窄成 `ProjectChannelService | None`（同层 import，无循环风险）。
+- 2026-11-23 R2(E75) L-2：端口异常的 `str(exc)` 原样进错误帧，当前生产文案都不含路径，但「不含路径」无集中守卫（与 E74 R2 M-2 同一缺口）。
+- 2026-11-23 R3(E75) H-2 延伸（**需用户裁决**）：架构 AD-8 想要「只读 listener 也能看项目清单」，但只读 listener 不注册集合级端点（E74 端点集契约）+ 其余端点一律拒 `projects` ⇒ 该能力当前不可达，E75 按 §4.1 落地。要支持它需要新增一种只读端点形态（或给单 run 端点开 `projects` 白名单），属结构扩张、超出 E75 / E76 的 Boundaries ⇒ 记在此处，等 E76 收口或用户裁定。
+- 2026-11-23 R3(E75) M-1：一次提交读注册表 4 次（守卫 health + 两次 console `find`，见 R2 M-1 同根），且守卫读与 console 读之间仍有窗口（那时损坏 ⇒ 仍旧 `unknown_project`）。窗口收窄但不闭合；单次读单源才能闭合。
+- 2026-11-23 R3(E75) M-2：提交成功但 ack 发送失败时 run 已建、客户端拿不到 `run_id`（重试得 `run_conflict`），`ws event=submit_failed` 日志不记 `run_id`。宜补日志字段 + 端口 docstring 写明「成功后的 ack 丢失不在原子性保证内」。
+- 2026-11-23 R3(E75) M-3：同一项目两客户端并发提交时回 `run_conflict`（会话级冲突），而 `docs/errors.md` 把「同一项目同时跑多个运行」写成 `project_busy`（后者只由删项目端点产生）⇒ 码的语义与文档不符，随 E76 文档收口统一。
+- 2026-11-23 R3(E75) M-4：`ProjectChannelEntry.name` / `WsProjectsFrame.projects` 的上下界与 `registry_state` 默认值已按 AD §4.2 补齐（`name` 1–64、`projects` ≤32、默认 `ok`）；**时区混合的时间戳排序**（字符串序 vs 时间序）仍是缺口 —— `touch()` 恒写 UTC，只有手改文件触发，暂不修。
+- 2026-11-23 R3(E75) L-1：`ProjectRegistryHealth.detail` 生产侧零消费者（只进模型与契约基线）。要么接进日志/诊断，要么收回导出面，择一。
+- 2026-11-23 R3(E75) L-2：`HTTP_ENABLED=false` 时 console 现仍被构造 ⇒ `write_enabled` 时会为一个不存在的端口打「配置写通道已开启」的 stderr 告警。宜惰性化或把 echo 挪到 listener 真建之后。

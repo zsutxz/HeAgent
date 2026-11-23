@@ -162,13 +162,18 @@ class ProjectRegistry:
         if error is not None:
             self._warn_once(_READ_FAILED, "Unable to read project registry %s: %s", self._path, error)
             return ProjectRegistryHealth(code="unreadable", detail=_read_failure_detail(error))
+        # 读成功即复位「读失败」成因；文件不存在（= 运维删掉坏表）连「内容坏」一并复位——去重只该
+        # 压同一段故障期里的重复请求，修好/删掉之后再坏必须**再响一次**，否则第二次故障永远静默。
+        self._warned.discard(_READ_FAILED)
         if raw is None:
+            self._warned.discard(_CONTENT_CORRUPT)
             return ProjectRegistryHealth()
         try:
             self._parse(raw)
         except _RegistryCorrupt as exc:
             self._warn_once(_CONTENT_CORRUPT, "Invalid project registry; using an empty registry (%s)", exc)
             return ProjectRegistryHealth(code="unreadable", detail=_corrupt_detail(exc))
+        self._warned.discard(_CONTENT_CORRUPT)
         return ProjectRegistryHealth()
 
     def load(self) -> builtins_list[_StoredProject]:
@@ -177,7 +182,9 @@ class ProjectRegistry:
         if error is not None:
             self._warn_once(_READ_FAILED, "Unable to read project registry %s: %s", self._path, error)
             return []
+        self._warned.discard(_READ_FAILED)
         if raw is None:
+            self._warned.discard(_CONTENT_CORRUPT)
             return []
         return self._decode(raw)
 
@@ -205,7 +212,7 @@ class ProjectRegistry:
         return None
 
     def list(self) -> builtins_list[ProjectEntry]:
-        """返回对外项目列表：`default` 恒在首位，其余按登记顺序。"""
+        """返回对外项目列表：已登记项按 `last_opened_at` 倒序（无时间戳的排最后）、`default` 恒在末位。"""
         entries = [self._default_entry()]
         entries.extend(
             ProjectEntry(
@@ -312,10 +319,12 @@ class ProjectRegistry:
     def _decode(self, raw: str) -> builtins_list[_StoredProject]:
         """**读路径**口径：fail-soft —— 解析失败返回空表（脊柱 §4：不阻断 HTTP 服务）。"""
         try:
-            return self._parse(raw)
+            entries = self._parse(raw)
         except _RegistryCorrupt as exc:
             self._warn_once(_CONTENT_CORRUPT, "Invalid project registry; using an empty registry (%s)", exc)
             return []
+        self._warned.discard(_CONTENT_CORRUPT)
+        return entries
 
     @classmethod
     def _decode_or_raise(cls, raw: str) -> builtins_list[_StoredProject]:
@@ -342,7 +351,11 @@ class ProjectRegistry:
             if not isinstance(data, list):
                 raise ValueError("registry root must be an array")
             entries = [_StoredProject.model_validate(item) for item in data]
-            if len(entries) > MAX_PROJECTS or len({item.id for item in entries}) != len(entries):
+            # 登记项上限是 ``MAX_PROJECTS - 1``（``default`` 恒定占一位，与 ``register`` 的判定同源）：
+            # 允许 32 条登记会让 ``list()`` 回 33 条，撞上 ``ProjectListResponse(max_length=32)``，
+            # 于是「注册表手改成满额」会变成 projects 命令 500 + 断连——宁可判整表不可读（fail-soft
+            # 回 default 一条 + 一条 WARNING），也不要把超界数据交给下游。
+            if len(entries) >= MAX_PROJECTS or len({item.id for item in entries}) != len(entries):
                 raise ValueError("registry entries are invalid")
             return entries
         except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:

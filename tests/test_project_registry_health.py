@@ -84,3 +84,90 @@ def test_repeated_probes_warn_only_once(tmp_path: Path, caplog: pytest.LogCaptur
         assert registry.health().code == "unreadable"
         assert [item.id for item in registry.list()] == ["default"]
     assert len(_warnings(caplog)) == 1
+
+
+def test_a_second_outage_after_recovery_warns_again(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """去重只压同一段故障期：注册表修好后再坏必须**再响一次**，否则同句柄上的第二次故障永久静默。"""
+    caplog.set_level(logging.WARNING)
+    path = tmp_path / "projects.json"
+    path.write_text("{broken", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    assert registry.health().code == "unreadable"
+    assert len(_warnings(caplog)) == 1
+
+    path.write_text("[]", encoding="utf-8")  # 运维修好
+    assert registry.health().code == "ok"
+
+    path.write_text("{broken again", encoding="utf-8")  # 又坏一次
+    assert registry.health().code == "unreadable"
+    assert len(_warnings(caplog)) == 2
+
+
+def _too_many(count: int) -> str:
+    return json.dumps(
+        [{"id": f"p{index:08d}", "name": f"p{index}", "path": f"/tmp/p{index}"} for index in range(count)],
+        ensure_ascii=False,
+    )
+
+
+def test_a_full_registry_is_unreadable_instead_of_overflowing_the_frame(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """恰 `MAX_PROJECTS` 条登记（= 上限 + default 会变 33）判不可读，而不是让 `list()` 回 33 条。
+
+    登记上限是 `MAX_PROJECTS - 1`（`register()` 的判定同源）：手改成 32 条时宁可整表 fail-soft
+    回 `default` 一条 + 一条 WARNING，也不要把 33 条交给 `ProjectListResponse(max_length=32)`——
+    那会让 `projects` 命令回 `server_error` 并断连，客户端拿不到任何可用项目。
+    """
+    caplog.set_level(logging.WARNING)
+    path = tmp_path / "projects.json"
+    path.write_text(_too_many(MAX_PROJECTS), encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    assert registry.health().code == "unreadable"
+    assert [item.id for item in registry.list()] == ["default"]  # 不会溢出成 33 条
+    assert len(_warnings(caplog)) == 1
+
+
+def test_non_utf8_registry_reports_a_path_free_detail(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """非 UTF-8 字节（读径抛 `UnicodeError`）：判不可读，`detail` 只说是编码问题、不回显路径。"""
+    caplog.set_level(logging.WARNING)
+    (tmp_path / "projects.json").write_bytes(b"\xff\xfe\x00bad")
+    registry = _registry(tmp_path)
+
+    health = registry.health()
+
+    assert health.code == "unreadable"
+    assert health.detail == "registry file is not valid UTF-8 text"
+    assert str(tmp_path) not in health.detail
+
+
+def test_schema_mismatch_reports_a_schema_detail(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """条目字段不合规（`ValidationError`）：`detail` 折叠成一句 schema 不符，不带出条目字段值。"""
+    caplog.set_level(logging.WARNING)
+    (tmp_path / "projects.json").write_text(json.dumps([{"id": "p1", "name": "缺 path"}]), encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    health = registry.health()
+
+    assert health.code == "unreadable"
+    assert health.detail == "registry entries do not match the expected schema"
+
+
+def test_deleting_the_corrupt_file_also_rearms_the_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """删掉坏表（`app.js` 明示的运维动作）同样算恢复：之后再坏必须**再响一次**。"""
+    caplog.set_level(logging.WARNING)
+    path = tmp_path / "projects.json"
+    path.write_text("{broken", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    assert registry.health().code == "unreadable"
+    assert len(_warnings(caplog)) == 1
+
+    path.unlink()  # 运维修法之二：删掉坏表
+    assert registry.health().code == "ok"
+
+    path.write_text("{broken again", encoding="utf-8")
+    assert registry.health().code == "unreadable"
+    assert len(_warnings(caplog)) == 2

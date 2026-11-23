@@ -76,7 +76,7 @@ async def _handle_commands(
     *,
     readonly: bool = False,
 ) -> None:
-    """处理 cancel / cancel_run / ping 三条命令；断线异常由调用方收敛为连接结束。
+    """处理单 run 连接上的 cancel / cancel_run / ping 三条命令（run / projects 一律拒绝）；断线异常由调用方收敛为连接结束。
 
     ``projects`` 与 ``run`` 同属集合级能力，在这条连接上一律 ``invalid_request`` 且**不断连**。
 

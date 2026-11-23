@@ -8,12 +8,12 @@ covers: [R1, R5, R7]
 
 ## Story
 
-重生成四份契约基线并人工 review diff；把 `docs/framework.md` 的 WS 段收口到 Epic 75 的现口径
+重生成五份契约基线并人工 review diff；把 `docs/framework.md` 的 WS 段收口到 Epic 75 的现口径
 （5 值命令面 / `projects` 命令 / 项目通道注入链路 / 错误码总数），复核 `docs/frame.md`。
 
 ## Tasks & Acceptance
 
-- [x] `python scripts/contract_snapshot.py --write` 全量重生成四份基线，`--check` 五份全 `[OK]`。
+- [x] `python scripts/contract_snapshot.py --write` 全量重生成五份基线，`--check` 五份全 `[OK]`。
 - [x] `docs/framework.md` 命令面口径：陈旧 `{run, cancel, ping}` / `{cancel, ping}` 全部改净
       （`grep -n` 复核无残留），改后命令面为 `run` / `cancel` / `cancel_run` / `ping` / `projects`，
       单 run 端点为 `{cancel, cancel_run, ping}`。

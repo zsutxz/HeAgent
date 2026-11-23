@@ -8,6 +8,7 @@ sources: ["docs/Goal-4/prd-ws-remote-project-channel/prd-ws-remote-project-chann
 after: ["epic-74-ws-frame-contract"]
 risk: high
 refined: true
+status: done
 ---
 
 # E75 · WS 远程项目通道：项目链运行时与投影注入
@@ -61,3 +62,8 @@ refined: true
 - 2026-11-23 Decision: 75.2 与 74.2 在 Step 06 被**重复切片**（`project_id` 提交分支、未装配护栏、`ensure→start` 次序、码透传在 74.2 已交付）；75.2 收窄为「把 `projects` 命令接进网络侧 + R7 判据补齐」。
 - 2026-11-23 Decision: 75.3 的票面写 `docs/frame.md`（v6 命名遗留，该文件不存在），真源是 `docs/framework.md` §4.1 的 cli 子模块表与目录树；按真源同步，不新建 `frame.md`。
 - 2026-11-23 Decision: 75.4 六项落点实测**零偏差**（`http_console.py` 未改动），本 entry 的交付形态是判据（`tests/test_http_console_project_run.py` 5 例，真 `HttpAgentHandler` + 真 `AgentLoop` 跑一次）。
+- 2026-11-23 Decision（R1 收口三审）：**R2 的「`heagent.cli` / `heagent.pub.projects` / `heagent.engine` / `heagent.agent` 恒 0 命中 `is_dir`」在 HEAD 上为假** —— 实测 `cli/` 5 处、`pub/projects.py` 5 处，全部早于本 epic 存在。真口径 = 架构 spine 的 I2：**`network/` 内 `is_dir` 恒 0 命中 + 不 import 注册表**，守卫在 `tests/network/test_ws_error_codes.py`（AST 断言）。R2 余下各半照旧成立，不重切。
+- 2026-11-23 Decision（R1 收口三审）：`## Done when` 第 4 条写「列表**空表**」与 R5「`list()` 仍回 `default` 一条」冲突 —— 实测帧是 `['default']` + `registry_state="unreadable"`，**以 R5 为准**（注册表可读性只影响其余条目，`default` 恒在）。Done when 段冻结不动，本行即口径裁决。
+- 2026-11-23 Decision（R1 收口三审落改）：提交径的 `project_registry_unreadable` 原先**无生产来源**（注册表坏 ⇒ `find()` fail-soft ⇒ `unknown_project`，正是架构文档的「被拒替代 (c)」）。落点选在入口层适配器（`ws_project_adapter._guard_registry`），不动 HTTP 面既有项目链语义（NG12）。
+- 2026-11-23 Decision（R3 收口三审 · H-1 规格缺陷记录）：Boundaries 写「**不改帧定义与错误码**（E74 已定）」，而本 epic 的交付（架构 AD §4.1/§4.2/AD-7 明确要求）新增了 `WsFrameType.PROJECTS`、`WsCommand.PROJECTS`、两个帧模型、`ProjectChannelService.list_projects()` 与 `HttpErrorCode.PROJECT_REGISTRY_UNREADABLE` —— **两侧相反**。裁定：以架构 spine 为准（帧/命令/码面扩张是 AD 授权的），Boundaries 的该句按「不改 E74 已定的既有帧字段与既有码的语义」理解，本行即口径载体；Requirements / Boundaries 段冻结不回改。KEEP：不得凭此句拒绝后续帧面扩张，扩张必须同时改 `test_ws_event_contract.py` 的帧类型封闭集与 `test_architecture_contracts.py` 的命令集（本 epic 两处都同步了）。
+- 2026-11-23 Decision（R3 收口三审 · H-2 规格缺陷记录）：架构 spine 内部自相矛盾 —— AD-8 写「只读 listener 上 `projects` 帧**允许**」并把「一并拒掉」列为被拒替代 (a)，而 §4.1 写「`projects` 在单 run / CLI 旁路 / 通知流上一律 `invalid_request`」且只读 listener 不注册集合级端点（E74 的端点集契约，`test_ws_endpoints_and_commands_stay_closed` 钉死）⇒ 只读 listener 上 `projects` **零可达路径**，E75 落地的正是 (a)。裁定：按 §4.1 与 E74 端点集落地（实现不改），AD-8 那句按「如果这条连接上有 `projects`，只读语义不额外禁它」理解；**为只读 listener 新增只读端点形态属结构扩张，超出 E75 Boundaries**，记入 `brief.md`「延期项」，是否要做留给 E76 收口或用户裁决。KEEP：不得为「让 AD-8 成立」而在只读 listener 上临时注册集合级端点（会破 E74 的 4 端点封闭集）。

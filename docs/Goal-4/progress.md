@@ -3,7 +3,7 @@
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
 - 状态：in-progress
-- 当前步骤：step-07-implement-story（E74 已收口；下一步 = E75 首条 entry）
+- 当前步骤：step-07-implement-story（E74 / E75 均已收口；下一步 = E76 首批 76.1–76.4）
 
 ## 步骤状态
 
@@ -15,15 +15,15 @@
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
 | 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
 | 06 | refine-stories | completed（approved 2026-11-23） | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
-| 07 | implement-story | in-progress（E74 已收口：三审 + 回顾 + 提交；续跑 E75） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
+| 07 | implement-story | in-progress（E74 / E75 已收口；续跑 E76 六条 entry） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
 - E74 `epic-74-ws-frame-contract`：5 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
-- E75 `epic-75-project-channel-runtime`：6 entry，0 built
-- E76 `epic-76-remote-surface-closeout`：6 entry，0 built
-- 合计 `counts {total: 17, review: 5, planned: 12}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（收口后）：`ready_to_start` = `75.1` / `75.2`（成对可开）
+- E75 `epic-75-project-channel-runtime`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
+- E76 `epic-76-remote-surface-closeout`：6 entry，0 built（收口 E75 后解锁）
+- 合计 `counts {total: 17, review: 11, planned: 6}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（E75 收口后）：`ready_to_start` = `76.1` / `76.2` / `76.3` / `76.4`；`blocked` = `76.5`（waiting 1,2）/ `76.6`（waiting 1,2,4,5）
 
 ## 决策日志（追加式，只增不改）
 
@@ -73,10 +73,18 @@
 - 2026-11-23 Decision: epic 容器 `status: done` 由宿主在收口时写进 epic 文件 frontmatter（`tickets.py mark` 只管 entry）。理由：`classify()` 的 epic gate 只认「容器 status == done」，不写则 `after: [epic-74]` 的 E75 / E76 永久 blocked（epic 级 `after` 声明因此无法自洽）。entry 的 `done` 仍只由 Step 08 的人工 `approve` 写。
 - 2026-11-23 **E74 收口门禁实测**：`pytest tests/network tests/test_architecture_contracts.py -q` = **719 passed**；`pytest tests/network -q` = 679 passed；`ruff check` / `ruff format --check`（499 files）/ `mypy src`（239 files）/ `bandit -r src/ -ll`（No issues identified）全绿。`pytest tests/test_contract_baselines.py` 仍 2 红（`exception_types.json` 缺 74.1 新增的 `SubmittedRun` / `ProjectChannelService`）——**已知预期红**，76.6 重生成快照收口。
 - 2026-11-23 **E74 收口提交**：`test(e74-s05): 依赖边界守卫补齐相对导入与 AST 口径` + `fix(e74): 三审落改补判据与 ack 语义，E74 收口`。
+- 2026-11-23 **E75 收口三审（R1 → 修 → R2 → 修 → R3 → 修 → 回顾）**：三份报告落 `tickets/epic-75-project-channel-runtime/-review-r{1,2,3}.md`。
+  - **R1**（规格对账，`bmad-code-review` 镜头）有条件的通过：Critical 0 / **High 1** / Medium 4 / Low 7。High = R5 的「提交径 fail-loud 回 `project_registry_unreadable`」**无生产来源**（注册表坏 ⇒ `find()` fail-soft ⇒ `unknown_project`，正是架构文档的被拒替代 (c)）⇒ 落改：适配器 `_guard_registry` + 健康探针进线程池 + 真注册表两例；另补真注册表顺序与 31 条上限判据、`list()` docstring 口径、s06 plan 基线份数。
+  - **R2**（不变量与守卫反脆弱，宿主自扫 + 三条注入反证）有条件的通过：Critical 0 / High 0 / Medium 3 / Low 4。Medium = 告警去重集只增不减 ⇒ 修好后再坏全静默 ⇒ 落改按故障期复位 + 用例；三条反证（命令集封闭 / `network` 无 `is_dir` / 新健康守卫）全部「红 → 复原 → 绿」。宿主复核纠正 R1 的一条误报：`network/` 的 `is_dir` 守卫早已存在（`tests/network/test_ws_error_codes.py:111`）。
+  - **R3**（三镜头对抗式，`code_review`）放行：Critical 0 / **High 2** / Medium 10 / Low 15。两条 high 全是**规格文本自相矛盾**、非代码缺陷：H-1 = epic Boundaries「不改帧定义与错误码」与架构 AD 授权的新增帧/命令/码相反；H-2 = 架构 AD-8「只读 listener 上 `projects` 允许」与 §4.1 + E74 端点集矛盾（只读 listener 上零可达，实现落到的正是 AD-8 的被拒替代 (a)）⇒ 按 `bad_spec` 记规格缺陷 + KEEP，**不改冻结段、不改 E74 端点集**，H-2 的「是否需要只读项目清单」标为**需用户裁决**。
+  - R3 的 Medium/Low 落改 6 处：`default` 豁免健康守卫、告警「删文件也复位」、帧界三处按 AD §4.2（`name` 1–64 / `projects` ≤32 / 默认 `ok`）、登记上限 32 → 31（消除 33 条溢出导致的 `server_error` + 断连）、非 UTF-8 与 schema 两分支补判据、`ws_commands` docstring。
+  - 落改后门禁：`829 passed` / ruff / format / mypy / bandit / `mkdocs --strict` 0 warning / 契约基线五份 `[OK]`。
+- 2026-11-23 **E75 收口结论**：epic 容器 `status: done` 写进 epic frontmatter ⇒ E76 六条解锁；回顾落 `-retrospective.md`（含 `## 三审记录`）。六条 entry 的 `done` 仍等 Step 08 的人工 `approve`。
+
 ## 交接块（下一轮入口）
 
-- 下一条：`none —— E75 六条全 built ⇒ 转 E75 收口三审`（R1 → 修 → R2 → 修 → R3 → 修 → 回顾 → 提交）；收口完成后 `tickets.py next` 的首批是 E76 的 `76.1` / `76.2`
-- 票树实测：`status docs/Goal-4` → counts `{total: 17, review: 11, planned: 6}`、problems 空、E75 六条全 `built`、E76 六条 `planned`（被 `epic-75` 的 epic 级 `after` 拦着，收口写容器 `status: done` 后自动解锁）
-- 必读：`tickets/epic-75-project-channel-runtime/epic-75-project-channel-runtime.md`（Requirements R1–R7 + `## Notes` 四条 Decision）· 六份 plan（`story-e75-s01…s06-*-plan.md`）· 合并 diff `git log --oneline 604b4fb4..HEAD -- src/ tests/ docs/framework.md`（6 个提交：`0de2a1c3` / `a38c58a7` / `745b251a` / `c232181b` / `63cd3528` / 最新一条）· E74 回顾的「转 75.x 遗留义务」清单
-- 未关闭的门：**E75 收口三审未开跑**。三份报告落 `tickets/epic-75-project-channel-runtime/epic-75-project-channel-runtime-review-r{1,2,3}.md`，回顾落 `…-retrospective.md`（带 `## 三审记录`）；全部 entry 的 `done` 仍等 Step 08 的人工 `approve`
-- 本轮结论：E75 交付面闭合 —— 远程可列项目（`projects` 命令 → `WsProjectsFrame` 三字段 + 两值 `registry_state`）、可带 `project_id` 提交（`ensure_available` → `start_project_run`，码逐字透传）、项目通道装配在两条入口路径都注入**同一实例**、注册表不可读的分路（列表 fail-soft / 提交 fail-own 码）与六项落点均由判据钉住。**E75 收口必须复核的三条**：① R6 的 `cancel_run` 子句按 `bad_spec` 不实现（已追认记 epic Notes）；② 75.2 与 74.2 重复切片、75.3 与 75.6 票面写不存在的 `docs/frame.md`（均记 Notes）；③ 写集溢出两处（75.1 四条 + 75.5 的 `network/ws_host.py`）已逐条追认，收口时按「已追认」核而非按「越界」核。
+- 下一条：`76.1` / `76.2` / `76.3` / `76.4`（E76 首批，四条 `ready_to_start`；`76.5` 等 1、2，`76.6` 等 1、2、4、5）
+- 票树实测：`status docs/Goal-4` → counts `{total: 17, review: 11, planned: 6}`、problems 空；`next` → `ready_to_start` = 76.1/76.2/76.3/76.4、`blocked` = 76.5（waiting 1,2）/ 76.6（waiting 1,2,4,5）
+- 必读：`tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout.md`（Requirements R1–R7）· 该 epic 的 `tickets/tickets.toml`（六条 entry 全文）· E75 回顾的「遗留」节 · `docs/framework.md` §4.16.1 的端点/命令面现口径 · 本轮新落的两条适配器不变量（`_guard_registry` 的 `default` 豁免、登记上限 31）
+- 未关闭的门：**需用户裁决 1 条**（只读 listener 是否要能列项目清单 —— AD-8 与 §4.1 冲突，E75 按 §4.1 落地）；全部 entry 的 `done` 等 Step 08 人工 `approve`
+- 本轮结论：E75 交付面闭合 —— 远程可列项目（三字段投影 + 两值 `registry_state`）、可带 `project_id` 提交、提交径对「注册表坏了」有具名码（`project_registry_unreadable`，`default` 豁免）、登记上限与响应模型口径对齐（31 + default = 32）；E76 开工时注意三条：① `projects` 帧仍是两次读（非同源快照，已记延期项）；② 只读 listener 上没有 `projects` 路径（H-2，待裁决）；③ 契约基线已含 E75 全部预期新增，76.6 的 `--write` 应零 diff。

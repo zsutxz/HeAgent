@@ -8,10 +8,15 @@
 错误码纪律：``ConsoleOperationError.code`` 与 ``ProjectRegistryError.code`` **逐字**搬进
 ``HttpRunConflictError``，不改写、不折叠。未登记进 ``HttpErrorCode`` 的码让 ``ValueError``
 直接冒出（漏译必须显性），连接骨架随后把它收敛成 ``server_error``。
+
+注册表健康守卫：注册表读不出/解析不了时**提交径 fail-loud** 回 ``project_registry_unreadable``
+——注册表的读路径是 fail-soft（不可读 ⇒ 空表），若不在这里先判，「注册表坏了」会在下游被译成
+``unknown_project``，客户端会把「服务端坏了、重试无用」误读成「这个项目不存在、换个 id 试试」。
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Literal
 
 from heagent.network.http_console_protocol import ConsoleOperationError, ProjectRunRequest
@@ -51,11 +56,33 @@ class ProjectChannelAdapter:
             projects=[
                 ProjectChannelEntry(id=item.id, name=item.name, available=item.available) for item in listing.projects
             ],
-            registry_state=self._registry_health(),
+            registry_state=await self._health(),
         )
+
+    async def _health(self) -> RegistryState:
+        """探针读盘**不占事件循环**：注入的探针是同步读盘调用，与 ``list_projects`` 同档走线程池。"""
+        return await asyncio.to_thread(self._registry_health)
+
+    async def _guard_registry(self, project_id: str) -> None:
+        """注册表不可读 ⇒ 提交径立即失败，**不**退化成 ``unknown_project``。
+
+        注册表读路径是 fail-soft（不可读 ⇒ 空表），照原样走下去「服务端坏了」会变成「这个项目不存在」：
+        客户端重试只会一直拿到同一个误导性的码。列表径不受影响——那里能自报 ``registry_state``。
+
+        ``default`` 豁免：它由注册表句柄的启动工作区**直接合成**、完全不读注册表（``find("default")``
+        短路），注册表坏了也照样能跑。把默认项目一起拒掉，等于让「登记表被改坏」升级为「服务不可用」。
+        """
+        if project_id == "default":
+            return
+        if await self._health() != "ok":
+            raise HttpRunConflictError(
+                "the project registry is unreadable",
+                code=HttpErrorCode.PROJECT_REGISTRY_UNREADABLE,
+            )
 
     async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
         """提交到该项目，把结果收窄成 ``SubmittedRun``（``session_id`` 不出入口层）。"""
+        await self._guard_registry(project_id)
         try:
             response = await self._console.start_project_run(project_id, ProjectRunRequest(prompt=prompt))
         except (ConsoleOperationError, ProjectRegistryError) as exc:
@@ -70,6 +97,7 @@ class ProjectChannelAdapter:
         ``project_unavailable`` 的判据仍只有控制台一份，适配器不复制「id 在不在表里 / 目录还在
         不在」这类判断。
         """
+        await self._guard_registry(project_id)
         try:
             await self._console.get_project_config(project_id)
         except (ConsoleOperationError, ProjectRegistryError) as exc:

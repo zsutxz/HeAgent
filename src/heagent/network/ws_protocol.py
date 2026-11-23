@@ -223,7 +223,8 @@ class ProjectChannelEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=16)
-    name: str
+    # 64 = ``pub.projects.MAX_PROJECT_NAME_CHARS`` 的同值镜像（传输层不 import 注册表，只能并列声明）。
+    name: str = Field(min_length=1, max_length=64)
     available: bool
 
 
@@ -238,8 +239,9 @@ class WsProjectsFrame(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: WsFrameType = WsFrameType.PROJECTS
-    projects: list[ProjectChannelEntry]
-    registry_state: Literal["ok", "unreadable"]
+    # 32 = ``MAX_PROJECTS`` 的同值镜像（含 ``default``）：帧面自己兜住上界，不靠上游「恰好有界」。
+    projects: list[ProjectChannelEntry] = Field(max_length=32)
+    registry_state: Literal["ok", "unreadable"] = "ok"
 
 
 class WsErrorFrame(BaseModel):
