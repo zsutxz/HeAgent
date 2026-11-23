@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: low
 hitl: false
 covers: ["R7"]
-status: built
+status: done
 ---
 
 # E76-S06 · 契约快照与文档收口：基线只含预期新增、文档同批同步

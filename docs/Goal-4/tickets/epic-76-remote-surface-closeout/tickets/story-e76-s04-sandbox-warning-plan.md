@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: low
 hitl: false
 covers: ["R6"]
-status: built
+status: done
 ---
 
 # E76-S04 · external 档非 docker 沙箱启动 WARNING：恰 1 条锚点、不改变启动成败

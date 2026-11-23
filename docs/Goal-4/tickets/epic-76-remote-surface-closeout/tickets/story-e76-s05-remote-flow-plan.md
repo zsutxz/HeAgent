@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: medium
 hitl: false
 covers: ["R1", "R3", "R4"]
-status: built
+status: done
 ---
 
 # E76-S05 · ADR-005 五步验收串跑：列项目 → 两项目各 1 run → 事件流完整 → 取消其一 → cursor 续流

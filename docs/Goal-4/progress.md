@@ -83,8 +83,14 @@
 
 ## 交接块（下一轮入口）
 
-- 下一条：`76.1` / `76.2` / `76.3` / `76.4`（E76 首批，四条 `ready_to_start`；`76.5` 等 1、2，`76.6` 等 1、2、4、5）
-- 票树实测：`status docs/Goal-4` → counts `{total: 17, review: 11, planned: 6}`、problems 空；`next` → `ready_to_start` = 76.1/76.2/76.3/76.4、`blocked` = 76.5（waiting 1,2）/ 76.6（waiting 1,2,4,5）
-- 必读：`tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout.md`（Requirements R1–R7）· 该 epic 的 `tickets/tickets.toml`（六条 entry 全文）· E75 回顾的「遗留」节 · `docs/framework.md` §4.16.1 的端点/命令面现口径 · 本轮新落的两条适配器不变量（`_guard_registry` 的 `default` 豁免、登记上限 31）
-- 未关闭的门：**需用户裁决 1 条**（只读 listener 是否要能列项目清单 —— AD-8 与 §4.1 冲突，E75 按 §4.1 落地）；全部 entry 的 `done` 等 Step 08 人工 `approve`
-- 本轮结论：E75 交付面闭合 —— 远程可列项目（三字段投影 + 两值 `registry_state`）、可带 `project_id` 提交、提交径对「注册表坏了」有具名码（`project_registry_unreadable`，`default` 豁免）、登记上限与响应模型口径对齐（31 + default = 32）；E76 开工时注意三条：① `projects` 帧仍是两次读（非同源快照，已记延期项）；② 只读 listener 上没有 `projects` 路径（H-2，待裁决）；③ 契约基线已含 E75 全部预期新增，76.6 的 `--write` 应零 diff。
+- 下一条：**无** —— E76 六条 entry 已由 Step 08 人工 `approve` 全部置 `done`（`tickets.py status epic-76-remote-surface-closeout` → `{total: 6, done: 6}`），epic 容器 `status: done`；Goal-4 三条 epic（E74/E75/E76）交付面闭合。
+- 票树实测：`status docs/Goal-4` → `{total: 17, review: 17}`、problems 空（E74/E75/E76 全 built）。
+- **E76 收口三审（R1 → R2 → R3，本会话连跑）**：三份报告落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-review-r{1,2,3}.md`。
+  - **R1**（规格对账）有条件的通过：Critical 0 / High 0 / Medium 4 / Low 3。口径差 2 条记 epic Notes（R2 的 `project_busy` 在生产 WS 链上实为 `run_conflict`；R7 快照是 5 份不是 4 份），延期项 4 条（`lan` 档零告警 / 回落链取请求值 / 端到端仍用端口替身 / 两处公告口径不一致），当轮落改 1 处。
+  - **R2**（不变量与守卫反证）通过：G1–G7 全可反证。两条实跑反证 —— ① `_warn_external_without_sandbox` 注入 `return None` ⇒ `test_external_listener_on_a_non_docker_backend_warns_exactly_once` 红，回退绿；② `_assert_single_adapter` 补 `assert "sandbox_backend" in calls[0]` 前，「入口漏传」也能过（回落链掩盖）。
+  - **R3**（三镜头）通过（有条件）：Critical 0 / High 0 / Medium 3 / Low 3，全转延期项。
+- 当轮落改 **1 处**：`tests/test_cli_http_lifecycle.py` 的 `_assert_single_adapter` 增 `sandbox_backend` 注入断言（R6 判据必须取**生效**档位，不能靠回落值蒙过）。
+- **E76 收口门禁实测**：`pytest tests/network tests/test_cli_http_lifecycle.py tests/test_architecture_contracts.py tests/test_contract_baselines.py tests/test_docs_links.py -q` = **795 passed**；`contract_snapshot.py --check` = 五份 `[OK]`；`mkdocs build --strict` 0 warning（9.14s）；`ruff check` / `format --check` / `mypy src`（240 files）/ `bandit -r src/ -ll`（No issues identified）全绿。
+- 回顾落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-retrospective.md`（含 `## 三审记录`）。
+- 未关闭的门：延期项 5 条待用户裁定（首条 = `lan` 档是否补沙箱告警）；本 epic 的收口提交尚待用户确认。
+- 本轮结论：ADR-005 验收基线在组合层面闭合（并发隔离 / cursor 续流 / 可见面不扩张 / 契约与文档收口），远程面「`external` 必须 wss + token，非 docker 后端每次启动喊一条」已落地；端到端真 listener 仍是已知缺口。

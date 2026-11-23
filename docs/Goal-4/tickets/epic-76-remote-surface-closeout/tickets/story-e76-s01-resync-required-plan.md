@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: medium
 hitl: false
 covers: ["R3", "R4"]
-status: built
+status: done
 ---
 
 # E76-S01 · 断连续流三判据：无空洞 / 窗口不足必须 resync_required / 重复可见可去重

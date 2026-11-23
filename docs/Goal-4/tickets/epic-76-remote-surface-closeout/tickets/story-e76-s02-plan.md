@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: medium
 hitl: false
 covers: ["R1", "R2"]
-status: built
+status: done
 ---
 
 # E76-S02 · 两项目并发不串味与名额分层：四判据不新增计数、不动参数

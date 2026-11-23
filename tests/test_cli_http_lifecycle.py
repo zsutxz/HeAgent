@@ -493,6 +493,9 @@ def _assert_single_adapter(calls: list[dict[str, Any]], consoles: list[Any]) -> 
     from heagent.cli.ws_project_adapter import ProjectChannelAdapter
 
     assert len(calls) == 1, calls
+    # R6 的判据取**启动期实际生效**的沙箱档位：入口层必须把 `sandbox_backend` 传下来
+    # （不传时 `build_ws_servers` 会回落到配置值，``auto``/降级场景就会误判成「非 docker」）。
+    assert "sandbox_backend" in calls[0], calls
     adapter = calls[0]["project_service"]
     assert isinstance(adapter, ProjectChannelAdapter), adapter
     assert len(consoles) == 1, consoles

@@ -6,7 +6,7 @@ epic: epic-76-remote-surface-closeout
 risk: low
 hitl: false
 covers: ["R5"]
-status: built
+status: done
 ---
 
 # E76-S03 · 远程可见面白名单收口：WS 命令面 5 值封闭、无配置/注册/历史族

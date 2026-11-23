@@ -8,6 +8,7 @@ sources: ["docs/Goal-4/prd-ws-remote-project-channel/prd-ws-remote-project-chann
 after: ["epic-74-ws-frame-contract", "epic-75-project-channel-runtime"]
 risk: medium
 refined: true
+status: done
 ---
 
 # E76 · WS 远程项目通道：并发隔离与远程面收口
@@ -59,3 +60,10 @@ refined: true
 ## Notes
 
 - 2026-11-23 Decision（76.3 实现期，`bad_spec` 记录）：票面 verify 写「`content_search` 在 `src/heagent/network/` 内对 `set_setting|write_config|register_project|list_sessions` 恒 0 命中」——该字面在 HEAD 上为假，因为**回环 HTTP 控制台本身就住 `network/`**（`http_console_protocol.py` 的 `ConsoleHandler.register_project` / `list_sessions` 等）。R5 的真口径是「**WS 面**不扩张」（远程注册仍走 HTTP 且回 403）⇒ 守卫按模块面实施：五个 WS 面模块 0 命中，回环控制台三模块显式白名单。Requirements 冻结不回改，本行即裁定载体。
+
+## Notes
+
+- 2026-11-23 Decision（R1 发现 1，`bad_spec`）：R2「项目已有在途 run 回 `project_busy`」在生产 WS 链上不成立 —— WS 提交不带 `session_id`、恒续最近会话，同项目在途冲突真实回的是 **`run_conflict`**；`project_busy` 只由 HTTP 删项目端点产生。票面判据按 `run_conflict` 逐字透传理解，Requirements 冻结不回改。
+- 2026-11-23 Decision（R1 发现 7，口径差）：R7 写「4 份契约快照」，实测是 **5 份**（含 Epic 70 的 `error_codes.json`）；76.6 的 `--write` 零 diff 与 `--check` 五份 `[OK]` 即按 5 份交付。
+- 2026-11-23 Decision（R1 发现 5，当轮落改）：76.4 的三例原先只调 `build_ws_servers`，入口层是否 `sandbox_backend=` 传下来无断言（回落链让「漏传」也过）⇒ `_assert_single_adapter` 增一行断言，两条装配路径均覆盖。
+- 2026-11-23 Decision：76.3 票面「`content_search` 恒 0 命中」为误述（回环 HTTP 控制台在 `network/` 内），实现改落在 WS 面模块并在 plan 注明 —— 与 E74/E75 同类口径差，不另立缺陷。
