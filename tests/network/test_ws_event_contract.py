@@ -3,7 +3,8 @@
 五个用例把「远程项目通道不碰事件面」变成可跑的判据：
 
 ① ``WsEventFrame`` 字段集合恰为 ``{type, event}``；② ``WsAckFrame`` 字段集合恰为
-``{type, command, run_id, status}``；③ 帧类型集合 ``WsFrameType`` 封闭（不因项目通道多一档）；
+``{type, command, run_id, status}``；③ 帧类型集合 ``WsFrameType`` 封闭（六档；项目列表走
+``projects`` 响应帧，不借道 ``event``）；
 ④ golden 事件信封 ``model_dump_json()`` 与固定字面**逐字相等**（客户端按字节兼容，不是按字段名）；
 ⑤ 事件面（帧层与负载层）带 ``project_id`` 一律被判非法；⑥ WS 路由集与
 ``tests/fixtures/contract_baselines/transport_routes.json`` 一致 —— 本 epic 不新增任何端点。
@@ -52,8 +53,13 @@ def test_ack_frame_holds_exactly_four_fields() -> None:
 
 
 def test_frame_type_set_stays_closed() -> None:
-    """帧类型封闭：项目通道复用既有五档，不新增 ``project`` 之类的新帧类型。"""
-    assert {item.value for item in WsFrameType} == {"hello", "event", "ack", "error", "notification"}
+    """帧类型封闭为六档：``projects``（E75）是**命令响应**帧，事件面仍只有 ``event`` 一档。
+
+    「项目通道不改事件面」这条承诺的判据是事件信封（下面那条逐字节 golden）与 ``WsEventFrame``
+    的字段集合，不是「不许新增任何帧类型」——项目列表既不是 run 事件、也没有 ``run_id`` /
+    ``seq``，塞进 ``event`` 才会真破坏事件面。
+    """
+    assert {item.value for item in WsFrameType} == {"hello", "event", "ack", "error", "notification", "projects"}
 
 
 def test_golden_event_envelope_is_byte_identical() -> None:
@@ -92,4 +98,4 @@ def test_ws_route_set_matches_the_contract_baseline() -> None:
     assert frozen["RUNS_WS_PATH"] == "/api/runs/{run_id}/ws"
     # 项目通道复用既有订阅端点：取消与提交都不带自己的路径。
     assert "project" not in json.dumps(frozen)
-    assert {item.value for item in WsCommand} == {"run", "cancel", "cancel_run", "ping"}
+    assert {item.value for item in WsCommand} == {"run", "cancel", "cancel_run", "ping", "projects"}

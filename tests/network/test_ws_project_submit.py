@@ -1,10 +1,13 @@
-"""74.2 · 带 ``project_id`` 的 WS 提交：项目通道端口的接线与错误转译。
+"""74.2 · 带 ``project_id`` 的 WS 提交：项目通道端口的接线与错误转译（E75-S02 补 R7 / I9）。
 
-五个用例全部经 ``build_runs_collection_endpoint`` 走真实端点（不直调内部 helper），钉住：
+用例全部经 ``build_runs_collection_endpoint`` 走真实端点（不直调内部 helper），钉住：
 ① 无 ``project_id`` 时旧路径逐字不变（只调 ``start_run``）；
 ② 带 ``project_id`` 时次序恰为「先 ``ensure_available`` 后 ``start_project_run``」，ack 来自
 ``SubmittedRun`` 且不含 ``session_id``；③ 前置校验失败的 ``code`` 逐字落进错误帧、连接不关、
 零启动副作用；④ 提交失败的 ``code`` 同样逐字透传；⑤ 端口的参数名集合就是「不透明 id + prompt」。
+
+E75-S02 追加两条：⑥ ack 出站键集恰四项（I9，项目通道不加宽帧面）；⑦ 两阶段 × **全部**项目侧
+错误码参数化（R7），其中 ``project_unavailable`` 额外钉「无 ack + 两条启动路径均 0 次」。
 """
 
 from __future__ import annotations
@@ -285,3 +288,105 @@ async def test_untranslated_port_error_becomes_server_error_and_closes() -> None
     assert frames[-1]["error"]["error"]["code"] == HttpErrorCode.SERVER_ERROR.value
     assert "blew up" not in frames[-1]["error"]["error"]["message"]
     assert ws.closed_code == WS_CLOSE_INTERNAL
+
+
+#: 项目侧错误码全集（``HttpErrorCode`` 里 ``unknown_project`` 起的连续分组的可抛成员）。
+#: 判据是**枚举成员**而不是字面量：码表改名时这条参数化会跟着红，不会静默少测。
+_PROJECT_SIDE_CODES = [
+    HttpErrorCode.UNKNOWN_PROJECT,
+    HttpErrorCode.INVALID_PROJECT_PATH,
+    HttpErrorCode.PROJECT_UNAVAILABLE,
+    HttpErrorCode.PROJECT_NOT_REMOVABLE,
+    HttpErrorCode.PROJECT_BUSY,
+    HttpErrorCode.PROJECT_LIMIT_REACHED,
+    HttpErrorCode.PROJECT_REGISTRY_UNREADABLE,
+]
+
+_PROJECT_SIDE_CODE_VALUES = [code.value for code in _PROJECT_SIDE_CODES]
+
+
+def test_project_side_code_table_is_the_expected_seven() -> None:
+    """码表自身的守卫：项目侧可抛码恰这七条（新增一条时这里先红，提醒把参数化扩上）。"""
+    assert _PROJECT_SIDE_CODE_VALUES == [
+        "unknown_project",
+        "invalid_project_path",
+        "project_unavailable",
+        "project_not_removable",
+        "project_busy",
+        "project_limit_reached",
+        "project_registry_unreadable",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_project_ack_carries_exactly_the_four_ack_keys() -> None:
+    """I9：项目提交的 ack 出站键集恰 ``{type, command, run_id, status}``。
+
+    走 ``model_dump_json()`` 的真实字节再解回，判的是**客户端实际收到**的键集：给 ack 加一个
+    ``session_id`` 或 ``project_id`` 都会先在这里红，而不是等客户端解析出错。
+    """
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    project_service = _HttpProjectConsoleStub(calls)
+    ws = _QueueWebSocket([_run_frame(project_id="p1234abcd")])
+
+    await _endpoint(service, project_service)(ws)
+
+    ack = json.loads(ws.sent[1])
+    assert set(ack) == {"type", "command", "run_id", "status"}
+    assert ack["type"] == "ack"
+    assert ack["command"] == "run"
+
+
+@pytest.mark.parametrize("phase", ["ensure_available", "start_project_run"])
+@pytest.mark.parametrize("code", _PROJECT_SIDE_CODES, ids=_PROJECT_SIDE_CODE_VALUES)
+@pytest.mark.asyncio
+async def test_every_project_side_code_passes_through_both_phases_verbatim(phase: str, code: HttpErrorCode) -> None:
+    """R7：两阶段 × 全部项目侧码 —— ``code`` 逐字进错误帧、连接不关、无伪造 ack。
+
+    唯一的 ack 来自紧随其后的 ``ping``（证明命令循环还活着）；提交侧 ack 一次都不许出现。
+    """
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    failure = HttpRunConflictError("project failure", code=code)
+    project_service = _HttpProjectConsoleStub(
+        calls,
+        ensure_error=failure if phase == "ensure_available" else None,
+        start_error=failure if phase == "start_project_run" else None,
+    )
+    ws = _HangingWebSocket([_run_frame(project_id="p1234abcd"), json.dumps({"command": "ping"})])
+
+    frames = await _run_until_idle(ws, _endpoint(service, project_service))
+
+    assert frames[1]["type"] == "error"
+    assert frames[1]["error"]["error"]["code"] == code.value
+    assert frames[2]["type"] == "ack"
+    assert frames[2]["command"] == "ping"
+    assert [frame["type"] for frame in frames].count("ack") == 1
+    assert service.start_run_calls == 0
+    assert ws.closed_code is None
+    if phase == "ensure_available":
+        assert project_service.start_project_run_calls == 0
+    else:
+        assert project_service.start_project_run_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_project_unavailable_sends_no_ack_and_starts_nothing() -> None:
+    """``project_unavailable`` 的专项：两条启动路径 0 次、整条流里没有一个提交 ack。"""
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    project_service = _HttpProjectConsoleStub(
+        calls,
+        ensure_error=HttpRunConflictError("project gone", code=HttpErrorCode.PROJECT_UNAVAILABLE),
+    )
+    ws = _QueueWebSocket([_run_frame(project_id="p1234abcd")])
+
+    await _endpoint(service, project_service)(ws)
+
+    frames = [json.loads(frame) for frame in ws.sent]
+    assert [frame["type"] for frame in frames] == ["hello", "error"]
+    assert frames[1]["error"]["error"]["code"] == HttpErrorCode.PROJECT_UNAVAILABLE.value
+    assert service.start_run_calls == 0
+    assert project_service.start_project_run_calls == 0
+    assert project_service.ensure_calls == 1

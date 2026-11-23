@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -55,6 +55,11 @@ class WsFrameType(StrEnum):
     error / notification 帧，内容只有服务端版本。它不属于任何一条流（没有 ``run_id``、没有
     ``seq``、不可续传）——客户端据此判断对端版本与协议兼容性，连「随后被配额 / 游标 / 关停
     判据拒绝」的连接也能先拿到它。
+
+    ``projects``（E75）是 ``projects`` 命令的**响应**帧，与 ``notification`` 同档（一问一答的
+    非流式结果）。不塞进 ``event`` 是刻意的：事件信封（``{type,event}``）与负载模型已被逐字节
+    golden 钉死，项目列表既不是 run 事件、也没有 ``run_id`` / ``seq``，借道 ``event`` 会同时
+    破坏那两个契约。新增一档的代价只是客户端要多认一个类型，不认识时可跳过。
     """
 
     HELLO = "hello"
@@ -62,6 +67,7 @@ class WsFrameType(StrEnum):
     ACK = "ack"
     ERROR = "error"
     NOTIFICATION = "notification"
+    PROJECTS = "projects"
 
 
 class WsCommand(StrEnum):
@@ -74,11 +80,15 @@ class WsCommand(StrEnum):
     任意一条运行；单 run 端点只接受「等于本连接绑定的 run」的目标，只读 listener 一律拒绝。
     它与 ``cancel`` 复用**同一个** ``service.cancel_run(run_id)`` 端口——取消实现只有一份，两处
     差别仅在目标的来源（连接绑定 vs 帧字段）。
+
+    ``projects`` 是**集合级端点**的项目列表查询（E75）：只带 ``command``，没有目标字段——项目
+    归属由客户端拿响应帧里的 ``id`` 自行记住，服务端不维护「这条连接在看哪个项目」。
     """
 
     CANCEL = "cancel"
     CANCEL_RUN = "cancel_run"
     PING = "ping"
+    PROJECTS = "projects"
     RUN = "run"
 
 
@@ -89,6 +99,7 @@ _FRAME_FIELDS: dict[WsCommand, frozenset[str]] = {
     WsCommand.CANCEL: frozenset({"command"}),
     WsCommand.CANCEL_RUN: frozenset({"command", "run_id"}),
     WsCommand.PING: frozenset({"command"}),
+    WsCommand.PROJECTS: frozenset({"command"}),
 }
 
 #: 允许**缺席**（一旦出现仍须合法）的字段：只有 ``run`` 的 ``project_id``——缺省即「启动工作区」，
@@ -199,6 +210,36 @@ class WsNotificationFrame(BaseModel):
 
     type: WsFrameType = WsFrameType.NOTIFICATION
     notification: NotificationPayload
+
+
+class ProjectChannelEntry(BaseModel):
+    """项目列表帧里的一条：客户端能操作这个项目所需的**全部**信息。
+
+    恰三项、``extra="forbid"``：``path`` / ``session_id`` / 历史统计一类的东西都不能进来——
+    帧面越宽，客户端与服务端就越容易在「谁维护项目元数据」上打架。``available`` 是注册表探针的
+    结论（目录是否在盘上），不可用不等于「不存在」：客户端应把它显示成禁用项而不是删掉。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=16)
+    name: str
+    available: bool
+
+
+class WsProjectsFrame(BaseModel):
+    """``projects`` 命令的响应帧：项目列表 + 注册表健康态。
+
+    ``registry_state`` 是**两值**（``ok`` / ``unreadable``），刻意不复用 HTTP 的细分错误码：注册表
+    读不出来时客户端能做的只有一件事——提示「项目列表可能不完整」，此时把 ``projects`` 当空表
+    展示、把状态说清楚，比回一条错误帧更有用（``projects`` 字段因此仍是一条合法列表）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: WsFrameType = WsFrameType.PROJECTS
+    projects: list[ProjectChannelEntry]
+    registry_state: Literal["ok", "unreadable"]
 
 
 class WsErrorFrame(BaseModel):
@@ -343,6 +384,15 @@ class ProjectChannelService(Protocol):
     路径 / workspace / session 类参数，``project_id`` 是不透明短 id——「传输层不认识项目目录」
     因此是结构保证，而不是纪律要求。失败一律抛 :class:`HttpRunConflictError`（``code`` 取自
     ``HttpErrorCode``），端点侧只转译错误码、不改写语义。
+
+    三条实现方义务（签名看不出来，但不遵守会变成远程客户端眼里的「卡住」或「重复提交」）：
+
+    - **超时是实现方义务**：端口没有 ``timeout`` 参数，端点不做超时兜底——阻塞多久由实现方保证
+      有界。提交连接不订阅事件，端口迟迟不返回时客户端只会看到「一直没有 ack」。
+    - **提交失败不做原子性保证、无幂等键**：``start_project_run`` 抛错并不等于「什么都没发生」
+      （可能已分配 run id、已占名额），重试可能重复提交；服务端不替客户端去重。
+    - **错误消息不含路径**：``HttpRunConflictError`` 的文案会原样进错误帧给远程客户端看，不得
+      回显项目目录或绝对路径。
     """
 
     async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
@@ -353,16 +403,25 @@ class ProjectChannelService(Protocol):
         """提交前置校验（不占名额）：可用时原样返回 ``project_id``，否则抛 ``HttpRunConflictError``。"""
         ...
 
+    async def list_projects(self) -> WsProjectsFrame:
+        """列出可提交的项目，组装成**已投影**的响应帧。
+
+        返回帧模型而不是 ``(entries, registry_state)`` 元组：注册表类型（``pub.projects`` 的
+        ``ProjectEntry`` / ``ProjectRegistryHealth``）到帧模型的翻译因此全部留在实现方（入口层），
+        网络层既不认识注册表、也不持有第二份投影逻辑。
+        """
+        ...
+
 
 def parse_command_frame(text: str) -> WsCommandFrame:
     """解析并校验一条客户端命令帧。
 
     长度检查先于 JSON 解析，避免把超限输入交给解析器。两级上限：``WS_MAX_INBOUND_CHARS`` 是总闸
     （含 prompt），``WS_MAX_COMMAND_CHARS`` 再把非 ``run`` 命令（``cancel`` / ``cancel_run`` /
-    ``ping``）钉回小上限——解析出命令之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后
-    做。字段判定与模型共用 :data:`_FRAME_FIELDS`：不在白名单的键、以及白名单内未出现的必带键，
-    都判 ``malformed``（``cancel_run`` 因此缺 ``run_id`` 即 ``malformed``、带 ``project_id`` 也
-    是 ``malformed``）。
+    ``ping`` / ``projects``）钉回小上限——解析出命令之后才知道该用哪一档，因此这一档检查只能在
+    JSON 解析之后做。字段判定与模型共用 :data:`_FRAME_FIELDS`：不在白名单的键、以及白名单内未
+    出现的必带键，都判 ``malformed``（``cancel_run`` 因此缺 ``run_id`` 即 ``malformed``、带
+    ``project_id`` 也是 ``malformed``）。
     """
 
     if len(text) > WS_MAX_INBOUND_CHARS:
@@ -404,6 +463,7 @@ __all__ = [
     "WS_MAX_INBOUND_CHARS",
     "WS_PING_INTERVAL_SECONDS",
     "WS_PING_TIMEOUT_SECONDS",
+    "ProjectChannelEntry",
     "ProjectChannelService",
     "RunWebSocketService",
     "SubmittedRun",
@@ -419,6 +479,7 @@ __all__ = [
     "WsFrameErrorKind",
     "WsFrameType",
     "WsNotificationFrame",
+    "WsProjectsFrame",
     "parse_command_frame",
     "required_frame_fields",
     "error_envelope",

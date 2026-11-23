@@ -78,6 +78,8 @@ async def _handle_commands(
 ) -> None:
     """处理 cancel / cancel_run / ping 三条命令；断线异常由调用方收敛为连接结束。
 
+    ``projects`` 与 ``run`` 同属集合级能力，在这条连接上一律 ``invalid_request`` 且**不断连**。
+
     ``readonly``（只读旁观 listener）只禁**控制面**命令：``cancel`` / ``cancel_run`` 回
     ``invalid_request`` 且**不断连**（订阅者继续收事件），``ping`` 照常。用「不支持」而不是
     「静默忽略」——客户端必须知道它连的是观众席。
@@ -100,6 +102,15 @@ async def _handle_commands(
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,
                 "the run command is only accepted on the run collection endpoint",
+            )
+            continue
+
+        if command is WsCommand.PROJECTS:
+            # 项目列表同属集合级能力：单 run 连接不持有项目视角，回错误帧但**不断连**。
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the projects command is only accepted on the run collection endpoint",
             )
             continue
 
@@ -163,6 +174,32 @@ async def _start_project_run(
     return await project_service.start_project_run(resolved, prompt)
 
 
+async def _send_projects_frame(
+    websocket: WebSocketLike,
+    project_service: ProjectChannelService | None,
+) -> None:
+    """``projects`` 命令：把已投影的项目列表帧原样发给客户端。
+
+    ``project_service`` 为 ``None`` 时回 ``invalid_request`` 且**不断连**——与带 ``project_id`` 的
+    提交同一个护栏口径：不静默回一张空表（客户端会把「没装配」误读成「一个项目都没有」）。
+    端口抛 ``HttpRunConflictError`` 时代码逐字透传；其余异常不在此兜，由连接骨架收敛为
+    ``server_error`` + 断连（漏译必须显性，与提交分支同档）。
+    """
+    if project_service is None:
+        await _send_error_frame(
+            websocket,
+            HttpErrorCode.INVALID_REQUEST,
+            "project addressing is not available on this listener",
+        )
+        return
+    try:
+        frame = await project_service.list_projects()
+    except HttpRunConflictError as exc:
+        await _send_error_frame(websocket, exc.code, str(exc))
+        return
+    await websocket.send_text(frame.model_dump_json())
+
+
 async def _submit_run(
     websocket: WebSocketLike,
     service: RunWebSocketService,
@@ -204,7 +241,7 @@ async def _handle_submit_commands(
     service: RunWebSocketService,
     project_service: ProjectChannelService | None = None,
 ) -> None:
-    """集合级连接的命令循环：``run``（提交）、``cancel_run``（按 id 取消）与 ``ping``。
+    """集合级连接的命令循环：``run``（提交）、``cancel_run``（按 id 取消）、``projects`` 与 ``ping``。
 
     这条连接**不绑定任何 run**（D2 的期一形状：提交连接不转事件流）。客户端拿到 ack 里的
     ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
@@ -214,8 +251,9 @@ async def _handle_submit_commands(
     未知 id 回 ``unknown_run`` 错误帧、已终止的目标拿终态 ack（幂等）——两者都**不断连**，错的
     是这一帧的 id 而不是这条连接。
 
-    ``project_service`` 是项目寻址提交的注入端口，原样转发给 :func:`_submit_run`——「未装配却带
-    ``project_id``」的护栏住在 :func:`_start_project_run`（单处），本循环不做第二道判定。
+    ``project_service`` 是项目端口的注入点：提交侧原样转发给 :func:`_submit_run`（「未装配却带
+    ``project_id``」的护栏住在 :func:`_start_project_run`，单处），``projects`` 侧交给
+    :func:`_send_projects_frame`。本循环只做分派，不重复判装配态。
     """
     while True:
         frame = await _next_command(websocket)
@@ -230,6 +268,9 @@ async def _handle_submit_commands(
                 project_id=frame.project_id,
                 project_service=project_service,
             )
+            continue
+        if frame.command is WsCommand.PROJECTS:
+            await _send_projects_frame(websocket, project_service)
             continue
         if frame.command is WsCommand.CANCEL_RUN:
             # 必带字段已在解析期校验过；``or ""`` 只是让类型收窄，空 id 必然落到 ``unknown_run``。

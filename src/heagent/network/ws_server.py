@@ -476,7 +476,7 @@ async def _cli_send_events(websocket: WebSocketLike, subscription: CliSubscripti
 
 
 async def _cli_handle_commands(websocket: WebSocketLike, hub: CliEventHub) -> None:
-    """CLI 旁路的命令面：``ping`` 回 ack；``cancel`` 明确拒绝且**不断连接**。
+    """CLI 旁路的命令面：``ping`` 回 ack；``cancel`` / ``run`` / ``projects`` 明确拒绝且**不断连接**。
 
     旁路不拥有运行——终端才是所有者，取消通道仍然是 Ctrl+C / 双击 Esc。把 ``cancel`` 做成
     「不支持」而不是「静默忽略」，是为了让客户端**知道**它连的是观众席。
@@ -499,6 +499,13 @@ async def _cli_handle_commands(websocket: WebSocketLike, hub: CliEventHub) -> No
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,
                 "the run command is only accepted on the run collection endpoint",
+            )
+            continue
+        if command is WsCommand.PROJECTS:
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the projects command is only accepted on the run collection endpoint",
             )
             continue
         await websocket.send_text(WsCliAckFrame(command=command, run_id=hub.active_run_id).model_dump_json())
@@ -590,7 +597,7 @@ async def _notification_send_events(websocket: WebSocketLike, subscription: Noti
 
 
 async def _notification_handle_commands(websocket: WebSocketLike) -> None:
-    """通知流的命令面：``ping`` 回 ack；``cancel`` / ``run`` 一律拒绝且**不断连接**。
+    """通知流的命令面：``ping`` 回 ack；``cancel`` / ``run`` / ``projects`` 一律拒绝且**不断连接**。
 
     与 CLI 旁路同口径：只读流不拥有任何东西，把「不支持」说出来（而不是静默忽略），客户端
     才知道它连的是通知流。
@@ -606,6 +613,13 @@ async def _notification_handle_commands(websocket: WebSocketLike) -> None:
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,
                 "the run command is only accepted on the run collection endpoint",
+            )
+            continue
+        if command is WsCommand.PROJECTS:
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the projects command is only accepted on the run collection endpoint",
             )
             continue
         if command is WsCommand.CANCEL or command is WsCommand.CANCEL_RUN:

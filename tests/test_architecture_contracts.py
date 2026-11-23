@@ -1152,9 +1152,9 @@ def test_ws_endpoints_and_commands_stay_closed() -> None:
         )
     )
     assert paths == ["/api/cli/ws", "/api/notifications/ws", "/api/runs/ws", "/api/runs/{run_id}/ws"]
-    # ``cancel_run`` 是 E74 的**唯一**新增命令：它带显式目标 ``run_id``，是「无绑定连接的取消
-    # 形态」而不是 ``cancel`` 的字段扩充——新增命令仍须逐条在这里登记。
-    assert {item.value for item in WsCommand} == {"run", "cancel", "cancel_run", "ping"}
+    # 新增命令逐条在这里登记：``cancel_run``（E74）带显式目标 ``run_id``，是「无绑定连接的取消
+    # 形态」；``projects``（E75）是集合级项目列表查询，两者都复用既有四点路径、不新增端点。
+    assert {item.value for item in WsCommand} == {"run", "cancel", "cancel_run", "ping", "projects"}
     assert "build_runs_collection_endpoint" in ws_server_all
     assert "build_notification_ws_endpoint" in ws_server_all
 
