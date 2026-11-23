@@ -57,6 +57,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `code` | HTTP | 描述 | 原因 | 方案 |
 | --- | --- | --- | --- | --- |
 | `unknown_project` | 404 | 注册表里没有该 `project` | 项目 id 拼错，或该目录从未注册 | `GET /api/console/projects` 取真实 id；网页控制台里先添加项目 |
+| （客户端口径）`project_id` 的稳定性 | — | **id 随路径派生**（`p` + 路径 sha256 前 8 位）：**目录移动 / 改名即换 id**，旧 id 立即变 `unknown_project` | 客户端把 id 当长期标识（存进配置 / 收藏 / APK 本地缓存） | 客户端在拿到 `unknown_project` 时**重新拉项目列表让用户重选**，不要重试同一个 id；已安装的 Android 客户端改目录后需重新选择项目 |
 | `invalid_project_path` | 400 | 项目路径不合法 | 空路径、相对路径越界、指向文件而非目录 | 用 `ls -d <path>` 确认是存在的目录，再传绝对路径 |
 | `project_unavailable` | 409 | 项目存在但没有可用的运行入口 | 服务启动时该项目的运行栈未装配成功 | 重启服务；在 `logs/heagent-*.log` 里搜该项目 id 的 WARNING |
 | `project_not_removable` | 409 | 该项目不允许被移除 | **默认项目**不能移除（注册表的兜底条目） | 先移除其它项目；注册表落点是 `HTTP_CONSOLE_PROJECTS_FILE`（缺省 `.heagent/console/projects.json`） |
