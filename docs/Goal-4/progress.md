@@ -3,7 +3,7 @@
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
 - 状态：in-progress
-- 当前步骤：step-05-design-architecture
+- 当前步骤：step-06-refine-stories（**审批门：产出已齐，待用户确认**）
 
 ## 步骤状态
 
@@ -13,11 +13,15 @@
 | 02 | brainstorm-options | completed | `step-02-brainstorm-options/report.md` |
 | 03 | analyze-requirements | completed | `step-03-analyze-requirements/report.md` |
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
-| 05 | design-architecture | in-progress | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md` |
+| 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
+| 06 | refine-stories | awaiting-approval | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
-（空，Step 06 后填写）
+- E74 `epic-74-ws-frame-contract`：5 entry，17 planned 中 5 条 / 0 built
+- E75 `epic-75-project-channel-runtime`：6 entry，0 built
+- E76 `epic-76-remote-surface-closeout`：6 entry，0 built
+- 合计 `counts {total: 17, planned: 17}`；`problems` 空、`unpinned_after` / `undeclared_after` / `order_conflict` 全空
 
 ## 决策日志（追加式，只增不改）
 
@@ -37,10 +41,15 @@
 
 - 2026-11-23 **Step 04 审批门通过**：用户答复原文「yes」⇒ PRD + 三个 epic 确认，同时授权提交票树；已按中文 Conventional Commit 提交（`docs(goal-4): 立项 ADR-005 远程项目通道并落 PRD 与三个 epic`）。
 
+- 2026-11-23 Step 05 完成：spine 8 条 AD / 10 条不变量落盘，三个 epic 的 `sources:` 已采纳。子会话三处实测偏差被采纳：① engine 里没有并发名额（名额在 run 服务 + console）；② `RunWebSocketService` 不扩展、新增并列 `ProjectChannelService`；③ `start_project_run` 返回带 `session_id` ⇒ 适配器必须收窄。
+- 2026-11-23 Step 06 完成（待审批）：三个 epic 各写 7 条 Requirements + 置 `refined: true`；17 条 entry（74×5 / 75×6 / 76×6），`tickets.py status` = `{total:17, planned:17}`、problems 空、三个依赖检查全空。12 条「需裁决」全部按默认处置关闭（详见 `step-06-refine-stories/report.md` 的「宿主裁决」表）。
+- 2026-11-23 **路径修正**：契约快照实际目录是 `tests/fixtures/contract_baselines/`（非 `tests/contract_baselines/`）；spine / brief / PRD / 报告中的写法已全量替换修正。
+- 2026-11-23 Decision: `ProjectChannelService` Protocol 与 `SubmittedRun` 的定义归 74.1（帧与端口形状），75.2 只做 `_submit_run` 分支与判据 —— 否则 74.1 的类型注解会对 75.2 造成前向依赖。
+
 ## 交接块（下一轮入口）
 
-- 下一条：Step 04 审批门（产出已齐，等用户 `approve` / `reject` / `amend`；批准后提交票树并进 Step 05）
-- 票树实测：`status docs/Goal-4` → epics 74/75/76、counts total 0、problems 空、unpinned / undeclared / order_conflict 全空
-- 必读：`prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` · `brief.md` · `tickets/tickets.toml` · 三个 epic 文件 · `step-03-analyze-requirements/report.md`
-- 未关闭的门：**Step 04 规划审批**（用户一「yes」同时授权提交票树）；Step 05 架构、Step 06 细化各还有一道门
-- 本轮结论：切分轴 = 验收面（契约 → 运行时 → 收口），14 条 R 全覆盖无重叠；R7 仍是无 AC 的缺口，已指定由 E76 落成可跑断言；epic 目录形态取 `epic-<编号>-<slug>` 以兼容票树脚本。
+- 下一条：Step 06 审批门（等用户 `approve` / `reject` / `amend`；批准后进 Step 07 首条 = `74.1`）
+- 票树实测：`status docs/Goal-4` → epics 74/75/76（refined 全 True）、counts {total:17, planned:17}、problems 空、unpinned/undeclared/order_conflict 全空
+- 必读：`architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md` · 三个 epic 文件（含 Requirements）· 三个 `tickets/tickets.toml` · `prd-ws-remote-project-channel/` · `step-06-refine-stories/report.md`
+- 未关闭的门：**Step 06 规划审批**；Step 07 逐 entry 实现（本 epic 无 `hitl` / checkpoint）；Step 08 最终放行
+- 本轮结论：17 条 entry 全部可开工（无 `unknown`、无 `blocked`）；并行候选 = `75.1‖75.2`、`75.3‖75.4`、`76.1–76.4`（需分两批，批上限 3）；`ProjectChannelService`/`SubmittedRun` 归 74.1。

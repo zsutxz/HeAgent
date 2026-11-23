@@ -54,7 +54,7 @@
 
 ### 验收标准（可判定）
 
-- **AC1（缺省不回落）**：提交帧不带 `project_id` 时，提交服务收到的上下文与改动前逐字等价（启动工作区围栏根/会话/产物根），既有 WS 提交与订阅测试全绿，`tests/contract_baselines/transport_*` 快照无差异。
+- **AC1（缺省不回落）**：提交帧不带 `project_id` 时，提交服务收到的上下文与改动前逐字等价（启动工作区围栏根/会话/产物根），既有 WS 提交与订阅测试全绿，`tests/fixtures/contract_baselines/transport_*` 快照无差异。
 - **AC2（依赖边界零新增）**：`pytest tests/test_architecture_contracts.py -q` 绿；全仓 grep 确认 `network/` 内无 `heagent.pub.projects` / `heagent.config` / `heagent.engine` / `heagent.agent` import；`network/ws_server.py` 仍不 import `network/http_server.py`。
 - **AC3（带值走项目链）**：以两个临时注册项目各提交 1 条 run，断言围栏根、会话落点、产物、`ExecutionLedger`、工具审计根（`RunContext.state_root`）、memory 六项均指向该项目路径，且**无任一路**落启动工作区根。
 - **AC4（未知 / 不可用 id 显性失败）**：`project_id` 未登记或项目目录不可用时返回具名 `WsErrorFrame` 错误（非 fail-soft 空跑、非 `ack` 成功），且不创建 run、不占用名额；错误码在 `transport_errors` 契约里有登记。

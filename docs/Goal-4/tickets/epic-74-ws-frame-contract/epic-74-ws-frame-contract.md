@@ -4,10 +4,10 @@ code: E74
 parent: brief
 slug: epic-74-ws-frame-contract
 covers: ["R2", "R5", "R6", "R8", "R10"]
-sources: ["docs/Goal-4/prd-ws-remote-project-channel/prd-ws-remote-project-channel.md", "docs/decisions/adr-0005-ws-remote-project-channel.md"]
+sources: ["docs/Goal-4/prd-ws-remote-project-channel/prd-ws-remote-project-channel.md", "docs/Goal-4/architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md", "docs/decisions/adr-0005-ws-remote-project-channel.md"]
 after: []
 risk: medium
-refined: false
+refined: true
 ---
 
 # E74 · WS 远程项目通道：协议与帧契约
@@ -23,6 +23,16 @@ refined: false
 - 传输层仍是哑传输：`RunWebSocketService` 是 Protocol（`network/ws_server.py:89` / `:110`）⇒ 加字段必须同改 Protocol 与实现；项目解析器与投影纯函数只以**注入端口**出现，装配在入口层（`cli/http.py:449` / `:789` 的 `run_service=` 先例），`network/` 不 import 运行栈 / 配置（N2）。
 
 本 epic 不含：注册表读取与投影、会话续接、六项落点（E75）；并发编排、启动告警、契约快照收口（E76）。
+
+## Requirements
+
+- **R1** 命令帧：`run` 新增可选 `project_id`（`min_length=1` / `max_length=16` / 不做 strip）；键缺失或 `null` 时解析结果与改动前逐字等价，`""` 判 `malformed`；字段白名单由模块级 `_FRAME_FIELDS`（命令 → 允许键集合）单一映射表驱动，覆盖 `WsCommand` 全部成员，解析器与模型校验器读同一张表。（← PRD R2；AD-4）
+- **R2** 注入端口形状：新增 `ProjectChannelService` Protocol（声明在 `network/ws_server.py`，方法参数名不含 path / workspace / session 类）与 `SubmittedRun`（不含 `session_id`）；两个端点构造器以**关键字参数** `project_service=None` 接收；`None` 时带 `project_id` 的提交回 `invalid_request` 且不触发任何启动路径——禁止静默按启动工作区执行。（← PRD R10；AD-1 §4.3）
+- **R3** 带 `project_id` 的提交按「先 `ensure_available` 后 `start_project_run`」次序执行；失败时 `HttpRunConflictError.code` 逐字透传到错误帧、连接保留、零副作用（`start_run` 与 `start_project_run` 调用次数均为 0）。（← PRD R5）
+- **R4** 提交 / 取消径可能产生的全部 code（`unknown_project` / `project_unavailable` / `project_busy` / `run_conflict` / `total_inflight_limit` / `unknown_run` / `invalid_request`）均为 `HttpErrorCode` **既有**成员（实测 `network/http_protocol.py:58` 起已全部存在），且在 `transport_errors` 基线内有条目；本 epic 不新增错误码、不重生成快照。（← PRD R5）
+- **R5** 新增 `cancel_run` 帧（`run_id` 必带）：与既有单 run 端点的 `cancel` 同源（同一 `cancel_run(run_id)` 端口）；单 run 端点上 `run_id` 必须等于该连接绑定的 run，否则 `invalid_request` 且不断连；`readonly` listener 上 `cancel_run` 回 `invalid_request` 且不断连；目标已终止回终态 ack（幂等），目标不存在回 `unknown_run` 且不断连。（← PRD R8）
+- **R6** 事件面零变更：`WsAckFrame` / `WsEventFrame` 的字段集合不变，事件帧带 `project_id` 仍判非法；golden 事件信封逐字相等；订阅仍复用既有 `/api/runs/{run_id}/ws`，本 epic 不新增任何路由。（← PRD R6）
+- **R7** `network/` 保持哑传输：新增代码对 `heagent.cli` / `heagent.config` / `heagent.pub.projects` / `heagent.engine` / `heagent.agent` 零 import，`is_dir` 零命中，`pytest tests/test_architecture_contracts.py -q` 绿。（← PRD R10）
 
 ## Outcome
 

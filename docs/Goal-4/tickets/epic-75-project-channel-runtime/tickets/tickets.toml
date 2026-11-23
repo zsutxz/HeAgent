@@ -1,0 +1,104 @@
+# E75 · WS 远程项目通道：项目链运行时与投影注入（covers PRD R1 / R3 / R4 / R13）
+# covers 引用**本 epic** 的 Requirements（见 epic-75-project-channel-runtime.md 的 `## Requirements` 段）
+# 表序即构建顺序；after 用兄弟 id 或 epic slug
+
+[[entry]]
+id = 1
+type = "story"
+title = "E75-S01 · 注册表健康探针与项目错误码"
+description = "`pub/projects.py` 新增 `ProjectRegistryHealth`（`code: ok|unreadable` + 一句 `detail`）与 `ProjectRegistry.health()`：纯读、不写盘，复用一次私有读径，把 `OSError` / `UnicodeError` / `_RegistryCorrupt` 一律映射为 `unreadable`；每次判定不可读只打 1 条 WARNING（不随请求数刷屏）；`load()` / `find()` / `list()` 的 fail-soft 语义逐字不变。`network/http_protocol.py::HttpErrorCode` 新增 `PROJECT_REGISTRY_UNREADABLE = \"project_registry_unreadable\"`（其余项目侧错误码实测已存在，复用不重复定义）。契约基线同批重生成并人工 review diff。"
+verify = "`pytest tests/test_project_registry_health.py -q` 五例：正常文件 `health().code == \"ok\"`；坏 JSON / BOM / 超 32 条 / 目录不可读四例 `health().code == \"unreadable\"`、`list()` 仍回 default 一条、`caplog` 恰 1 条 WARNING。`python scripts/contract_snapshot.py --write` 后 `git diff tests/fixtures/contract_baselines/transport_errors.json` 只多该 code 条目、无其他字段漂移。"
+covers = ["R5", "R7"]
+after = ["epic-74-ws-frame-contract"]
+risk = "medium"
+hitl = false
+parallel_group = "P1"
+write_set = [
+  "src/heagent/pub/projects.py",
+  "src/heagent/network/http_protocol.py",
+  "tests/test_project_registry_health.py",
+  "tests/fixtures/contract_baselines/transport_errors.json",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E75-S02 · network 侧项目通道端口与 project_id 提交分支"
+description = "`network/ws_server.py` 的 `_submit_run` 新增 `project_id` 分支（`ProjectChannelService` Protocol 与 `SubmittedRun` 已由 74.1 定义，本 entry 只接线与加判据）：先 `await project_service.ensure_available(...)` 再 `await project_service.start_project_run(...)`，成功回 ack；`HttpRunConflictError.code` 逐字透传、连接不断；`project_service is None` 时 `run`（带 id）/ `projects` / `cancel_run` 回 `invalid_request`，不静默按 default 处理；缺省 `project_id` 路径（`service.start_run(prompt)`）逐字不动。`project_service` 的实现方（适配器）与装配不在本 entry。"
+verify = "`pytest tests/network -q -k \"ws_project_submit or ws_server\"` 含：`inspect.signature` 参数名集合断言（I5）；无 `project_id` ⇒ console 0 次 / `start_run` 1 次（I6）；带 `project_id` ⇒ console 1 次且 `ProjectRunRequest.session_id is None`（I9）；`project_service=None` 三命令回 `invalid_request` 且连接不断；`HttpRunConflictError(code=\"project_busy\")` 原样出现在错误帧。`grep -rn \"is_dir\" src/heagent/network/` 与运行栈/配置 import grep 均 0 命中；`pytest tests/test_architecture_contracts.py -q` 绿。"
+covers = ["R6", "R7"]
+after = ["epic-74-ws-frame-contract"]
+risk = "high"
+hitl = false
+parallel_group = "P1"
+write_set = [
+  "src/heagent/network/ws_server.py",
+  "tests/network/test_ws_project_submit.py",
+]
+
+[[entry]]
+id = 3
+type = "story"
+title = "E75-S03 · cli/ws_project_adapter.py 帧转译单源"
+description = "新增 `src/heagent/cli/ws_project_adapter.py::ProjectChannelAdapter`（≤150 行，只翻译不含判据）：`__init__(console, registry_health)`；`list_projects()` 把 `ProjectListResponse` 投影为 `WsProjectsFrame`，每条 `ProjectChannelEntry` 恰三字段 `id` / `name` / `available`（丢弃 `path` / `last_opened_at` / `is_default`），顺序沿用注册表 `list()`，`registry_state` 取 `registry_health()`；`start_project_run(project_id, prompt)` 唯一动作是 `await console.start_project_run(project_id, ProjectRunRequest(prompt=prompt))` 并收窄为 `SubmittedRun(run_id, status)`（丢 `session_id`），`ConsoleOperationError.code` / `ProjectRegistryError.code` 原样包成 `HttpRunConflictError`；`ensure_available(project_id)` 成功返回原 id。文件内不出现 `Path` / `os` / `is_dir` / 注册表方法调用。同批改 `tests/test_architecture_contracts.py` 的 cli 布局白名单与 `docs/frame.md` 的 cli 子模块表与目录树。"
+verify = "`pytest tests/test_ws_project_adapter.py -q`：entry 序列化键集 == `{id,name,available}` 且 `\"path\"` 计数 0；`SubmittedRun.model_fields` 不含 `session_id`；`ConsoleOperationError(code=\"project_busy\")` 与 `ProjectRegistryError(code=\"project_registry_unreadable\")` 抛出后 `HttpRunConflictError.code` 逐字相同；`registry_health()` 回 `\"unreadable\"` ⇒ 帧 `registry_state == \"unreadable\"`。`pytest tests/test_architecture_contracts.py -q` 转绿（白名单已补）；`mkdocs build --strict` 0 warning。"
+covers = ["R1", "R2", "R7"]
+after = [2]
+risk = "medium"
+hitl = false
+parallel_group = "P2"
+write_set = [
+  "src/heagent/cli/ws_project_adapter.py",
+  "tests/test_architecture_contracts.py",
+  "docs/frame.md",
+  "tests/test_ws_project_adapter.py",
+]
+
+[[entry]]
+id = 4
+type = "story"
+title = "E75-S04 · 控制台编排：六项落点与会话续接/新建"
+description = "`cli/http_console.py::HttpProjectConsole.start_project_run` 把会话选择写成两条显式分支：该项目有历史会话 ⇒ 续最近一次；从未有会话 ⇒ 新建（可断言的分支，不是「查不到即异常」）。六项落点全部锚定项目根：`context.workspace_root`、会话文件、产物目录、`ExecutionLedger` 行、`RunContext.state_root`（工具审计根）、memory 根；启动工作区根零新增产物、零新增 ledger 条目。`available=false` 的项目提交抛 `ConsoleOperationError(code=\"project_unavailable\")`，不建 run、不占名额。返回仍为 `ProjectRunResponse`（收窄在适配器）。"
+verify = "`pytest tests/test_http_console_project_run.py -q`：单项目与两项目各一例，六项落点断言全绿且启动工作区根无新增；「有历史会话 ⇒ 续最近」断言 session_id 复用，「从未有会话 ⇒ 新建」断言 session_id 新生成；`available=false` 例断言抛 `project_unavailable` 且无 run 落盘、无 ledger 条目。既有 HTTP 项目链用例（`pytest tests -q -k http_console`）全绿（NG12 不改写既有语义）。"
+covers = ["R3", "R4"]
+after = [1, "epic-74-ws-frame-contract"]
+risk = "high"
+hitl = false
+parallel_group = "P2"
+write_set = [
+  "src/heagent/cli/http_console.py",
+  "tests/test_http_console_project_run.py",
+]
+
+[[entry]]
+id = 5
+type = "story"
+title = "E75-S05 · 装配注入：build_ws_servers 透传与两处注入"
+description = "`cli/http_config.py::build_ws_servers` 新增 `project_service: ProjectChannelService | None = None` 入参并原样透传给 `build_runs_collection_endpoint` 与 `build_ws_endpoint`；`cli/http.py` 的两处调用点（`:449` 与 `:789`）都构造 `ProjectChannelAdapter`（同一个 `HttpProjectConsole` 实例 + 注册表健康探针）并注入，两处注入同一个实例 ⇒ 不存在「一条装配分支静默缺项目通道」。"
+verify = "`pytest tests/test_cli_http_lifecycle.py -q`：新增 wiring 断言两处 `build_ws_servers` 收到的 `project_service` 均非 None 且为同一实例；既有生命周期与启动用例全绿（`ws event=started` 行为不变）。`pytest tests/network -q` 全绿。"
+covers = ["R6", "R7"]
+after = [3, 4]
+risk = "medium"
+hitl = false
+write_set = [
+  "src/heagent/cli/http_config.py",
+  "src/heagent/cli/http.py",
+  "tests/test_cli_http_lifecycle.py",
+]
+
+[[entry]]
+id = 6
+type = "story"
+title = "E75-S06 · 契约基线与文档收口"
+description = "重生成四份契约基线并人工 review diff：`transport_errors.json` 只多 `project_registry_unreadable`，其余三份无漂移。`docs/framework.md` 的 WS 段补「项目通道：`ProjectChannelService` 注入 → `ProjectChannelAdapter` 翻译 → 六项落点由编排层保证」；`docs/frame.md` 复核。跑受影响子集 + 全门确认无回归。"
+verify = "`python scripts/contract_snapshot.py --write` 后 `git diff --stat tests/fixtures/contract_baselines/` 仅 `transport_errors.json` 一行变更；`mkdocs build --strict` 0 warning；`ruff check src tests && ruff format --check src tests && mypy src && bandit -r src/ -ll` 全绿；受影响子集（`tests/network` / `test_architecture_contracts` / `test_cli_http_lifecycle` / `test_project_registry_health` / `test_ws_project_adapter` / `test_http_console_project_run`）全绿。"
+covers = ["R1", "R5", "R7"]
+after = [1, 2, 3, 4, 5]
+risk = "low"
+hitl = false
+write_set = [
+  "docs/framework.md",
+  "tests/fixtures/contract_baselines/exception_types.json",
+  "tests/fixtures/contract_baselines/public_exports.json",
+  "tests/fixtures/contract_baselines/transport_routes.json",
+]

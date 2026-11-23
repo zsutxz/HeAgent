@@ -45,7 +45,7 @@
 - R11 远程面白名单不扩张：WS 上无配置读写 / 项目注册 / 会话历史浏览的帧或端点；HTTP 侧远程注册仍 403；远程提交的审批类工具调用结果仍只见 `tool_error=True`（来源：PRD §5 R11）
 - R12 `external` 档 + 非 docker 沙箱：每次启动输出一条固定锚点 WARNING（可 grep，含 `listener=external` 与沙箱后端名）；docker 档不输出；不改变启动成败（来源：PRD §5 R12）
 - R13 注册表不可读时分路：列表 fail-soft（空表 + 可判定的「注册表不可用」信号 + WARNING）；提交 fail-loud（即 R5 的具名错误）（来源：PRD §5 R13）
-- R14 契约与文档同步：golden 帧 + `tests/contract_baselines/transport_{errors,routes}.json` 重生成，diff 只含预期新增；`docs/errors.md` 与远程访问口径文档同步；「id 随路径派生、目录移动即换键、APK 需重选」写进客户端对接说明（来源：PRD §5 R14）
+- R14 契约与文档同步：golden 帧 + `tests/fixtures/contract_baselines/transport_{errors,routes}.json` 重生成，diff 只含预期新增；`docs/errors.md` 与远程访问口径文档同步；「id 随路径派生、目录移动即换键、APK 需重选」写进客户端对接说明（来源：PRD §5 R14）
 
 ### Constraints
 

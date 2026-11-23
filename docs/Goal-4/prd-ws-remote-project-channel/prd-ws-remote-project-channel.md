@@ -81,7 +81,7 @@
 | **R11** | 远程面白名单不扩张：WS 上无配置读写 / 项目注册 / 会话历史浏览的帧或端点；HTTP 侧远程注册仍 403；远程提交的审批类工具调用结果仍只见 `tool_error=True` | P0 | AC8 |
 | **R12** | `external` 档 + **非 docker 沙箱**：每次启动输出**一条**固定锚点 WARNING（可 grep，含 `listener=external` 与沙箱后端名）；docker 档不输出；**不改变启动成败** | P1 | AC10 |
 | **R13** | 注册表不可读时**分路**：列表 fail-soft（空表 + 可判定的「注册表不可用」信号 + WARNING）；提交 fail-loud（即 R5 的具名错误） | P1 | AC5、AC4 |
-| **R14** | 契约与文档同步：golden 帧 + `tests/contract_baselines/transport_{errors,routes}.json` 重生成，diff **只含预期新增**；`docs/errors.md` 与远程访问口径文档同步；「id 随路径派生、目录移动即换键、APK 需重选」写进客户端对接说明 | P1 | AC7、AC4、AC5 |
+| **R14** | 契约与文档同步：golden 帧 + `tests/fixtures/contract_baselines/transport_{errors,routes}.json` 重生成，diff **只含预期新增**；`docs/errors.md` 与远程访问口径文档同步；「id 随路径派生、目录移动即换键、APK 需重选」写进客户端对接说明 | P1 | AC7、AC4、AC5 |
 
 **覆盖检查（AC → R）**
 
@@ -149,7 +149,7 @@
 ### 7.3 兼容约束
 
 - 帧族全 `extra="forbid"`（`ws_protocol.py` 6 处）⇒ 新字段**可选 + 有默认值**是硬要求；golden 帧逐字不变。
-- 契约快照 4 份（`tests/contract_baselines/` 的 `exception_types` / `public_exports` / `transport_errors` / `transport_routes`）重生成后 diff 只含预期新增；`transport_errors.json` 顶层是 `{entries, envelope, status_sources, unmapped_codes}`。
+- 契约快照 4 份（`tests/fixtures/contract_baselines/` 的 `exception_types` / `public_exports` / `transport_errors` / `transport_routes`）重生成后 diff 只含预期新增；`transport_errors.json` 顶层是 `{entries, envelope, status_sources, unmapped_codes}`。
 - HTTP 回环控制台面**语义零变更**（NG12）：既有项目链请求模型 `project_id: str = Field(min_length=1)` 是 WS 校验口径的对齐源（非空、不做 id 格式臆断）。
 - 缺省路径（不带 `project_id`）必须与改动前逐字等价（R2 / AC1）。
 - 架构契约测试 `tests/test_architecture_contracts.py` 为可执行断言，改依赖面必须同步 `FORBIDDEN_RUNTIME_IMPORTS`。
@@ -221,7 +221,7 @@
 - `src/heagent/network/ws_protocol.py`
 - `src/heagent/network/ws_host.py`
 - `tests/test_architecture_contracts.py`
-- `tests/contract_baselines/`
+- `tests/fixtures/contract_baselines/`
 
 **台账**
 

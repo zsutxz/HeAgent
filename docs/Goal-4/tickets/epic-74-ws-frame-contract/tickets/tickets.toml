@@ -1,0 +1,83 @@
+# E74 · WS 远程项目通道：协议与帧契约 —— entry 表序即构建顺序
+# covers 引用**本 epic** 的 Requirements（见 epic-74-ws-frame-contract.md 的 `## Requirements` 段）
+# after 只用本 epic 内兄弟 id；跨 epic 依赖已在父级 tickets.toml 声明
+# 本 epic 不新增 cli 子模块 ⇒ 不需要同步 tests/test_architecture_contracts.py 的 cli 布局白名单与 docs/frame.md
+
+[[entry]]
+id = 1
+type = "story"
+title = "E74-S01 · 命令帧白名单单一映射表与可选 project_id 字段"
+description = "完成时 `network/ws_protocol.py` 的命令帧字段白名单由模块级 `_FRAME_FIELDS`（命令 → 允许键集合）单一映射表驱动，`WsCommandFrame` 增加可选 `project_id`（min_length=1 / max_length=16 / 不做 strip），`parse_command_frame` 与模型校验器读同一张表并按该表判「必带 / 禁带」；`network/ws_server.py` 定义 `ProjectChannelService` Protocol（三方法）与 `SubmittedRun`（`run_id` + `status`，刻意无 `session_id`），`build_runs_collection_endpoint` / `build_ws_endpoint` 新增关键字参数 `project_service: ProjectChannelService | None = None`，为 `None` 时带 `project_id` 的 `run` 帧回 `invalid_request` 且不调用 `service.start_run`；不带 `project_id` 的帧解析结果与解析后调用路径逐字不变。"
+verify = "`pytest tests/network/test_ws_command_fields.py tests/network/test_ws_protocol.py -q`：五个新例全绿 —— `run` 帧带 `project_id` 解析出该值且不 strip、`project_id=\"\"` ⇒ `malformed`、`run` 帧带未知键 ⇒ `malformed`、未登记命令使 `set(_FRAME_FIELDS) == set(WsCommand)` 失败即红、`project_service=None` 时带 `project_id` 的提交回 `invalid_request` 且 `start_run` 调用 0 次。"
+covers = ["R1", "R2"]
+after = []
+risk = "medium"
+hitl = false
+write_set = [
+  "src/heagent/network/ws_protocol.py",
+  "src/heagent/network/ws_server.py",
+  "tests/network/test_ws_command_fields.py",
+  "tests/network/test_ws_protocol.py",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E74-S02 · 项目通道端口与带项目提交的端点转译"
+description = "完成时 `network/ws_server.py` 里有 `ProjectChannelService` Protocol（`start_project_run(project_id, prompt) -> SubmittedRun` / `ensure_available(project_id) -> str`，参数名不含 path / workspace / session 类）与 `SubmittedRun`（只有 `run_id` / `status`，刻意无 `session_id`）；集合级端点的 `_submit_run` 新增 `project_id` 分支且旧分支逐字不动，成功路径先 `await project_service.ensure_available(...)` 再 `await project_service.start_project_run(...)`，`HttpRunConflictError.code` 逐字落进错误帧、连接保留；`project_service` 的实现方（适配器）与装配不在本 entry。"
+verify = "`pytest tests/network/test_ws_project_submit.py -q`：无 `project_id` 的提交断言 `HttpProjectConsole.start_project_run` 0 次且 `HttpRunService.start_run` 1 次；带 `project_id` 的提交断言调用序列为 `ensure_available` → `start_project_run` 各 1 次、`SubmittedRun` 无 `session_id`；`ensure_available` 抛 `unknown_project` 时错误帧 code 为该字面值且 `start_run` / `start_project_run` 调用次数均 0；`inspect.signature` 断言 `ProjectChannelService` 两个方法的参数名集合恰为 `{project_id, prompt}` 与 `{project_id}`。"
+covers = ["R2", "R3"]
+after = [1]
+risk = "medium"
+hitl = false
+parallel_group = "wave-2"
+write_set = [
+  "src/heagent/network/ws_server.py",
+  "tests/network/test_ws_project_submit.py",
+]
+
+[[entry]]
+id = 3
+type = "story"
+title = "E74-S03 · cancel_run 帧与只读口径"
+description = "完成时 `WsCommand` 含 `CANCEL_RUN = \"cancel_run\"`、`WsCommandFrame` 含必带 `run_id`（min_length=1 / max_length=64）并登记进 `_FRAME_FIELDS`，`cancel_run` 带 `project_id` 或缺 `run_id` 判 `malformed`；集合级端点按 `run_id` 取消并复用既有 `service.cancel_run(run_id)`（不新建第二条取消实现），目标已终止时回终态 `WsAckFrame`、目标不存在回 `unknown_run`，两者都不断连；单 run 端点上 `run_id` 必须等于该连接绑定的 run 否则 `invalid_request` 不断连；`readonly=True` 的 listener 上 `cancel_run` 回 `invalid_request` 且不断连。"
+verify = "`pytest tests/network/test_ws_cancel_run.py tests/network/test_ws_protocol.py -q`：`cancel_run` 目标 run 到终态、同连接的另一个 run 仍活且未被取消；`readonly=True` 回 `invalid_request` 且连接未被关闭；`run_id` ≠ 绑定 run ⇒ `invalid_request`；已终止 run ⇒ ack 携带终态 status；未知 `run_id` ⇒ `unknown_run` 且不断连；帧面四例（缺 `run_id`、带 `project_id`、未知键、超 `WS_MAX_COMMAND_CHARS`）均按既有口径判 `malformed` / `too_large`。"
+covers = ["R5"]
+after = [1]
+risk = "medium"
+hitl = false
+write_set = [
+  "src/heagent/network/ws_protocol.py",
+  "src/heagent/network/ws_server.py",
+  "tests/network/test_ws_cancel_run.py",
+  "tests/network/test_ws_protocol.py",
+]
+
+[[entry]]
+id = 4
+type = "story"
+title = "E74-S04 · 事件面零漂移契约钉子"
+description = "完成时事件面无任何变更且被测试钉死：`WsEventFrame.model_fields` 恰为 `{type, event}`、`WsAckFrame.model_fields` 恰为 `{type, command, run_id, status}`，事件帧带 `project_id` 仍被 `extra=\"forbid\"` 判非法，golden 事件信封 `model_dump_json()` 与固定字面逐字相等，订阅路径仍只有既有 `/api/runs/{run_id}/ws`（路由集不变、不因本 epic 新增端点）。"
+verify = "`pytest tests/network/test_ws_event_contract.py -q`：字段集合三例 + golden 信封逐字相等一例 + 事件帧带 `project_id` ⇒ 帧错误一例 + 路由集与 `tests/fixtures/contract_baselines/transport_routes.json` 一致一例，全绿。"
+covers = ["R6"]
+after = [1]
+risk = "low"
+hitl = false
+parallel_group = "wave-2"
+write_set = [
+  "tests/network/test_ws_event_contract.py",
+]
+
+[[entry]]
+id = 5
+type = "story"
+title = "E74-S05 · 错误码台账与哑传输边界收口"
+description = "完成时本 epic 引入的两条判定路径（带 `project_id` 的提交、`cancel_run`）可能抛出的每一个 code 都被证明是 `HttpErrorCode` 既有成员且在 `transport_errors` 基线有条目，`network/` 对运行栈与配置的 import、`is_dir` 调用仍为零命中，架构契约测试全绿；本 entry 预期零 src 改动，若断言发现缺项则中止并交由 E75（新增 `project_registry_unreadable`）/ E76（重生成快照）处置，不在本 epic 擅自补基线与新增错误码。"
+verify = "`pytest tests/network/test_ws_error_codes.py tests/test_architecture_contracts.py -q`：反射断言 `{unknown_project, project_unavailable, project_busy, run_conflict, total_inflight_limit, unknown_run, invalid_request} ⊆ set(HttpErrorCode)` 且每个字面值在 `transport_errors.json` 的条目或 `unmapped_codes` 中有对应项；`network/` 内 `heagent.cli` / `heagent.config` / `heagent.pub.projects` / `heagent.engine` / `heagent.agent` / `is_dir` 六条 `content_search` 断言 0 命中。"
+covers = ["R4", "R7"]
+after = [2, 3]
+risk = "low"
+hitl = false
+write_set = [
+  "tests/network/test_ws_error_codes.py",
+]

@@ -1,0 +1,101 @@
+# E76 entry 表 —— 表序即构建序
+# covers 引用「本 epic Requirements 的 R1–R7」（父 tickets.toml 的 epic.covers 引用 PRD R7/R9/R11/R12/R14，两层编号不混用）
+# after 取值：本 epic 兄弟 entry 的整数 id，或 epic slug（epic-74-ws-frame-contract / epic-75-project-channel-runtime）
+
+[[entry]]
+id = 1
+type = "story"
+title = "E76-S01 · 断连续流三判据：无空洞 / 窗口不足必须 resync_required / 重复可见可去重"
+description = "在 `tests/network/test_ws_resume.py` 用 fake `RunWebSocketService`（不跑真 run）把 AD-5 的三条事实落成可跑断言：① 无空洞 —— 连收 N 帧后断开，用第 N 帧的事件 id 作 `last_event_id` 重连，续到的首帧 id ≤ N+1 且其后连续递增至终态；② 窗口不足必须响 —— ring buffer 置 1、cursor 落后 ≥2，收到 `resync_required` 错误帧且没有任何 event 帧先于它发出；③ 重复可见可去重 —— 重放窗口重叠时按 id 去重后条数 == 服务端事件总数。同批补「run 已清理」路径：取消后仍可续读到尾部，run 记录已不存在则回具名错误帧（`unknown_run`）、不静默空流。取证在前：先跑一遍确认既有订阅实现对「run 已不存在」是具名错误还是空流，仅当是空流才做最小修复。"
+verify = "`pytest tests/network/test_ws_resume.py -q` 三例全绿（含「无 event 帧先于 resync_required」的顺序断言）+ run 已清理路径一例；`pytest tests/network -q` 既有续流与端点用例零回归；`git diff --stat src/heagent/network/ws_server.py` 只含「run 已不存在 ⇒ 具名错误」相关行（取证若显示已是具名错误则该文件 0 行 diff）。"
+covers = ["R3", "R4"]
+after = []
+risk = "medium"
+hitl = false
+parallel_group = "e76-a"
+write_set = [
+  "tests/network/test_ws_resume.py",
+  "src/heagent/network/ws_server.py",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E76-S02 · 两项目并发不串味与名额分层：四判据不新增计数、不动参数"
+description = "在 `tests/network/test_ws_project_admission.py` 注入 fake console、准备项目 A/B，落 spine §6.3 四例：① 并发不串味 —— 两条集合级连接各提交 A、B，console 收到 `(A, prompt_a)` 与 `(B, prompt_b)`，两个 ack 的 `run_id` 不同且无任何 `project_id` 与 prompt 交叉；② 项目内上限 —— A 已有在途再提交 A ⇒ code 逐字 `project_busy` 且第二次未触达 `start_project_run`；③ 全局上限 —— 名额耗尽 ⇒ `total_inflight_limit`，与 `run_conflict` 可分辨；④ 不占名额 —— `unknown_project` / `project_unavailable` / `project_registry_unreadable` 三条路径下 `start_project_run` 调用 0 次。若暴露适配器改写或吞掉 code，只在适配器内做「逐字透传」最小修复；不在 `network/` 加计数、不新增配置键、不动并发参数。"
+verify = "`pytest tests/network/test_ws_project_admission.py -q` 四例全绿，断言里 `run_id` 交叉计数 == 0 且 `project_busy` / `total_inflight_limit` / `run_conflict` 三个字面值逐一出现；`pytest tests/network -q` 与 `pytest tests -q -k http_console` 零回归；`grep -rn \"MAX_INFLIGHT\\|Semaphore\" src/heagent/network/ws_server.py` 相对 E74/E75 基线零新增计数状态（既有 `_SubmissionSlots` 除外）。"
+covers = ["R1", "R2"]
+after = []
+risk = "medium"
+hitl = false
+parallel_group = "e76-a"
+write_set = [
+  "tests/network/test_ws_project_admission.py",
+  "src/heagent/cli/ws_project_adapter.py",
+]
+
+[[entry]]
+id = 3
+type = "story"
+title = "E76-S03 · 远程可见面白名单收口：WS 命令面 5 值封闭、无配置/注册/历史族"
+description = "把 R5 的三条白名单判据钉成可跑 + 可观察两类。WS 面：在 `tests/network/test_ws_protocol.py` 补集合相等断言（`WsCommand` 成员集合恰 `{cancel, cancel_run, ping, projects, run}`）与「不存在配置读写 / 项目注册 / 会话历史族命令」的守卫（命令值与帧字段名双向断言），使「多一条远程能力」变成显性失败。HTTP 面与审批面不动代码，只复跑既有断言并留痕：远程注册仍 403、远程提交的审批类工具调用结果仍只见 `tool_error=True`。不改 `docs/`（白名单表由 S06 统一收口），不新增端点与帧类型。"
+verify = "`pytest tests/network -q -k \"ws_protocol or ws_server\"` 全绿且含命令集合相等断言；`content_search` 在 `src/heagent/network/` 内对 `set_setting|write_config|register_project|list_sessions` 恒 0 命中；`src/heagent/network/http_protocol.py` 相对 E74 基线无新增「配置/注册/历史」类 code；既有远程注册 403 与审批 `tool_error=True` 用例复跑零回归。"
+covers = ["R5"]
+after = []
+risk = "low"
+hitl = false
+parallel_group = "e76-a"
+write_set = [
+  "tests/network/test_ws_protocol.py",
+]
+
+[[entry]]
+id = 4
+type = "story"
+title = "E76-S04 · external 档非 docker 沙箱启动 WARNING：恰 1 条锚点、不改变启动成败"
+description = "在 `cli/http_config.py` 新增 `_warn_external_without_sandbox`（紧跟 `_check_tls_identity`，同属启动自检族），并在 `cli/http.py::_ws_access_note` 尾部追加一行访问说明。判据：`listener=external`（非回环 + token）且启动期实际生效的沙箱后端非 docker 时，每次启动恰 1 条 WARNING，行内含 `listener=external` 与沙箱后端名，可被单条 grep 钉死；docker 档 0 条；两种情况退出码与启动成败不变（不是闸门）。`_ws_access_note` 既有三段文案逐字不变，只追加。"
+verify = "`pytest tests/test_cli_http_lifecycle.py -q` 两例：external + 非 docker ⇒ `caplog` 中该锚点 WARNING 计数 == 1；external + docker ⇒ 计数 == 0；两例启动正常返回。`grep -c \"listener=external\" <该次启动日志>` == 1 且行内同时含 `sandbox=`。`git diff src/heagent/cli/http.py` 只含 `_ws_access_note` 尾部追加。"
+covers = ["R6"]
+after = []
+risk = "low"
+hitl = false
+parallel_group = "e76-a"
+write_set = [
+  "src/heagent/cli/http_config.py",
+  "src/heagent/cli/http.py",
+  "tests/test_cli_http_lifecycle.py",
+]
+
+[[entry]]
+id = 5
+type = "story"
+title = "E76-S05 · ADR-005 五步验收串跑：列项目 → 两项目各 1 run → 事件流完整 → 取消其一 → cursor 续流"
+description = "新增 `tests/network/test_ws_remote_flow.py`，把 ADR-005 验收基线一次跑通到底，复用 S01/S02 的 fake 服务与夹具，不引入真 provider、不跳过任一步、不以人工确认替代：① `projects` 帧列出 A/B（各含 `id`/`name`/`available` 三键）；② 两条集合级连接各为 A、B 提交 1 run，ack 各指向本次 run；③ A、B 事件流各自完整到终态且 `run_id` 交叉计数 == 0；④ 取消 A ⇒ A 到取消终态而 B 仍活到自终态；⑤ B 中途断开后凭最后事件 id 续流，首帧 ≤ N+1 且此后无空洞到终态。若串跑暴露缺陷，回到对应判据 story 的最小修复范围修，不在此 entry 扩写生产代码。"
+verify = "`pytest tests/network/test_ws_remote_flow.py -q` 单例全绿，五步在同一条用例内顺序断言（任一步失败即整体红）；用例内显式断言「`run_id` 交叉计数 == 0」「取消 A 后 B 仍产出事件」「续流首帧 id ≤ last_event_id + 1」；`git diff --stat src/` 对本 entry 为空（纯测试增量）。"
+covers = ["R1", "R3", "R4"]
+after = [1, 2]
+risk = "medium"
+hitl = false
+write_set = [
+  "tests/network/test_ws_remote_flow.py",
+]
+
+[[entry]]
+id = 6
+type = "story"
+title = "E76-S06 · 契约快照与文档收口：4 份基线只含预期新增、三份文档同批同步"
+description = "跑 `python scripts/contract_snapshot.py --write` 重生成 4 份基线（`tests/fixtures/contract_baselines/`）并逐份 review：`transport_errors` 只含项目侧新增错误码，`transport_routes` 无新端点（事件流复用），`exception_types` / `public_exports` 无意外增删。同批同步 `docs/errors.md`（新错误码与「可重试 vs 改输入」语义）、`docs/frame.md`（WS 命令表含远程可见列 + cli 新模块表）、`docs/framework.md`（WS 段与远程接入口径）。客户端对接口径写明：id 随路径派生、目录移动即换键、客户端需重选项目。预期外的快照 diff 一律回退并归因，不放宽断言抵消。"
+verify = "`python scripts/contract_snapshot.py --write` 后 `git diff --stat tests/fixtures/contract_baselines/` 与预期清单逐份对齐（`transport_routes.json` 无新增路由条目）；`pytest tests -q -k \"contract or release_workflow\"` 全绿；`mkdocs build --strict` 0 warning；`grep -n \"路径派生\\|目录移动\" docs/errors.md docs/framework.md` 至少命中客户端对接口径所在节。"
+covers = ["R7"]
+after = [1, 2, 4, 5]
+risk = "low"
+hitl = false
+write_set = [
+  "tests/fixtures/contract_baselines/exception_types.json",
+  "tests/fixtures/contract_baselines/public_exports.json",
+  "tests/fixtures/contract_baselines/transport_errors.json",
+  "tests/fixtures/contract_baselines/transport_routes.json",
+  "docs/errors.md",
+  "docs/frame.md",
+  "docs/framework.md",
+]
