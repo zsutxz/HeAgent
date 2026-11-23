@@ -51,9 +51,10 @@ def captured_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> dict[str,
     """把 ``_serve_web`` 换成「记录双 server 即返回」：参数断言不需要真的绑定端口。"""
     captured: dict[str, Any] = {}
 
-    async def fake_serve(http_server: HttpServer, ws_servers: Any) -> None:
+    async def fake_serve(http_server: HttpServer, ws_servers: Any, sandbox_backend: Any = None) -> None:
         captured["server"] = http_server
         captured["ws"] = ws_servers
+        captured["backend"] = sandbox_backend
 
     monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve)
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
@@ -631,6 +632,19 @@ def test_http_server_command_wires_the_console_for_project_runs(captured_server:
 
 
 # ── 写入闸门 / 注册表落点 / 生效语义 ──
+
+
+def test_serve_web_receives_the_effective_sandbox_backend(captured_server: dict[str, Any]) -> None:
+    """`http-server` 的公告与 WS 装配同源：生效档位必须传到 `_serve_web`（否则公告漏「跑在哪」）。
+
+    请求 `docker` 而本机 daemon 不可用时生效值是 `passthrough` —— 传下去的**不能**是请求值，
+    这条断言正是「生效 ≠ 请求」时公告才说得准的证据。同一档位与 ``build_ws_servers`` 的注入值
+    逐字相等由 ``test_cli_http_lifecycle.py`` 的装配用例保证。
+    """
+    result = CliRunner().invoke(main, ["http-server", "--sandbox", "docker"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["backend"] in {"docker", "passthrough"}
 
 
 def test_write_gate_defaults_to_closed(captured_server: dict[str, HttpServer]) -> None:

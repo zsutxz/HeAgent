@@ -70,20 +70,27 @@ def _ws_url(server: WsServer) -> str:
     return f"{scheme}://{server.address}"
 
 
+def _host_execution_note(config: WsServerConfig, sandbox_backend: str | None) -> str:
+    """非容器后端 + 接受远程提交的档位时，追加「远端 run 跑在宿主」这半句；其余情况为空串。
+
+    单点实现：访问口径文案（``_ws_access_note``）与启动告警（``_announce_ws_listeners``）必须同口径，
+    两条公告一个讲一个不讲会让「跑在哪」这条关键事实随启动路径而变。
+    """
+    backend = (sandbox_backend or "").strip()
+    if not backend or backend == "docker" or config.mode not in ("external", "lan"):
+        return ""
+    return f"; sandbox={backend}: remote runs execute on the HOST"
+
+
 def _ws_access_note(config: WsServerConfig, sandbox_backend: str | None = None) -> str:
     """公告里的访问口径：本地免 token / 本地强制 token / 对外 token 三态；只读另标。
 
-    ``sandbox_backend``（Epic 76）非 ``docker`` 且 listener 是对外档时追加一句「远端提交跑在宿主」：
-    `external` 档意味着任何持 token 的对端都能提交 run，公告只讲 token 不讲「跑在哪」会漏掉真正
-    决定风险等级的那一半（容器是唯一 OS 级边界，见 ``docs/framework.md`` §4.18）。
+    ``sandbox_backend``（Epic 76）非 ``docker`` 且 listener 接受远程提交时追加一句「远端 run 跑在
+    宿主」：``external`` / ``lan`` 都让对端能提交 run，公告只讲认证不讲「跑在哪」会漏掉真正决定
+    风险等级的那一半（容器是唯一 OS 级边界，见 ``docs/framework.md`` §4.18）。
     """
     suffix = "; read-only" if config.readonly else ""
-    backend = (sandbox_backend or "").strip()
-    host_note = (
-        f"; sandbox={backend}: remote runs execute on the HOST"
-        if config.mode == "external" and backend and backend != "docker"
-        else ""
-    )
+    host_note = _host_execution_note(config, sandbox_backend)
     if config.requires_auth:
         transport = "TLS" if config.tls_enabled else "PLAINTEXT"
         label = "external mode" if config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
@@ -91,7 +98,9 @@ def _ws_access_note(config: WsServerConfig, sandbox_backend: str | None = None) 
     return f"(run & CLI WebSocket entry; local only; no authentication{suffix}{host_note})"
 
 
-async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer, ...]) -> None:
+async def _serve_web(
+    http_server: HttpServer | None, ws_servers: tuple[WsServer, ...], sandbox_backend: str | None = None
+) -> None:
     """启动 HTTP + 1–2 个 WS listener 并运行到取消 / 关闭（Epic 56 D1 拆分、期二 D12 多 listener）。
 
     ``start()`` 在 try 之外：它失败时要么 listener 没建起来、要么内部已回滚，不需要再 close；
@@ -118,7 +127,10 @@ async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer,
             err=True,
         )
     for ws_server in ws_servers:
-        click.echo(f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}", err=True)
+        click.echo(
+            f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config, sandbox_backend)}",
+            err=True,
+        )
     http_serve = [] if http_server is None else [http_server.serve_forever()]
     try:
         await asyncio.gather(*http_serve, *(ws_server.serve_forever() for ws_server in ws_servers))
@@ -539,26 +551,29 @@ _WS_STARTUP_OPTIONS: tuple[str, ...] = (
 )
 
 
-def _announce_ws_listeners(ws_servers: tuple[Any, ...]) -> None:
-    """启动前把「谁能连、要不要 token、有没有加密」逐 listener 打到 stderr（三条独立事实）。
+def _announce_ws_listeners(ws_servers: tuple[Any, ...], sandbox_backend: str | None = None) -> None:
+    """启动前把「谁能连、要不要 token、有没有加密、跑在哪」逐 listener 打到 stderr（四条独立事实）。
 
     按 `mode` 分流而不是套用 `exposure_warning` 的统一文案：`external` 是 token 认证，套「no
-    authentication」会撒谎；`lan` 是「真没认证但有意为之」，必须写明代价。
+    authentication」会撒谎；`lan` 是「真没认证但有意为之」，必须写明代价。`sandbox_backend`
+    补第四层：非容器后端时远端的 run 跑在宿主上（与 ``_ws_access_note`` 同口径）。
     """
     for ws in ws_servers:
         ws_config = ws.config
         transport = "TLS" if ws_config.tls_enabled else "PLAINTEXT"
+        host_note = _host_execution_note(ws_config, sandbox_backend)
         if ws_config.requires_auth:
             label = "external mode" if ws_config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
             click.echo(
                 f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
-                f"({label}; Bearer token required; {transport})",
+                f"({label}; Bearer token required; {transport}{host_note})",
                 err=True,
             )
         elif ws_config.mode == "lan":
             click.echo(
                 f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
-                f"(lan mode; NO authentication; {transport}); any device on this network can drive the agent",
+                f"(lan mode; NO authentication; {transport}); any device on this network can drive the agent"
+                f"{host_note}",
                 err=True,
             )
         else:
@@ -862,6 +877,9 @@ def http_server_cmd(
         dialog_backend=dialog_backend,
         console=console,
     )
+    # 启动期**实际生效**的沙箱档位：WS 装配、启动告警与访问口径三处必须同源，否则同一进程里
+    # 「有没有护栏」会随公告路径变（R6 的判据也只有拿生效值才算得准）。
+    effective_backend = _effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend
     try:
         # 单 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
         # 本进程**没有 cron**（`enable_cron=False`），中枢建了也永远不会有帧 ⇒ 显式不建，
@@ -876,7 +894,7 @@ def http_server_cmd(
             port=ws_port,
             max_connections=ws_max_connections,
             project_service=_project_channel(console),
-            sandbox_backend=_effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend,
+            sandbox_backend=effective_backend,
         )
     except WsConfigError as exc:
         # 非回环缺 token / WS_LAN_NO_AUTH 组合非法 / TLS 半配：配置不成立，压根不该尝试绑定。
@@ -893,9 +911,9 @@ def http_server_cmd(
         warning = exposure_warning(config.host)
         if warning is not None:
             click.echo(f"[http] WARNING: {warning}", err=True)
-    _announce_ws_listeners(ws_servers)
+    _announce_ws_listeners(ws_servers, effective_backend)
     try:
-        asyncio.run(_serve_web(server, ws_servers))
+        asyncio.run(_serve_web(server, ws_servers, effective_backend))
     except KeyboardInterrupt:
         # Ctrl+C：asyncio.run 先取消主任务、跑完 ``_serve_http`` 的 finally（有界 close），再把
         # KeyboardInterrupt 抛回来。用户主动停止不是错误——安静退出，不打印 traceback。

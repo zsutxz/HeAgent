@@ -127,5 +127,3 @@
 - 2026-11-23 E76-R1 M-2：`_warn_external_without_sandbox` 只覆盖 `external`；`lan` 档（**无认证** + 明文 + 同网段可提交 run）在宿主执行时零告警 —— 风险高于 external（少一层 token）却无声音。R6 冻结只写 external，补喊需用户裁定（新增一条 `lan` 专属 WARNING，文案点名「无认证」）。
 - 2026-11-23 E76-R1 M-3：`cli/http.py` 的 `http_server_cmd` 回落链在 `handler.engine` 未建时取**请求值**而非生效值 ⇒ 请求 `docker` 但引擎没建起来时不告警、实际远端 run 落宿主。需先确认 `engine` 为空的触发条件，再决定「取不到生效值就按请求值喊」或文案标 `(requested)`。
 - 2026-11-23 E76-R1 M-4：`test_ws_remote_flow.py` 的 ADR-005 五步串跑仍在**端口替身**上；真 listener + 真 `HttpRunService` + 真 `AgentLoop` 的端到端未验（承 E75 登记的同名缺口）。属 Step 08 之后 / 后续 epic 的活。
-- 2026-11-23 E76-R1 L-2：`_serve_web` 的 `[ws] listening on …` 公告不带沙箱提示，与 `EmbeddedHttpService.start` 的公告不同口径；对齐需把生效档传进 `_serve_web`。
-- 2026-11-23 E76-R3 A5：`test_ws_protocol.py` 的能力族词根守卫用**子串**匹配（`write` / `delete` / `remove`），未来正当符号（`writelines` / `removeprefix`）会被判红。真触发时把词根改成「动词 + 词界」而不是放宽守卫。

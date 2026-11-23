@@ -327,7 +327,7 @@ def test_explicit_subcommands_never_start_the_embedded_service(
     _drive(monkeypatch, tmp_path, provider)
     served: list[str] = []
 
-    async def fake_serve_web(http_server: object, ws_servers: object) -> None:
+    async def fake_serve_web(http_server: object, ws_servers: object, _backend: object = None) -> None:
         served.append("http")
         # 多 listener：显式命令同样装配 WS listener，且至少有一条。
         assert isinstance(ws_servers, tuple) and ws_servers
@@ -518,13 +518,17 @@ def test_embedded_entry_injects_the_project_channel(monkeypatch: pytest.MonkeyPa
 
 
 def test_http_server_command_injects_the_project_channel(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """`http-server` 路径：同样注入非 None 适配器（第二条装配分支不缺项目通道）。"""
+    """`http-server` 路径：同样注入非 None 适配器（第二条装配分支不缺项目通道）。
+
+    顺带钉住「生效沙箱档位只有一个来源」：WS 装配与 `_serve_web` 的公告拿到的必须是**同一个**值。
+    """
     calls, consoles = _record_ws_wiring(monkeypatch)
     provider = _RecordingProvider()
     _drive(monkeypatch, tmp_path, provider)
+    served_with: dict[str, object] = {}
 
-    async def fake_serve_web(_http_server: object, _ws_servers: object) -> None:
-        return None
+    async def fake_serve_web(_http_server: object, _ws_servers: object, backend: object = None) -> None:
+        served_with["backend"] = backend
 
     monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve_web)
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: provider)
@@ -533,6 +537,7 @@ def test_http_server_command_injects_the_project_channel(monkeypatch: pytest.Mon
 
     assert result.exit_code == 0, result.output
     _assert_single_adapter(calls, consoles)
+    assert served_with["backend"] == calls[0]["sandbox_backend"]
 
 
 def test_project_channel_reaches_both_endpoints_of_the_listener(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
@@ -643,3 +648,58 @@ def test_access_note_appends_the_host_execution_clause_for_external_without_dock
     # 本地 listener 不受这条影响（没有对端可提交）。
     local = WsServerConfig(host="127.0.0.1", port=9201)
     assert _ws_access_note(local, "passthrough") == "(run & CLI WebSocket entry; local only; no authentication)"
+
+
+class _FakeWsListener:
+    """`_serve_web` 的最小 listener：只提供它真正用到的四样东西（起停 + 地址 + 配置）。"""
+
+    def __init__(self, config: Any, address: str) -> None:
+        self.config = config
+        self.address = address
+        self.closed = False
+
+    async def start(self) -> None:
+        return None
+
+    async def serve_forever(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_announce_ws_listeners_and_serve_web_share_the_host_clause(capsys: Any) -> None:
+    """两条启动公告同口径：`[ws] WARNING` 与 `[ws] listening on` 都要说「远端 run 跑在宿主」。
+
+    此前只有嵌入服务的 `[ws] event stream` 带这句，`http-server` 命令自己的两条公告都没带 ——
+    同一进程里「有没有容器护栏」会随公告路径而变。
+    """
+    from heagent.cli.http import _announce_ws_listeners
+    from heagent.network.ws_host import WsServerConfig
+
+    external = WsServerConfig(host="192.168.2.226", port=9201, auth_token="tok")
+    assert external.mode == "external"
+    listener = _FakeWsListener(external, "192.168.2.226:9201")
+
+    _announce_ws_listeners((listener,), "passthrough")
+    warn = capsys.readouterr().err
+    assert "Bearer token required" in warn
+    assert "sandbox=passthrough: remote runs execute on the HOST" in warn
+
+    _announce_ws_listeners((listener,), "docker")
+    assert "remote runs execute on the HOST" not in capsys.readouterr().err
+
+
+async def test_serve_web_listening_line_carries_the_host_clause(capsys: Any) -> None:
+    """`_serve_web` 的 `[ws] listening on` 与访问口径用同一个生效档位（不是「没传就省略」）。"""
+    from heagent.cli.http import _serve_web
+    from heagent.network.ws_host import WsServerConfig
+
+    external = WsServerConfig(host="192.168.2.226", port=9201, auth_token="tok")
+    listener = _FakeWsListener(external, "192.168.2.226:9201")
+
+    await _serve_web(None, (listener,), "passthrough")
+    err = capsys.readouterr().err
+    assert "[ws] listening on ws://192.168.2.226:9201" in err
+    assert "sandbox=passthrough: remote runs execute on the HOST" in err
+    assert listener.closed  # 服务循环返回后必须走 close

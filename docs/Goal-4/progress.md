@@ -92,5 +92,5 @@
 - 当轮落改 **1 处**：`tests/test_cli_http_lifecycle.py` 的 `_assert_single_adapter` 增 `sandbox_backend` 注入断言（R6 判据必须取**生效**档位，不能靠回落值蒙过）。
 - **E76 收口门禁实测**：`pytest tests/network tests/test_cli_http_lifecycle.py tests/test_architecture_contracts.py tests/test_contract_baselines.py tests/test_docs_links.py -q` = **795 passed**；`contract_snapshot.py --check` = 五份 `[OK]`；`mkdocs build --strict` 0 warning（9.14s）；`ruff check` / `format --check` / `mypy src`（240 files）/ `bandit -r src/ -ll`（No issues identified）全绿。
 - 回顾落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-retrospective.md`（含 `## 三审记录`）。
-- 未关闭的门：延期项 5 条待用户裁定（首条 = `lan` 档是否补沙箱告警）；本 epic 的收口提交尚待用户确认。
+- 未关闭的门：延期项剩 **3 条**待用户裁定（首条 = `lan` 档是否补 `external_without_sandbox` 同款告警；另两条 = 回落链取请求值、端到端仍替身）。R1 L-2 与 R3 A5 已回捞落改：启动公告三处共用 `_host_execution_note`、词根守卫改「具名 + 写理由」豁免出口。
 - 本轮结论：ADR-005 验收基线在组合层面闭合（并发隔离 / cursor 续流 / 可见面不扩张 / 契约与文档收口），远程面「`external` 必须 wss + token，非 docker 后端每次启动喊一条」已落地；端到端真 listener 仍是已知缺口。

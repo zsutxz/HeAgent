@@ -66,4 +66,6 @@ status: done
 - 2026-11-23 Decision（R1 发现 1，`bad_spec`）：R2「项目已有在途 run 回 `project_busy`」在生产 WS 链上不成立 —— WS 提交不带 `session_id`、恒续最近会话，同项目在途冲突真实回的是 **`run_conflict`**；`project_busy` 只由 HTTP 删项目端点产生。票面判据按 `run_conflict` 逐字透传理解，Requirements 冻结不回改。
 - 2026-11-23 Decision（R1 发现 7，口径差）：R7 写「4 份契约快照」，实测是 **5 份**（含 Epic 70 的 `error_codes.json`）；76.6 的 `--write` 零 diff 与 `--check` 五份 `[OK]` 即按 5 份交付。
 - 2026-11-23 Decision（R1 发现 5，当轮落改）：76.4 的三例原先只调 `build_ws_servers`，入口层是否 `sandbox_backend=` 传下来无断言（回落链让「漏传」也过）⇒ `_assert_single_adapter` 增一行断言，两条装配路径均覆盖。
-- 2026-11-23 Decision：76.3 票面「`content_search` 恒 0 命中」为误述（回环 HTTP 控制台在 `network/` 内），实现改落在 WS 面模块并在 plan 注明 —— 与 E74/E75 同类口径差，不另立缺陷。
+- 2026-11-23 Decision：76.3 票面「`content_search` 恒 0 命中」为误述（回环 HTTP 控制台在 `network/` 内），实现改落在 WS 面模块并在 plan 注明 —— 与 E74/E75 同类口径差，不另立缺陷。- 2026-11-23 Decision（延期项回捞，R1 L-2 + R3 A5）：收口后两条 Low 已落改，不再是延期项。
+  - L-2：抽出 `_host_execution_note(config, sandbox_backend)` 单点实现，「远端 run 跑在宿主」这半句现在由 `_ws_access_note`、`_announce_ws_listeners`、`_serve_web` 三处共用；`http_server_cmd` 把生效档位提成局部量 `effective_backend`，WS 装配 / 启动告警 / 访问口径三处同源（用例断言 `_serve_web` 拿到的值与 `build_ws_servers` 的注入值逐字相等）。
+  - A5：词根口径**不放宽**（子串是 `unregister_project` 这类真能力唯一的命中路径，改「单词相等」会漏），改为具名 + 必须写理由的豁免出口 `_ALLOWED_STEM_FALSE_POSITIVES`（理由为空 fail loud，键是精确名故豁免 `writelines` 不连带放过 `write_config`）。

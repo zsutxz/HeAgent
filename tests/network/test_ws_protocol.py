@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pytest
@@ -316,9 +316,13 @@ _LOOPBACK_CONSOLE_MODULES = frozenset(
 
 #: 远程面禁止的能力族词根（口径：**子串**、大小写不敏感）。
 #:
-#: 取子串而非前缀是刻意的：``set_setting`` / ``update_setting`` / ``setting_value`` 都要命中。
+#: 取子串而非前缀是刻意的：``set_setting`` / ``update_setting`` / ``setting_value`` 都要命中，
+#: ``unregister_project`` 这种**否定前缀 + 动词**的真能力也必须命中 —— 换成「单词相等」或「前缀」
+#: 都会漏掉它们，守卫就只剩装饰作用。
 #: 不误伤的边界例子：``registry_state``（项目列表帧的注册表健康态）含 ``registr`` 但**不含**
 #: ``register``，因此不会把既有的只读项目列表判成「项目注册」。
+#: 真出现假阳性（子串巧合）时按 :data:`_ALLOWED_STEM_FALSE_POSITIVES` 加**具名 + 理由**的豁免，
+#: 不要改这里的口径。
 _FORBIDDEN_REMOTE_STEMS = (
     "setting",
     "config",
@@ -379,9 +383,30 @@ _FORBIDDEN_RUNTIME_SYMBOLS = re.compile(
 )
 
 
-def _forbidden_family_names(names: Iterable[str]) -> list[str]:
-    """落在 R5 禁用能力族里的名字（子串、大小写不敏感，返回排序后的去重结果）。"""
-    return sorted({name.lower() for name in names if any(stem in name.lower() for stem in _FORBIDDEN_REMOTE_STEMS)})
+#: 命中词根但已确认正当的名字（小写） → 放行理由。假阳性的**唯一**出口。
+#:
+#: 键是**精确名**而不是词根：豁免 ``writelines`` 不会连带放过 ``write_config``。理由为空即视为配置
+#: 错误（``_forbidden_family_names`` fail loud）—— 不写理由的豁免等于悄悄把守卫撑开。
+_ALLOWED_STEM_FALSE_POSITIVES: dict[str, str] = {}
+
+
+def _forbidden_family_names(names: Iterable[str], *, exemptions: Mapping[str, str] | None = None) -> list[str]:
+    """落在 R5 禁用能力族里的名字（子串、大小写不敏感，返回排序后的去重结果）。
+
+    ``exemptions`` 供判据传临时豁免集（默认取 :data:`_ALLOWED_STEM_FALSE_POSITIVES`）；任何豁免
+    缺理由即抛 ``ValueError``，让「顺手放宽」在评审时显性暴露。
+    """
+    allowed = _ALLOWED_STEM_FALSE_POSITIVES if exemptions is None else exemptions
+    for name, reason in allowed.items():
+        if not reason.strip():
+            raise ValueError(f"stem exemption for {name!r} needs a reason")
+    return sorted(
+        {
+            lowered
+            for name in names
+            if (lowered := name.lower()) not in allowed and any(stem in lowered for stem in _FORBIDDEN_REMOTE_STEMS)
+        }
+    )
 
 
 def test_remote_command_surface_is_exactly_five_values() -> None:
@@ -419,11 +444,27 @@ def test_no_config_register_or_session_family_on_the_remote_surface() -> None:
     assert _forbidden_family_names(whitelisted_fields) == []
     assert _forbidden_family_names(outbound_fields) == []
     # 阳性控制：匹配器本身必须是活的，否则上面四条断言恒真、什么都证明不了。
-    assert _forbidden_family_names({"set_config", "register_project", "list_sessions"}) == [
+    # `unregister_project` 也在内：否定前缀 + 动词的真能力同样要命中（子串口径的理由）。
+    assert _forbidden_family_names({"set_config", "register_project", "list_sessions", "unregister_project"}) == [
         "list_sessions",
         "register_project",
         "set_config",
+        "unregister_project",
     ]
+
+
+def test_stem_exemptions_need_a_reason_and_release_only_the_named_symbol() -> None:
+    """假阳性的出口是**具名 + 写理由**的豁免，不是放宽词根口径（那样会连真能力一起放过）。"""
+    assert _forbidden_family_names({"writelines"}) == ["writelines"]  # 子串碰巧命中
+    assert _forbidden_family_names({"writelines"}, exemptions={"writelines": "内置写接口名，非远程能力"}) == []
+    # 键是精确名：豁免这个不放过那个。
+    assert _forbidden_family_names(
+        {"writelines", "write_config"}, exemptions={"writelines": "内置写接口名，非远程能力"}
+    ) == ["write_config"]
+    with pytest.raises(ValueError, match="needs a reason"):
+        _forbidden_family_names({"writelines"}, exemptions={"writelines": "   "})
+    # 生产豁免集默认为空且每条都带理由（现状即这份契约）。
+    assert all(reason.strip() for reason in _ALLOWED_STEM_FALSE_POSITIVES.values())
 
 
 @pytest.mark.parametrize(
