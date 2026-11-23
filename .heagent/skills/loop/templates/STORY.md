@@ -3,16 +3,16 @@
 > 本文件是**产物指引**，不是要手抄的模板。本契约里一条 story 只有两件东西，路径都由脚本给出，
 > 一律不要自造：
 >
-> 1. **entry**：`Docs/<goal-id>/tickets/<e编号>-<slug>/tickets/tickets.toml` 的 `[[entry]]` 表。Step 06
+> 1. **entry**：`docs/<goal-id>/tickets/<e编号>-<slug>/tickets/tickets.toml` 的 `[[entry]]` 表。Step 06
 >    写入，字段与取值见 `.heagent/skills/bmad-agent-po/assets/tickets-template.toml`
 >    （上游安装源同路径在 `.claude/skills/`）。
-> 2. **plan**：`tickets.py find <ref>` 返回的 `plan` 绝对路径，由 `.heagent/skills/bmad-build`
+> 2. **plan**：`tickets.py find <goal 目录> <ref>` 返回的 `plan` 绝对路径，由 `.heagent/skills/bmad-build`
 >    按同包 `plan-template.md` 写出。frontmatter 的 `ticket` 必须等于 entry 的 `id`，`status`
 >    是 story 状态的**唯一真源**。
 >
 > 不要再产出旧口径的 `story.md` / `implementation.md` / `test-report.md` / `verify-report.md`
-> 四件套；需要附加证据时落 `Docs/<goal-id>/step-07-implement-story/<ref>/notes.md`。
-> 只有评审、细化或发布需要 leaf 文件时才用 `tickets.py pull <ref>` 生成，不手写。
+> 四件套；需要附加证据时落 `docs/<goal-id>/step-07-implement-story/<ref>/notes.md`。
+> 只有评审、细化或发布需要 leaf 文件时才用 `tickets.py pull <epic 目录> <entry id>` 生成，不手写。
 
 ## entry 必填字段
 
@@ -39,6 +39,6 @@
 
 ## 状态推进
 
-只用 `tickets.py mark <ref> <status>`（`draft` → `ready-for-dev` → `in-progress` → `in-review` →
+只用 `tickets.py mark <goal 目录> <ref> <status>`（`draft` → `ready-for-dev` → `in-progress` → `in-review` →
 `built` → `done`，另有 `blocked` / `dropped`）。build 只到 `built`；`done` 只在用户 `approve`
 之后写。

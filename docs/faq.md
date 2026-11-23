@@ -347,10 +347,10 @@ heagent run --resume <session-id> "…"       # 指定会话
 `.heagent/skills/loop/SKILL.md` ＋ `workflow.md`（两者都要读）。8 步：市场调研 → 发散构思 →
 需求分析 → 产品范围 → 架构设计 → 故事细化 → 逐故事实现 → 系统集成测试；Step 04 与 Step 06 是审批门。
 
-- 触发：`/loop <大目标描述>`；`reset` 只删 `Docs/current` 指针，不删 goal 目录。
-- 运行状态：`Docs/<goal-id>/progress.md` ＋ 指针 `Docs/current`（内容是 goal 目录相对 `Docs/` 的路径）；每步用一个**全新** `task_delegate` 子会话（同 epic 内声明齐全时可成批 `task_parallel`），无 Python 状态机；交接块是唯一的跨会话载体。
-- 规划与 story 状态：票树住 goal 目录自带的 `Docs/<goal-id>/tickets/`（`tickets.py` 每条命令都必须带显式目录；`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
-- 与 `/goal` 的关系：两套工作流**互不读写**对方的产物目录（`/goal` 在 `_he-output/goals/`，`/loop` 在 `Docs/`）。
+- 触发：`/loop <大目标描述>`；`reset` 只删 `docs/current` 指针，不删 goal 目录。
+- 运行状态：`docs/<goal-id>/progress.md` ＋ 指针 `docs/current`（内容是 goal 目录相对 `docs/` 的路径）；每步用一个**全新** `task_delegate` 子会话（同 epic 内声明齐全时可成批 `task_parallel`），无 Python 状态机；交接块是唯一的跨会话载体。
+- 规划与 story 状态：票树住 goal 目录自带的 `docs/<goal-id>/tickets/`（`tickets.py` 每条命令都必须带显式目录；`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
+- 与 `/goal` 的关系：两套工作流**互不读写**对方的产物目录（`/goal` 在 `_he-output/goals/`，`/loop` 在 `docs/`）。
 
 ### 定时任务现在是什么状态？
 

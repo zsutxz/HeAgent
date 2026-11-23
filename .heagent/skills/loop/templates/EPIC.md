@@ -11,7 +11,7 @@ risk: low
 ---
 # <Epic 标题>
 
-> epic 文件模板。路径固定 `Docs/<goal-id>/tickets/<e编号>-<slug>/<e编号>-<slug>.md`，与本文件夹的
+> epic 文件模板。路径固定 `docs/<goal-id>/tickets/<e编号>-<slug>/<e编号>-<slug>.md`，与本文件夹的
 > `tickets/tickets.toml` 成对。Step 04 只写「薄」版本：`Description`、`Outcome`、`Boundaries`、
 > 已知的 `Done when`、`covers`、`after`，并置 `refined: false`——**没有 `## Requirements`**。
 > Step 06 细化时补 `## Requirements`（每条一个 `R<n>`，引用父级 id）并置 `refined: true`。
@@ -46,8 +46,8 @@ risk: low
 
 ## References
 
-- `Docs/<goal-id>/brief.md`（需求真源兼信封）
-- `Docs/<goal-id>/architecture-<slug>/architecture-<slug>.md`（采纳的决策 id）
+- `docs/<goal-id>/brief.md`（需求真源兼信封）
+- `docs/<goal-id>/architecture-<slug>/architecture-<slug>.md`（采纳的决策 id）
 
 ## Notes
 
