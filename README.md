@@ -255,8 +255,8 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 （两者都要读）：8 步——市场调研 → 发散构思 → 需求分析 → 产品范围 → 架构设计 → 故事细化 → 逐故事实现 → 系统集成测试，
 Step 04 / Step 06 是审批门。
 
-- 运行状态：`_he-output/works/<goal-id>/progress.md` ＋ 指针 `_he-output/works/current`（每步一个全新 `task_delegate` 子会话，无 Python 状态机）。
-- 规划与 story 状态：BMAD v7 票树 `_bmad-output/initiative-<slug>/tickets/`（`tickets.py mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
+- 运行状态：`Docs/<goal-id>/progress.md` ＋ 指针 `Docs/current`（每步一个全新 `task_delegate` 子会话，无 Python 状态机）。
+- 规划与 story 状态：票树住 goal 目录自带的 `Docs/<goal-id>/tickets/`（`tickets.py` 每条命令都必须带显式目录；`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
 
 历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
 

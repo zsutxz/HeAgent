@@ -1,6 +1,6 @@
 ---
 type: epic
-parent: initiative-<slug>
+parent: brief
 title: <Epic 标题>
 covers: [R1, R2]
 after: []
@@ -11,11 +11,11 @@ risk: low
 ---
 # <Epic 标题>
 
-> v7 epic 文件模板。路径固定 `{initiative}/tickets/epic-<slug>/epic-<slug>.md`，与本文件夹的
+> epic 文件模板。路径固定 `Docs/<goal-id>/tickets/<e编号>-<slug>/<e编号>-<slug>.md`，与本文件夹的
 > `tickets/tickets.toml` 成对。Step 04 只写「薄」版本：`Description`、`Outcome`、`Boundaries`、
 > 已知的 `Done when`、`covers`、`after`，并置 `refined: false`——**没有 `## Requirements`**。
 > Step 06 细化时补 `## Requirements`（每条一个 `R<n>`，引用父级 id）并置 `refined: true`。
-> story 清单**不在这里**：在本文件夹的 `tickets/tickets.toml`（表顺序即构建顺序）。v6 的
+> story 清单**不在这里**：在本文件夹的 `tickets/tickets.toml`（表顺序即构建顺序）。旧口径的
 > `## Stories` 段与 `S-N` 编号已废弃，不要写。
 
 ## Description
@@ -46,8 +46,8 @@ risk: low
 
 ## References
 
-- `{initiative}/initiative-<slug>.md`（父级信封）
-- `{initiative}/architecture-<slug>/architecture-<slug>.md`（采纳的决策 id）
+- `Docs/<goal-id>/brief.md`（需求真源兼信封）
+- `Docs/<goal-id>/architecture-<slug>/architecture-<slug>.md`（采纳的决策 id）
 
 ## Notes
 
