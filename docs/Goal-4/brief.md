@@ -124,6 +124,3 @@
 - 2026-11-23 R3(E75) M-4：`ProjectChannelEntry.name` / `WsProjectsFrame.projects` 的上下界与 `registry_state` 默认值已按 AD §4.2 补齐（`name` 1–64、`projects` ≤32、默认 `ok`）；**时区混合的时间戳排序**（字符串序 vs 时间序）仍是缺口 —— `touch()` 恒写 UTC，只有手改文件触发，暂不修。
 - 2026-11-23 R3(E75) L-1：`ProjectRegistryHealth.detail` 生产侧零消费者（只进模型与契约基线）。要么接进日志/诊断，要么收回导出面，择一。
 - 2026-11-23 R3(E75) L-2：`HTTP_ENABLED=false` 时 console 现仍被构造 ⇒ `write_enabled` 时会为一个不存在的端口打「配置写通道已开启」的 stderr 告警。宜惰性化或把 echo 挪到 listener 真建之后。
-- 2026-11-23 E76-R1 M-2：`_warn_external_without_sandbox` 只覆盖 `external`；`lan` 档（**无认证** + 明文 + 同网段可提交 run）在宿主执行时零告警 —— 风险高于 external（少一层 token）却无声音。R6 冻结只写 external，补喊需用户裁定（新增一条 `lan` 专属 WARNING，文案点名「无认证」）。
-- 2026-11-23 E76-R1 M-3：`cli/http.py` 的 `http_server_cmd` 回落链在 `handler.engine` 未建时取**请求值**而非生效值 ⇒ 请求 `docker` 但引擎没建起来时不告警、实际远端 run 落宿主。需先确认 `engine` 为空的触发条件，再决定「取不到生效值就按请求值喊」或文案标 `(requested)`。
-- 2026-11-23 E76-R1 M-4：`test_ws_remote_flow.py` 的 ADR-005 五步串跑仍在**端口替身**上；真 listener + 真 `HttpRunService` + 真 `AgentLoop` 的端到端未验（承 E75 登记的同名缺口）。属 Step 08 之后 / 后续 epic 的活。

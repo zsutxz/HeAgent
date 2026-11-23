@@ -92,5 +92,9 @@
 - 当轮落改 **1 处**：`tests/test_cli_http_lifecycle.py` 的 `_assert_single_adapter` 增 `sandbox_backend` 注入断言（R6 判据必须取**生效**档位，不能靠回落值蒙过）。
 - **E76 收口门禁实测**：`pytest tests/network tests/test_cli_http_lifecycle.py tests/test_architecture_contracts.py tests/test_contract_baselines.py tests/test_docs_links.py -q` = **795 passed**；`contract_snapshot.py --check` = 五份 `[OK]`；`mkdocs build --strict` 0 warning（9.14s）；`ruff check` / `format --check` / `mypy src`（240 files）/ `bandit -r src/ -ll`（No issues identified）全绿。
 - 回顾落 `tickets/epic-76-remote-surface-closeout/epic-76-remote-surface-closeout-retrospective.md`（含 `## 三审记录`）。
-- 未关闭的门：延期项剩 **3 条**待用户裁定（首条 = `lan` 档是否补 `external_without_sandbox` 同款告警；另两条 = 回落链取请求值、端到端仍替身）。R1 L-2 与 R3 A5 已回捞落改：启动公告三处共用 `_host_execution_note`、词根守卫改「具名 + 写理由」豁免出口。
+- 2026-11-23 **E76 延期项全部回捞闭合**（用户裁决 1/2/3 连跑）：
+  - ① `lan` 档补独立告警锚点：`_warn_remote_without_sandbox` 返回 `(锚点, 正文)`，`external` → `ws event=external_without_sandbox`、`lan` → `ws event=lan_without_sandbox`（文案点名「no token」，因为同网段任何设备都能驱使代理）；`docker` 档两档都 0 条。判据 `test_lan_listener_without_docker_warns_with_its_own_anchor` / `test_lan_listener_on_docker_stays_quiet`。
+  - ② 回落链「静默窗口」经核**生产不可达**：`HttpAgentHandler.__init__` 无条件 `self.engine = engine or EngineContainer.default(...)`，而 `EngineContainer.default` 必写 `sandbox_decision` ⇒ `_effective_sandbox_backend` 在生产路径不含 None，`or sandbox or settings.sandbox_backend` 只服务注入替身。判据 `test_a_real_handler_always_reports_an_effective_backend`；`http.py` 的注释点明该尾巴的适用范围。
+  - ③ ADR-005 端到端补**真 listener** 判据：新增 `tests/network/test_ws_remote_flow_live.py`（真 `WsServer` 随机端口 + 真 `HttpRunService` + 真 `HttpProjectConsole` + 真 `AgentLoop`，生产装配走 `_project_channel`）。两条用例覆盖：列项目帧 / 提交 / 取消到 `cancelled` 终态 / 跑到 `done` 终态（seq 连续）/ `last_event_id` 续流无空洞；以及「真 AgentLoop 跑完并落会话文件」。
+- 未关闭的门：E76 无（延期项清零）。`brief.md` 里仍挂着 E74/E75 时代的既有延期项，与本 epic 无关。
 - 本轮结论：ADR-005 验收基线在组合层面闭合（并发隔离 / cursor 续流 / 可见面不扩张 / 契约与文档收口），远程面「`external` 必须 wss + token，非 docker 后端每次启动喊一条」已落地；端到端真 listener 仍是已知缺口。

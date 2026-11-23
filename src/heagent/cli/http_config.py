@@ -228,27 +228,40 @@ def _check_tls_identity(settings: Settings, host: str, *, now: datetime | None =
 _DOCKER_BACKEND = "docker"
 
 
-def _warn_external_without_sandbox(config: WsServerConfig, sandbox_backend: str | None) -> str | None:
-    """对外 listener + 非容器沙箱 ⇒ 返回**一条**启动 WARNING 的正文（其余情况 ``None``）。
+#: 接受远程提交的档位 → 各自的告警锚点（两种风险不同，分开 grep，互不吞掉）。
+#: ``external`` 的对端要持 token；``lan`` 的对端只要在同网段 —— 后者少一层认证，所以必须单独喊。
+_WITHOUT_SANDBOX_ANCHORS = {"external": "external_without_sandbox", "lan": "lan_without_sandbox"}
 
-    **提示不是闸门**：``external`` 档（非回环 + token）意味着任何持 token 的对端都能提交 run，而
-    ``docker`` 以外的后端（``passthrough`` / 降级后的 ``auto``）会让这些 run 直接跑在宿主进程里。
-    这层的真实边界是 OS 级容器（``docs/framework.md`` §4.18 的三层非边界），所以只喊不改行为：
-    拒绝启动会把「内网临时开放」变成不可用，而风险等级并没有到那一步。
+
+def _warn_remote_without_sandbox(config: WsServerConfig, sandbox_backend: str | None) -> tuple[str, str] | None:
+    """接受远程提交的 listener + 非容器沙箱 ⇒ ``(锚点, 正文)``（其余情况 ``None``）。
+
+    **提示不是闸门**：``external``（非回环 + token）与 ``lan``（非回环 + 无认证）都意味着对端能提交
+    run，而 ``docker`` 以外的后端（``passthrough`` / 降级后的 ``auto``）会让这些 run 直接跑在宿主
+    进程里。这层的真实边界是 OS 级容器（``docs/framework.md`` §4.18 的三层非边界），所以只喊不改
+    行为：拒绝启动会把「内网临时开放」变成不可用，而风险等级并没有到那一步。
+
+    ``lan`` 单独一条的理由：它没有 token 这一层，同网段任何设备都能驱使代理，只覆盖 ``external``
+    会让风险最高的那一档**零告警**。
 
     判据取**启动期实际生效**的后端（``--sandbox`` / ``SANDBOX_BACKEND`` 只是请求值：``auto`` 或
     daemon 不可用时引擎会降级），由入口层经 ``sandbox_backend`` 注入；取不到时回落到配置值。
     """
-    if config.mode != "external":
+    anchor = _WITHOUT_SANDBOX_ANCHORS.get(config.mode)
+    if anchor is None:
         return None
     backend = (sandbox_backend or "").strip() or "unknown"
     if backend == _DOCKER_BACKEND:
         return None
-    return (
-        f"listener=external sandbox={backend} host={config.host}: the WS listener is reachable from other "
-        "machines and runs submitted over it execute on the HOST (sandbox backend is not docker); "
-        "start with --sandbox docker to fence remote runs inside a container"
+    reachable_by = (
+        "any peer holding the token" if config.mode == "external" else "any device on this network (no token)"
     )
+    body = (
+        f"listener={config.mode} sandbox={backend} host={config.host}: the WS listener is reachable from other "
+        f"machines ({reachable_by} can submit runs) and those runs execute on the HOST (sandbox backend is not "
+        "docker); start with --sandbox docker to fence remote runs inside a container"
+    )
+    return anchor, body
 
 
 def build_ws_servers(
@@ -294,8 +307,8 @@ def build_ws_servers(
     SAN 不含绑定地址各记一条 WARNING（不阻断启动）；材料读不出来是 :class:`WsConfigError`。
 
     ``sandbox_backend``（Epic 76）是**启动期实际生效**的沙箱档位（入口层注入；缺省回落到
-    ``settings.sandbox_backend``）：``external`` 档且它不是 ``docker`` 时记**一条** WARNING
-    （:func:`_warn_external_without_sandbox`），不改变启动成败。
+    ``settings.sandbox_backend``）：``external`` / ``lan`` 档且它不是 ``docker`` 时各记**一条**
+    WARNING（:func:`_warn_remote_without_sandbox`），不改变启动成败。
     """
     if not (settings.ws_enabled if enabled is None else enabled):
         # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
@@ -319,10 +332,11 @@ def build_ws_servers(
             message,
         )
     effective_backend = sandbox_backend if sandbox_backend is not None else settings.sandbox_backend
-    sandbox_warning = _warn_external_without_sandbox(primary, effective_backend)
+    sandbox_warning = _warn_remote_without_sandbox(primary, effective_backend)
     if sandbox_warning is not None:
         # 恰一条：装配点每进程只走一次（内嵌 / http-server 两条入口互斥）。
-        safe_log(logger, logging.WARNING, "ws event=external_without_sandbox %s", sandbox_warning)
+        anchor, body = sandbox_warning
+        safe_log(logger, logging.WARNING, "ws event=%s %s", anchor, body)
     bypass_enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
     hub: CliEventHub | None = None
     if bypass_enabled:

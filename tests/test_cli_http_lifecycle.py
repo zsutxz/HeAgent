@@ -632,6 +632,80 @@ def test_external_listener_on_docker_stays_quiet(
         reset_settings()
 
 
+def _lan_ws_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """`lan` 档的最小可成立配置：非回环 + 私有地址 + 显式免认证（无 TLS）。"""
+    from heagent.config import Settings
+
+    monkeypatch.setenv("WS_ENABLED", "true")
+    monkeypatch.setenv("WS_HOST", "192.168.2.226")
+    monkeypatch.setenv("WS_LAN_NO_AUTH", "true")
+    monkeypatch.setenv("WS_TLS_CERT_FILE", "")
+    monkeypatch.setenv("WS_TLS_KEY_FILE", "")
+    reset_settings()
+    return get_settings()
+
+
+def test_lan_listener_without_docker_warns_with_its_own_anchor(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`lan` 档没有 token 这一层 ⇒ 非容器后端时单独一条 `lan_without_sandbox`（点名「无 token」）。
+
+    与 `external` 各用各的锚点：两种风险不同（持 token vs 同网段即可），合成一条会让「内网临时
+    开放」那一档在日志里查不出来。
+    """
+    from heagent.cli.http_config import build_ws_servers
+
+    caplog.set_level(logging.WARNING, logger="heagent.cli.http_config")
+    try:
+        servers, _hub = build_ws_servers(_lan_ws_settings(monkeypatch), sandbox_backend="passthrough")
+
+        assert servers and servers[0].config.mode == "lan"
+        lines = [record.getMessage() for record in caplog.records if "lan_without_sandbox" in record.getMessage()]
+        assert len(lines) == 1, lines
+        assert "listener=lan" in lines[0]
+        assert "sandbox=passthrough" in lines[0]
+        assert "no token" in lines[0]
+    finally:
+        reset_settings()
+
+
+def test_lan_listener_on_docker_stays_quiet(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """`lan` 档 + docker：0 条 —— 远程 run 已经落在容器里，没什么可喊的。"""
+    from heagent.cli.http_config import build_ws_servers
+
+    caplog.set_level(logging.WARNING, logger="heagent.cli.http_config")
+    try:
+        servers, _hub = build_ws_servers(_lan_ws_settings(monkeypatch), sandbox_backend="docker")
+
+        assert servers and servers[0].config.mode == "lan"
+        assert [r for r in caplog.records if "lan_without_sandbox" in r.getMessage()] == []
+    finally:
+        reset_settings()
+
+
+def test_a_real_handler_always_reports_an_effective_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """回落链的尾巴只服务注入替身：真 `HttpAgentHandler` 的引擎在构造期就写下决策。
+
+    `HttpAgentHandler.__init__` 无条件 `self.engine = engine or EngineContainer.default(...)`，而
+    `EngineContainer.default` 必写 `sandbox_decision` ⇒ 生产路径上 `_effective_sandbox_backend`
+    不含 None，`or sandbox or settings.sandbox_backend` 不会把「请求值」当成生效值喊出去。
+    """
+    from heagent.cli.http_console import HttpAgentHandler
+    from heagent.cli.http_status import _effective_sandbox_backend
+    from heagent.config import get_settings
+
+    monkeypatch.chdir(tmp_path)
+    reset_settings()
+    try:
+        handler = HttpAgentHandler(_RecordingProvider(), get_settings())
+
+        effective = _effective_sandbox_backend(handler)
+        assert isinstance(effective, str) and effective.strip()
+        assert effective == handler.engine.sandbox_decision.effective_backend
+    finally:
+        reset_settings()
+
+
 def test_access_note_appends_the_host_execution_clause_for_external_without_docker() -> None:
     """`_ws_access_note` 的既有三段文案逐字不变，只在对外 + 非 docker 时尾部追加一句。"""
     from heagent.cli.http import _ws_access_note

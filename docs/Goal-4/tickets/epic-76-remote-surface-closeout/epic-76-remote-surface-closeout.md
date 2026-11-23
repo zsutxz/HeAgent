@@ -68,4 +68,7 @@ status: done
 - 2026-11-23 Decision（R1 发现 5，当轮落改）：76.4 的三例原先只调 `build_ws_servers`，入口层是否 `sandbox_backend=` 传下来无断言（回落链让「漏传」也过）⇒ `_assert_single_adapter` 增一行断言，两条装配路径均覆盖。
 - 2026-11-23 Decision：76.3 票面「`content_search` 恒 0 命中」为误述（回环 HTTP 控制台在 `network/` 内），实现改落在 WS 面模块并在 plan 注明 —— 与 E74/E75 同类口径差，不另立缺陷。- 2026-11-23 Decision（延期项回捞，R1 L-2 + R3 A5）：收口后两条 Low 已落改，不再是延期项。
   - L-2：抽出 `_host_execution_note(config, sandbox_backend)` 单点实现，「远端 run 跑在宿主」这半句现在由 `_ws_access_note`、`_announce_ws_listeners`、`_serve_web` 三处共用；`http_server_cmd` 把生效档位提成局部量 `effective_backend`，WS 装配 / 启动告警 / 访问口径三处同源（用例断言 `_serve_web` 拿到的值与 `build_ws_servers` 的注入值逐字相等）。
-  - A5：词根口径**不放宽**（子串是 `unregister_project` 这类真能力唯一的命中路径，改「单词相等」会漏），改为具名 + 必须写理由的豁免出口 `_ALLOWED_STEM_FALSE_POSITIVES`（理由为空 fail loud，键是精确名故豁免 `writelines` 不连带放过 `write_config`）。
+  - A5：词根口径**不放宽**（子串是 `unregister_project` 这类真能力唯一的命中路径，改「单词相等」会漏），改为具名 + 必须写理由的豁免出口 `_ALLOWED_STEM_FALSE_POSITIVES`（理由为空 fail loud，键是精确名故豁免 `writelines` 不连带放过 `write_config`）。- 2026-11-23 Decision（三条延期项回捞闭合，用户裁决 1/2/3）：
+  - `lan` 档不再是缺口：`_warn_remote_without_sandbox` 返回 `(锚点, 正文)`，`external` / `lan` 各一条独立锚点（`external_without_sandbox` / `lan_without_sandbox`），`lan` 文案点名「no token」；`docker` 档两档皆 0 条。`docs/framework.md` §4.16.1 的启动告警族同步。
+  - 回落链的「静默窗口」经核实为**生产不可达**：真 handler 的引擎与 `sandbox_decision` 都在构造期落地，`or` 尾巴只服务注入替身；已补判据钉死，不引入「按请求值喊」的额外告警。
+  - 端到端缺口闭合：`tests/network/test_ws_remote_flow_live.py` 用真 listener + 真服务 + 真 AgentLoop 跑通列项目 / 提交 / 取消 / 终态 / 续流，五步的替身版本仍留在 `test_ws_remote_flow.py` 承担精确时序断言。

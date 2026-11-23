@@ -878,7 +878,8 @@ def http_server_cmd(
         console=console,
     )
     # 启动期**实际生效**的沙箱档位：WS 装配、启动告警与访问口径三处必须同源，否则同一进程里
-    # 「有没有护栏」会随公告路径变（R6 的判据也只有拿生效值才算得准）。
+    # 「有没有护栏」会随公告路径变（R6 的判据也只有拿生效值才算得准）。`or` 尾巴只服务注入替身：
+    # 真 `HttpAgentHandler` 与 `EngineContainer.default` 都在构造期定下决策，生产路径取得到值。
     effective_backend = _effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend
     try:
         # 单 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
