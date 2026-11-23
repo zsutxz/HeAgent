@@ -3,7 +3,7 @@
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
 - 状态：in-progress
-- 当前步骤：step-07-implement-story（74.4 built；下一条 74.5）
+- 当前步骤：step-07-implement-story（E74 五条全 built ⇒ 下一步 = E74 收口三审，须在新会话开跑）
 
 ## 步骤状态
 
@@ -15,14 +15,14 @@
 | 04 | define-product-scope | completed（approved 2026-11-23） | `prd-ws-remote-project-channel/prd-ws-remote-project-channel.md` + `tickets/`（3 个 epic） |
 | 05 | design-architecture | completed | `architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md`（8 条 AD / 10 条不变量） |
 | 06 | refine-stories | completed（approved 2026-11-23） | `tickets/<epic>/tickets/tickets.toml`（17 条 entry）+ `step-06-refine-stories/report.md` |
-| 07 | implement-story | in-progress（74.4 built） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
+| 07 | implement-story | in-progress（E74 全 built，待收口三审） | 各 entry 的 plan（`tickets/<epic>/tickets/story-*-plan.md`） |
 
 ## Epic 与 entry（Step 06 后维护，状态抄自 `tickets.py status`）
 
-- E74 `epic-74-ws-frame-contract`：5 entry，4 built（74.1–74.4）/ 1 planned（74.5）
+- E74 `epic-74-ws-frame-contract`：5 entry，全部 built（74.1–74.5）——待三审收口
 - E75 `epic-75-project-channel-runtime`：6 entry，0 built
 - E76 `epic-76-remote-surface-closeout`：6 entry，0 built
-- 合计 `counts {total: 17, review: 4, planned: 13}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- 合计 `counts {total: 17, review: 5, planned: 12}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
 
 ## 决策日志（追加式，只增不改）
 
@@ -64,10 +64,13 @@
 - 2026-11-23 **74.4 built**：宿主直接实现（本 entry 预期零 src 改动、单文件测试）。新增 `tests/network/test_ws_event_contract.py` 7 例：`WsEventFrame` / `WsAckFrame` 字段集合、`WsFrameType` 五档封闭、golden 事件信封**逐字**相等、事件面**两层**（帧层 + `RunEventPayload` 负载层）拒绝 `project_id`、WS 路由集与 `transport_routes.json` 的 `ws_host.py` 段逐字一致。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 692 passed；`pytest tests/network/test_ws_event_contract.py -q` = 7 passed；ruff / format / mypy 全绿。
 - 2026-11-23 **已知预期红（不属本批）**：`tests/test_contract_baselines.py` 的两条 check 用例自 74.1 起就红 —— `exception_types.json` 基线里没有 74.1 新增的 `SubmittedRun` / `ProjectChannelService`（基线最后更新于 `7e2a9a6e`，2026-11-21）。重生成快照是 **76.6** 的交付（epic-74 Boundaries 明确「不重生成契约快照」），届时 `diff` 只应含这些预期新增；Step 07 的逐 entry 门禁（`tests/network` + 架构契约）不受影响。
 
+- 2026-11-23 **74.5 built**：宿主直接实现（预期零 src 改动、单文件测试）。新增 `tests/network/test_ws_error_codes.py` 17 例：七条 code 逐条断言是 `HttpErrorCode` 既有成员 + 逐条在 `transport_errors.json` 有对应项；`network/` 对运行栈/配置面**导入面**零命中（AST，含 `TYPE_CHECKING`）、`is_dir` 零命中、五个 WS 模块都不导入 `http_server`。验证：`pytest tests/network tests/test_architecture_contracts.py -q` = 709 passed；单文件 17 passed；ruff / format / mypy 全绿。**E74 五条 entry 至此全部 built。**
+- 2026-11-23 Decision: 74.5 的 `verify` 里「六条 `content_search` 断言 0 命中」按**AST 导入面**实现，不按纯文本 —— 实测 `network/` 里 `heagent.config` 有 5 处、`heagent.engine` 有 4 处命中，全是 docstring/注释里的说明性引用（「镜像 ``heagent.config.catalog`` 的同名常量」「不得 import ``heagent.engine.tasks``」），纯文本搜会把正当注释判成违规。`is_dir` 仍按文本断言（实测 0 处）。
+
 ## 交接块（下一轮入口）
 
-- 下一条：`74.5` E74-S05（epic-74-ws-frame-contract）——错误码台账与哑传输边界收口（E74 末条）
-- 票树实测：`status docs/Goal-4` → counts {total: 17, review: 4, planned: 13}、unpinned/undeclared/order_conflict 全空；`next.ready_to_start` = [74.5]
-- 必读：`tickets/epic-74-ws-frame-contract/tickets/story-e74-s04-event-contract-plan.md` · epic 文件 `## Requirements` R4 / R7 · 74.5 的 entry（write_set 只有 `tests/network/test_ws_error_codes.py`，预期零 src 改动）
-- 未关闭的门：无（74.5 无 hitl / checkpoint）；74.5 built 后 E74 五条全达标 ⇒ **epic 收口三审自动开跑，且开跑前先换会话**
-- 本轮结论：事件面零漂移已被逐字节判据钉住（golden 信封 + 两层 `project_id` 拒绝 + 路由集对基线）；帧类型五档封闭，项目通道只在**入站命令面**扩张（命令集 4 值），出站帧一个字段都没动。
+- 下一条：`none（E74 五条全 built ⇒ 转 E74 收口三审 R1 → R2 → R3 → 回顾 → 提交）`；收口完成后 `tickets.py next` 的下一条是 E75 的 `75.1`
+- 票树实测：`status docs/Goal-4` → counts {total: 17, review: 5, planned: 12}、E74 五条全 `built`、unpinned/undeclared/order_conflict 全空；`next.ready_to_start` = []（E75/E76 仍被 epic-level `after` 拦住）
+- 必读：epic 文件 `docs/Goal-4/tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract.md`（Requirements R1–R7 / Done when）· 五份 plan（`story-e74-s01…s05-*-plan.md`）· 本 epic 的合并 diff（`git log --oneline d6e705de^..HEAD -- src/heagent/network tests/network`）
+- 未关闭的门：**E74 收口三审未开跑**（R1 规格对账 / R2 不变量与守卫反脆弱 / R3 code_review 三镜头）；三份报告落 `tickets/epic-74-ws-frame-contract/epic-74-ws-frame-contract-review-r{1,2,3}.md`，回顾落 `…-retrospective.md`（带 `## 三审记录`）
+- 本轮结论：E74 的交付面已闭合 —— 命令面 4 值（run / cancel / cancel_run / ping）、`cancel_run` 与 `cancel` 共用 `service.cancel_run` 端口、事件面逐字节未动（golden 信封 + 两层 `project_id` 拒绝 + 路由集对基线）、错误码零新增、`network/` 导入面零命中；`ws_server.py` 698 行（拆出 `ws_commands.py` 253 行）⇒ E75 加代码仍有余量。**已知预期红**：`tests/test_contract_baselines.py` 的 check 用例（`exception_types.json` 缺 74.1 新增的 `SubmittedRun` / `ProjectChannelService`）由 76.6 重生成快照收口。
