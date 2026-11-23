@@ -235,6 +235,7 @@ def build_ws_servers(
     max_connections: int | None = None,
     shutdown_timeout: float | None = None,
     push_enabled: bool | None = None,
+    project_service: Any | None = None,
 ) -> tuple[tuple[WsServer, ...], CliEventHub | None]:
     """构造 WS listener（恒 1 条）与**实际挂载**的 CLI 旁路中枢（D9/D12）。
 
@@ -256,6 +257,10 @@ def build_ws_servers(
     :class:`NotificationHub` 挂到 listener（``WsServer.notification_hub``），经
     ``servers[0].notification_hub`` 取出交给服务单元；``lan`` listener 上它同样可见（客户端
     「三处对账」要求 ``PUSH_CONNECTED``），代价由 ``ws_host`` 的启动 WARNING 写明。
+
+    ``project_service``（Epic 75）是 WS 项目通道的注入点，原样交给 ``WsServer`` ⇒ 同一条 listener 的
+    集合级端点与单 run 端点拿到**同一个实例**；缺省 ``None`` 时行为与未注入前逐字相同（两个端点回
+    ``invalid_request``，不静默按启动工作区执行）。
 
     TLS 启用时（cert 与 key 都非空）顺带跑一次身份自检（``_check_tls_identity``）：到期余量不足、
     SAN 不含绑定地址各记一条 WARNING（不阻断启动）；材料读不出来是 :class:`WsConfigError`。
@@ -310,6 +315,7 @@ def build_ws_servers(
             cli_hub=hub,
             notification_hub=notification_hub,
             version=_current_version(),
+            project_service=project_service,
         )
     ]
     return tuple(servers), hub

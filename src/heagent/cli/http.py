@@ -46,6 +46,7 @@ from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.http_status import _effective_sandbox_backend, bind_status_source, build_status_source
 from heagent.cli.run_history import run_history_source
 from heagent.cli.wiring import _build_provider, load_startup_settings
+from heagent.cli.ws_project_adapter import ProjectChannelAdapter
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings
 from heagent.engine.tasks import default_task_registry
 from heagent.network.exposure import exposure_warning
@@ -350,6 +351,34 @@ def _status_source_for(
     )
 
 
+def _project_console(
+    *,
+    settings: Settings,
+    workspace: WorkspacePaths,
+    run_service: HttpRunService | None,
+    handler_factory: Any,
+    dialog_backend: str = "none",
+) -> HttpProjectConsole:
+    """网页控制台实例的唯一构造点（HTTP 面与 WS 项目通道共用同一份）。
+
+    写闸门、注册表、项目运行时缓存都挂在实例上，因此两个面必须拿到同一个对象——构造散成两处
+    就会出现「HTTP 侧可写、WS 侧按旧的启动配置跑」这类不可见的双份状态。
+    """
+    return HttpProjectConsole(
+        workspace.root,
+        projects_file=settings.http_console_projects_file,
+        runs=run_service,
+        handler_factory=handler_factory,
+        write_enabled=settings.http_console_write_enabled,
+        dialog_backend=dialog_backend,
+    )
+
+
+def _project_channel(console: HttpProjectConsole) -> ProjectChannelAdapter:
+    """WS 项目通道服务：注册表健康探针取控制台自己那份注册表（同一路径、同一缓存）。"""
+    return ProjectChannelAdapter(console, lambda: console.registry.health().code)
+
+
 def _http_listener_for(
     *,
     config: Any,
@@ -361,18 +390,24 @@ def _http_listener_for(
     enabled: bool,
     handler_factory: Any,
     dialog_backend: str = "none",
+    console: HttpProjectConsole | None = None,
 ) -> HttpServer | None:
-    """两个入口共用的 HTTP listener 装配（控制台 + 任务 / 历史 / 状态来源接线）。"""
+    """两个入口共用的 HTTP listener 装配（控制台 + 任务 / 历史 / 状态来源接线）。
+
+    ``console`` 由调用方注入时**原样复用**：WS 项目通道与 HTTP 控制台必须是同一个实例，否则两份
+    注册表缓存与运行期缓存在配置写入后各自失效，出现「面板说已改、WS 仍按旧项目跑」。``None`` 时按
+    同样的参数就地建一份（直接调用本函数的测试路径）。
+    """
     if not enabled:
         return None
-    console = HttpProjectConsole(
-        workspace.root,
-        projects_file=settings.http_console_projects_file,
-        runs=run_service,
-        handler_factory=handler_factory,
-        write_enabled=settings.http_console_write_enabled,
-        dialog_backend=dialog_backend,
-    )
+    if console is None:
+        console = _project_console(
+            settings=settings,
+            workspace=workspace,
+            run_service=run_service,
+            handler_factory=handler_factory,
+            dialog_backend=dialog_backend,
+        )
     return HttpServer(
         config,
         version=_current_version(),
@@ -433,6 +468,15 @@ def build_http_service(
         fallback_backend=getattr(executor, "sandbox_backend", None),
         enabled=http_on,
     )
+    # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
+    # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
+    handler_factory = executor.for_workspace if isinstance(executor, HttpAgentHandler) else None
+    console = _project_console(
+        settings=settings,
+        workspace=workspace,
+        run_service=run_service,
+        handler_factory=handler_factory,
+    )
     http_server = _http_listener_for(
         config=config,
         settings=settings,
@@ -441,12 +485,13 @@ def build_http_service(
         status_source=status_source,
         task_registry=task_registry,
         enabled=http_on,
-        # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
-        # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
-        handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
+        handler_factory=handler_factory,
+        console=console,
     )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
-    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
+    ws_servers, cli_hub = build_ws_servers(
+        settings, run_service=run_service, enabled=ws_on, project_service=_project_channel(console)
+    )
     # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
     # 供入口层构造的 cron notifier 发布。没有任何 listener ⇒ 无中枢。
     notification_hub = ws_servers[0].notification_hub if ws_servers else None
@@ -771,6 +816,14 @@ def http_server_cmd(
         fallback_backend=sandbox or settings.sandbox_backend,
         enabled=http_on,
     )
+    # 控制台在两条 listener 之前建：HTTP 面与 WS 项目通道共用同一个实例（见 ``_project_console``）。
+    console = _project_console(
+        settings=settings,
+        workspace=workspace,
+        run_service=run_service,
+        handler_factory=handler.for_workspace,
+        dialog_backend=dialog_backend,
+    )
     server = _http_listener_for(
         config=config,
         settings=settings,
@@ -781,6 +834,7 @@ def http_server_cmd(
         enabled=http_on,
         handler_factory=handler.for_workspace,
         dialog_backend=dialog_backend,
+        console=console,
     )
     try:
         # 单 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
@@ -795,6 +849,7 @@ def http_server_cmd(
             host=ws_host,
             port=ws_port,
             max_connections=ws_max_connections,
+            project_service=_project_channel(console),
         )
     except WsConfigError as exc:
         # 非回环缺 token / WS_LAN_NO_AUTH 组合非法 / TLS 半配：配置不成立，压根不该尝试绑定。

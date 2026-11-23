@@ -453,3 +453,113 @@ def test_default_cli_exposes_the_run_api(monkeypatch: pytest.MonkeyPatch, tmp_pa
         {"role": "user", "text": "hi"},
         {"role": "assistant", "text": "stub answer"},
     ]
+
+
+# --- Epic 75 / 75.5：项目通道的装配注入 ------------------------------------------------
+#
+# 三条判据各自钉一层，缺一层就会留下「参数收到了、端点没收到」「端点收到了、不是同一个对象」
+# 这类只在真客户端发 `projects` 时才暴露的洞：
+#   1. 两条装配路径（内嵌服务 / `http-server` 命令）都注入了非 None 的适配器；
+#   2. 每条路径只建**一份**控制台，适配器包的就是它（两份状态会让配置写入后 WS 按旧项目跑）；
+#   3. 同一个适配器实例真的进了 listener 的两个端点构造点（不是停在 `build_ws_servers` 形参）。
+
+
+def _record_ws_wiring(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, Any]], list[Any]]:
+    """记录 `build_ws_servers` 收到的关键字与每次装配建出的控制台实例。"""
+    from heagent.cli import http as http_module
+
+    calls: list[dict[str, Any]] = []
+    consoles: list[Any] = []
+    real_build = http_module.build_ws_servers
+    real_console = http_module._project_console
+
+    def record_build(settings: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return real_build(settings, **kwargs)
+
+    def record_console(**kwargs: Any) -> Any:
+        console = real_console(**kwargs)
+        consoles.append(console)
+        return console
+
+    monkeypatch.setattr(http_module, "build_ws_servers", record_build)
+    monkeypatch.setattr(http_module, "_project_console", record_console)
+    return calls, consoles
+
+
+def _assert_single_adapter(calls: list[dict[str, Any]], consoles: list[Any]) -> Any:
+    """一条装配路径的公共断言：恰一次装配、恰一份控制台、适配器包的正是它。"""
+    from heagent.cli.ws_project_adapter import ProjectChannelAdapter
+
+    assert len(calls) == 1, calls
+    adapter = calls[0]["project_service"]
+    assert isinstance(adapter, ProjectChannelAdapter), adapter
+    assert len(consoles) == 1, consoles
+    assert adapter._console is consoles[0]
+    return adapter
+
+
+def test_embedded_entry_injects_the_project_channel(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """内嵌服务路径（`build_http_service`）：注入非 None 适配器，且与控制台同一个实例。"""
+    calls, consoles = _record_ws_wiring(monkeypatch)
+    _drive(monkeypatch, tmp_path, _RecordingProvider())
+
+    service = build_http_service(get_settings())
+
+    adapter = _assert_single_adapter(calls, consoles)
+    # HTTP 面拿到的也是同一份控制台（控制台注入 `_http_listener_for`，不另建第二份）。
+    assert service._http is not None
+    assert service._http.console is consoles[0]
+    assert service._ws_servers[0].project_service is adapter
+
+
+def test_http_server_command_injects_the_project_channel(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """`http-server` 路径：同样注入非 None 适配器（第二条装配分支不缺项目通道）。"""
+    calls, consoles = _record_ws_wiring(monkeypatch)
+    provider = _RecordingProvider()
+    _drive(monkeypatch, tmp_path, provider)
+
+    async def fake_serve_web(_http_server: object, _ws_servers: object) -> None:
+        return None
+
+    monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve_web)
+    monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: provider)
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    _assert_single_adapter(calls, consoles)
+
+
+def test_project_channel_reaches_both_endpoints_of_the_listener(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """注入真的到达端点构造点：集合级端点与单 run 端点拿到**同一个**适配器实例。
+
+    只断言 `build_ws_servers` 的形参不足以证明注入生效——`WsServer` 之后还有 `build_ws_app` 一跳。
+    这里在端点构造函数上记录 kwargs，再取 `WsServer.app`（延迟构造一次）触发整条装配链。
+    """
+    from heagent.network import ws_server as ws_server_module
+
+    calls, consoles = _record_ws_wiring(monkeypatch)
+    _drive(monkeypatch, tmp_path, _RecordingProvider())
+    service = build_http_service(get_settings(), executor=object())
+    adapter = _assert_single_adapter(calls, consoles)
+
+    seen: dict[str, Any] = {}
+    real_collection = ws_server_module.build_runs_collection_endpoint
+    real_run = ws_server_module.build_ws_endpoint
+
+    def record_collection(run_service: Any, **kwargs: Any) -> Any:
+        seen["collection"] = kwargs
+        return real_collection(run_service, **kwargs)
+
+    def record_run(run_service: Any, **kwargs: Any) -> Any:
+        seen["run"] = kwargs
+        return real_run(run_service, **kwargs)
+
+    monkeypatch.setattr(ws_server_module, "build_runs_collection_endpoint", record_collection)
+    monkeypatch.setattr(ws_server_module, "build_ws_endpoint", record_run)
+
+    assert service._ws_servers[0].app is not None  # 触发 routes 构造
+
+    assert seen["collection"]["project_service"] is adapter
+    assert seen["run"]["project_service"] is adapter

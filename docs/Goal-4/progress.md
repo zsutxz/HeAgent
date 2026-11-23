@@ -92,3 +92,6 @@
 - 2026-11-23 Decision: **四个既有提交认可保留**（`0de2a1c3` 75.1 / `a38c58a7` 75.2 / `745b251a` 批内派生基线 / `c232181b` 75.3）—— 提交信息均为中文 Conventional Commit、一次一 entry、文件清单与写集一致，且 HEAD 五门全绿；不做 soft reset 重呈报。
 - 2026-11-23 Decision: **75.2 的 `bad_spec` 追认**（R6 的 `cancel_run` 子句规格过宽、不实现），已记入 epic-75 的 `## Notes`；75.3 的 `docs/frame.md → docs/framework.md`、75.2 与 74.2 的重复切片同样记入 Notes。
 - 2026-11-23 Decision: 平行会话的越界事例作废处理 —— 其实现子会话曾把 `pub/projects.py.__all__` 里三个 `MAX_*` 常量删掉（公共导出面静默缩水），已补回并由宿主复核 `__all__` 现含 11 个名字；这类「整文件重写」是并行 lane 在本仓的头号风险，E75 余下 entry 一律串行。
+- 2026-11-23 **75.5 built**：`build_ws_servers` 新增 `project_service` 注入缝并一路透传到两端点（`cli/http_config.py` → `WsServer` → `ws_host.build_ws_app` → 两个构造器）；`cli/http.py` 两条装配路径都用同一个 `HttpProjectConsole` 造 adapter（探针 `lambda: console.registry.health().code`）。三条 wiring 判据（`tests/test_cli_http_lifecycle.py` 11 → 14 例）：内嵌路径恰 1 次注入且 `service._http.console is consoles[0]`、`http-server` 命令同形态、两端点收到 `is` 同一 adapter。验证：`test_cli_http_lifecycle.py` 14 passed；宿主合成复跑 848 passed；ruff / format / mypy 全绿。
+- 2026-11-23 Decision: **75.5 的写集溢出追认**（`src/heagent/network/ws_host.py` +10 行）——票面「`build_ws_servers` 直接透传端点构造器」与实际链路不符（构造器由 `ws_host.build_ws_app` 延迟调用），不加这两处形参则注入点在 `network/` 侧断掉。纯加性、默认 `None`。
+- 2026-11-23 Decision: 75.5 的「同一实例」口径落为**路径内同一实例**（内嵌服务单元与 `http-server` 命令是互斥入口，进程内不会同时跑），不引入进程级 console 单例（那会把写闸门与运行期缓存变全局状态）。

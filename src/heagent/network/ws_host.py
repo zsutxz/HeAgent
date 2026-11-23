@@ -222,6 +222,7 @@ def build_ws_app(
     cli_hub: Any | None = None,
     notification_hub: Any | None = None,
     version: str = "",
+    project_service: Any | None = None,
 ) -> ASGIApp:
     """构造 WS server 的 ASGI 应用：只挂 WebSocketRoute，零 HTTP 路由（D1/D2/D9）。
 
@@ -237,6 +238,9 @@ def build_ws_app(
     执行（失败 close(1008)）。限速状态挂在 app 上（一个 app = 一个 listener = 一份限速窗口）。
 
     ``version`` 由入口层注入（56-9）：四端点 ``accept()`` 后经 hello 首帧下发；空版本=测试装配形态。
+
+    ``project_service`` 是项目通道的注入点（75-5）：非 ``None`` 时**同一个实例**交给集合级端点与
+    单 run 端点（后者按协议忽略并记 debug），``None`` = 没有项目通道，两条端点回 ``invalid_request``。
     """
     applications = _require_module("starlette.applications")
     routing = _require_module("starlette.routing")
@@ -271,6 +275,7 @@ def build_ws_app(
                         max_connections=config.ws_max_connections,
                         authorize=authorize,
                         version=version,
+                        project_service=project_service,
                     ),
                 )
             )
@@ -284,6 +289,7 @@ def build_ws_app(
                     authorize=authorize,
                     readonly=config.readonly,
                     version=version,
+                    project_service=project_service,
                 ),
             )
         )
@@ -337,6 +343,7 @@ class WsServer:
         cli_hub: Any | None = None,
         notification_hub: Any | None = None,
         version: str = "",
+        project_service: Any | None = None,
     ) -> None:
         self.config = config
         # 版本由入口层注入（``heagent.__version__``）：四端点 accept 后经 hello 首帧下发；
@@ -345,6 +352,8 @@ class WsServer:
         self.run_service = run_service
         self.cli_hub = cli_hub
         self.notification_hub = notification_hub
+        # 项目通道服务（75-5）：与 run_service 同档的注入缝，``None`` = 本 listener 没有项目通道。
+        self.project_service = project_service
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁 + 布尔标记：close() 等同一次收尾完成（HttpServer 既有口径）。
@@ -362,6 +371,7 @@ class WsServer:
                 cli_hub=self.cli_hub,
                 notification_hub=self.notification_hub,
                 version=self.version,
+                project_service=self.project_service,
             )
         return self._app
 
