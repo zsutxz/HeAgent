@@ -319,10 +319,15 @@ def prune_runtime_artifacts_sync(
     """``run_housekeeping`` 的同步包装（CLI/GUI 启动入口都是同步函数）。
 
     - 四类保留期全为 0（如测试环境）时**直接返回**，不进事件循环；
-    - 已在事件循环中调用（测试用 CliRunner 直接驱动入口）时 ``asyncio.run`` 会抛
-      ``RuntimeError``——此时只记 ``debug`` 跳过：启动路径不应因清理动作出问题。
+    - 已在事件循环中调用（测试用 CliRunner 直接驱动入口）时**先判循环再建协程**：``asyncio.run``
+      在运行中的循环里抛 ``RuntimeError``，若协程已先构造出来就会留下「never awaited」告警——启动
+      路径不该产出这种噪声，更不该因清理动作出问题。
+
+    判循环走 :func:`asyncio.get_running_loop` 而不是靠 ``asyncio.run`` 的异常兜底：后者要求先建出
+    协程对象，告警与「到底跑没跑」的歧义都由此而来。
     """
     conf = settings or get_settings()
+    in_loop = _inside_running_loop()
     if not (
         conf.log_retention_days
         or conf.session_retention_days
@@ -331,16 +336,31 @@ def prune_runtime_artifacts_sync(
     ):
         # 容器清扫不依赖保留期（永远 best-effort 跑一次）；其余四类保留期全 0 时仅清扫容器。
         containers = 0
-        try:
-            containers = asyncio.run(prune_exited_sandbox_containers())
-        except RuntimeError:
-            logger.debug("container sweep skipped: running inside an event loop", exc_info=True)
+        if in_loop:
+            logger.debug("container sweep skipped: running inside an event loop")
+        else:
+            try:
+                containers = asyncio.run(prune_exited_sandbox_containers())
+            except RuntimeError:  # pragma: no cover - 判循环已过滤，留兜底
+                logger.debug("container sweep skipped: running inside an event loop", exc_info=True)
         return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": containers}
+    if in_loop:
+        logger.debug("housekeeping skipped: running inside an event loop")
+        return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
     try:
         return asyncio.run(run_housekeeping(settings=conf, workspace=workspace, log_dir=log_dir))
-    except RuntimeError:
+    except RuntimeError:  # pragma: no cover - 判循环已过滤，留兜底
         logger.debug("housekeeping skipped: running inside an event loop", exc_info=True)
         return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
+
+
+def _inside_running_loop() -> bool:
+    """当前线程是否已有运行中的事件循环（同步包装据此决定「跑」还是「静默跳过」）。"""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 def prune_runtime_artifacts_best_effort(settings: Settings | None = None, *, workspace: Path | None = None) -> None:

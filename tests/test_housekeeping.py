@@ -244,10 +244,14 @@ def test_sync_wrapper_short_circuits_when_all_disabled(tmp_path: Path, monkeypat
     assert called is False
 
 
-def test_prune_runtime_artifacts_sync_event_loop_fallback_shape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """同步包装在事件循环内（asyncio.run 抛 RuntimeError）的兜底返回与正常路径同形（5 键）。"""
+async def test_prune_runtime_artifacts_sync_event_loop_fallback_shape(tmp_path: Path) -> None:
+    """同步包装在**真**事件循环内调用：返回与正常路径同形（5 键），且不留下「never awaited」告警。
+
+    在真循环里跑而不是伪造 ``asyncio.run`` 抛错：判循环走 ``get_running_loop``，先判后建协程；
+    伪造异常那条路会先构造出协程再失败，反而制造 ``RuntimeWarning``（旧实现的噪声来源）。
+    """
+    import warnings
+
     conf = _settings(
         tmp_path,
         log_retention_days=1,
@@ -256,10 +260,23 @@ def test_prune_runtime_artifacts_sync_event_loop_fallback_shape(
         sandbox_dir_retention_days=0,
     )
 
-    def _raise_runtime_error(*_args: object, **_kwargs: object) -> dict[str, int]:
-        raise RuntimeError("cannot be called from a running event loop")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = hk.prune_runtime_artifacts_sync(conf)
 
-    monkeypatch.setattr("heagent.housekeeping.asyncio.run", _raise_runtime_error)
+    assert result == {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
+    assert [str(item.message) for item in caught if issubclass(item.category, RuntimeWarning)] == []
+
+
+async def test_zero_retention_inside_a_loop_skips_the_container_sweep(tmp_path: Path) -> None:
+    """四类保留期全 0 且已在循环内：容器清扫也不跑（否则 ``asyncio.run`` 会在运行中的循环里抛错）。"""
+    conf = _settings(
+        tmp_path,
+        log_retention_days=0,
+        session_retention_days=0,
+        edit_snapshot_retention_days=0,
+        sandbox_dir_retention_days=0,
+    )
 
     assert hk.prune_runtime_artifacts_sync(conf) == {
         "logs": 0,
