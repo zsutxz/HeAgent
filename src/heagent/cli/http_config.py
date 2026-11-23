@@ -224,6 +224,33 @@ def _check_tls_identity(settings: Settings, host: str, *, now: datetime | None =
     return warnings
 
 
+#: 沙箱档位名：只有它能让远端提交的 run 跑在容器里（其余档位都落到宿主进程）。
+_DOCKER_BACKEND = "docker"
+
+
+def _warn_external_without_sandbox(config: WsServerConfig, sandbox_backend: str | None) -> str | None:
+    """对外 listener + 非容器沙箱 ⇒ 返回**一条**启动 WARNING 的正文（其余情况 ``None``）。
+
+    **提示不是闸门**：``external`` 档（非回环 + token）意味着任何持 token 的对端都能提交 run，而
+    ``docker`` 以外的后端（``passthrough`` / 降级后的 ``auto``）会让这些 run 直接跑在宿主进程里。
+    这层的真实边界是 OS 级容器（``docs/framework.md`` §4.18 的三层非边界），所以只喊不改行为：
+    拒绝启动会把「内网临时开放」变成不可用，而风险等级并没有到那一步。
+
+    判据取**启动期实际生效**的后端（``--sandbox`` / ``SANDBOX_BACKEND`` 只是请求值：``auto`` 或
+    daemon 不可用时引擎会降级），由入口层经 ``sandbox_backend`` 注入；取不到时回落到配置值。
+    """
+    if config.mode != "external":
+        return None
+    backend = (sandbox_backend or "").strip() or "unknown"
+    if backend == _DOCKER_BACKEND:
+        return None
+    return (
+        f"listener=external sandbox={backend} host={config.host}: the WS listener is reachable from other "
+        "machines and runs submitted over it execute on the HOST (sandbox backend is not docker); "
+        "start with --sandbox docker to fence remote runs inside a container"
+    )
+
+
 def build_ws_servers(
     settings: Settings,
     *,
@@ -236,6 +263,7 @@ def build_ws_servers(
     shutdown_timeout: float | None = None,
     push_enabled: bool | None = None,
     project_service: Any | None = None,
+    sandbox_backend: str | None = None,
 ) -> tuple[tuple[WsServer, ...], CliEventHub | None]:
     """构造 WS listener（恒 1 条）与**实际挂载**的 CLI 旁路中枢（D9/D12）。
 
@@ -264,6 +292,10 @@ def build_ws_servers(
 
     TLS 启用时（cert 与 key 都非空）顺带跑一次身份自检（``_check_tls_identity``）：到期余量不足、
     SAN 不含绑定地址各记一条 WARNING（不阻断启动）；材料读不出来是 :class:`WsConfigError`。
+
+    ``sandbox_backend``（Epic 76）是**启动期实际生效**的沙箱档位（入口层注入；缺省回落到
+    ``settings.sandbox_backend``）：``external`` 档且它不是 ``docker`` 时记**一条** WARNING
+    （:func:`_warn_external_without_sandbox`），不改变启动成败。
     """
     if not (settings.ws_enabled if enabled is None else enabled):
         # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
@@ -286,6 +318,11 @@ def build_ws_servers(
             primary.mode,
             message,
         )
+    effective_backend = sandbox_backend if sandbox_backend is not None else settings.sandbox_backend
+    sandbox_warning = _warn_external_without_sandbox(primary, effective_backend)
+    if sandbox_warning is not None:
+        # 恰一条：装配点每进程只走一次（内嵌 / http-server 两条入口互斥）。
+        safe_log(logger, logging.WARNING, "ws event=external_without_sandbox %s", sandbox_warning)
     bypass_enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
     hub: CliEventHub | None = None
     if bypass_enabled:

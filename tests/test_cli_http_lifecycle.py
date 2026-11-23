@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import socket
 import time
@@ -563,3 +564,79 @@ def test_project_channel_reaches_both_endpoints_of_the_listener(monkeypatch: pyt
 
     assert seen["collection"]["project_service"] is adapter
     assert seen["run"]["project_service"] is adapter
+
+
+# ── E76-S04（R6）：external 档 + 非 docker 沙箱的启动 WARNING ─────────────────────────
+
+
+def _external_ws_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Any:
+    """对外 listener 的最小可成立配置：非回环 + token（token 只认用户级 setting.md）。"""
+    from heagent.config import Settings
+
+    setting_file = tmp_path / "setting.md"
+    setting_file.write_text("---\nWS_AUTH_TOKEN: test-token\n---\n", encoding="utf-8")
+    monkeypatch.setattr(Settings, "_user_setting_file", setting_file, raising=False)
+    monkeypatch.setenv("WS_ENABLED", "true")
+    monkeypatch.setenv("WS_HOST", "192.168.2.226")
+    monkeypatch.setenv("WS_LAN_NO_AUTH", "false")
+    monkeypatch.setenv("WS_TLS_CERT_FILE", "")
+    monkeypatch.setenv("WS_TLS_KEY_FILE", "")
+    reset_settings()
+    return get_settings()
+
+
+def _sandbox_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records if "external_without_sandbox" in record.getMessage()]
+
+
+def test_external_listener_on_a_non_docker_backend_warns_exactly_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R6：对外 listener + 非容器后端 ⇒ 恰 1 条固定锚点 WARNING（含 `listener=external` 与后端名）。"""
+    from heagent.cli.http_config import build_ws_servers
+
+    caplog.set_level(logging.WARNING, logger="heagent.cli.http_config")
+    try:
+        servers, _hub = build_ws_servers(_external_ws_settings(monkeypatch, tmp_path), sandbox_backend="passthrough")
+
+        assert servers and servers[0].config.mode == "external"  # 告警不改变启动成败
+        lines = _sandbox_warnings(caplog)
+        assert len(lines) == 1, lines
+        assert "listener=external" in lines[0]
+        assert "sandbox=passthrough" in lines[0]
+    finally:
+        reset_settings()
+
+
+def test_external_listener_on_docker_stays_quiet(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R6：docker 档 0 条——远程 run 已经落在容器里，没什么可喊的。"""
+    from heagent.cli.http_config import build_ws_servers
+
+    caplog.set_level(logging.WARNING, logger="heagent.cli.http_config")
+    try:
+        servers, _hub = build_ws_servers(_external_ws_settings(monkeypatch, tmp_path), sandbox_backend="docker")
+
+        assert servers and servers[0].config.mode == "external"
+        assert _sandbox_warnings(caplog) == []
+    finally:
+        reset_settings()
+
+
+def test_access_note_appends_the_host_execution_clause_for_external_without_docker() -> None:
+    """`_ws_access_note` 的既有三段文案逐字不变，只在对外 + 非 docker 时尾部追加一句。"""
+    from heagent.cli.http import _ws_access_note
+    from heagent.network.ws_host import WsServerConfig
+
+    external = WsServerConfig(host="192.168.2.226", port=9201, auth_token="tok")
+    plain = _ws_access_note(external)
+    assert plain == "(external mode; Bearer token required; PLAINTEXT)"
+
+    note = _ws_access_note(external, "passthrough")
+    assert note.startswith(plain[:-1])  # 既有文案逐字不变，只在收尾括号前追加
+    assert note.endswith("; sandbox=passthrough: remote runs execute on the HOST)")
+    assert "HOST" not in _ws_access_note(external, "docker")
+    # 本地 listener 不受这条影响（没有对端可提交）。
+    local = WsServerConfig(host="127.0.0.1", port=9201)
+    assert _ws_access_note(local, "passthrough") == "(run & CLI WebSocket entry; local only; no authentication)"

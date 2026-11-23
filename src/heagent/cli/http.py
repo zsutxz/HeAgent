@@ -70,14 +70,25 @@ def _ws_url(server: WsServer) -> str:
     return f"{scheme}://{server.address}"
 
 
-def _ws_access_note(config: WsServerConfig) -> str:
-    """公告里的访问口径：本地免 token / 本地强制 token / 对外 token 三态；只读另标。"""
+def _ws_access_note(config: WsServerConfig, sandbox_backend: str | None = None) -> str:
+    """公告里的访问口径：本地免 token / 本地强制 token / 对外 token 三态；只读另标。
+
+    ``sandbox_backend``（Epic 76）非 ``docker`` 且 listener 是对外档时追加一句「远端提交跑在宿主」：
+    `external` 档意味着任何持 token 的对端都能提交 run，公告只讲 token 不讲「跑在哪」会漏掉真正
+    决定风险等级的那一半（容器是唯一 OS 级边界，见 ``docs/framework.md`` §4.18）。
+    """
     suffix = "; read-only" if config.readonly else ""
+    backend = (sandbox_backend or "").strip()
+    host_note = (
+        f"; sandbox={backend}: remote runs execute on the HOST"
+        if config.mode == "external" and backend and backend != "docker"
+        else ""
+    )
     if config.requires_auth:
         transport = "TLS" if config.tls_enabled else "PLAINTEXT"
         label = "external mode" if config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
-        return f"({label}; Bearer token required; {transport}{suffix})"
-    return f"(run & CLI WebSocket entry; local only; no authentication{suffix})"
+        return f"({label}; Bearer token required; {transport}{suffix}{host_note})"
+    return f"(run & CLI WebSocket entry; local only; no authentication{suffix}{host_note})"
 
 
 async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer, ...]) -> None:
@@ -138,8 +149,11 @@ class EmbeddedHttpService:
         *,
         cli_hub: Any | None = None,
         notification_hub: Any | None = None,
+        sandbox_backend: str | None = None,
     ) -> None:
         self._http = http_server
+        # 启动期**实际生效**的沙箱档位（入口层注入）：只用于访问口径公告（``_ws_access_note``）。
+        self._sandbox_backend = sandbox_backend
         # 单 listener 与多 listener（双监听）同一入口：接受单个实例或元组，
         # 内部一律按元组处理（``servers[0]`` = 主 listener）。
         self._ws_servers: tuple[WsServer, ...] = (
@@ -236,7 +250,7 @@ class EmbeddedHttpService:
             )
         for ws_server in self._ws_servers:
             click.echo(
-                f"[ws] event stream: {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}",
+                f"[ws] event stream: {_ws_url(ws_server)}  {_ws_access_note(ws_server.config, self._sandbox_backend)}",
                 err=True,
             )
         if self._cli_hub is not None:
@@ -249,7 +263,7 @@ class EmbeddedHttpService:
             scheme = "wss" if host_server.config.tls_enabled else "ws"
             click.echo(
                 f"[ws] CLI event stream (read-only): {scheme}://{host_server.address}{CLI_WS_PATH}"
-                f"  {_ws_access_note(host_server.config)}",
+                f"  {_ws_access_note(host_server.config, self._sandbox_backend)}",
                 err=True,
             )
 
@@ -489,8 +503,14 @@ def build_http_service(
         console=console,
     )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
+    # 沙箱档位取**启动期实际生效**的（auto / daemon 不可用会降级）：只用于对外档的启动告警与访问口径。
+    sandbox_backend = _effective_sandbox_backend(executor) or getattr(executor, "sandbox_backend", None)
     ws_servers, cli_hub = build_ws_servers(
-        settings, run_service=run_service, enabled=ws_on, project_service=_project_channel(console)
+        settings,
+        run_service=run_service,
+        enabled=ws_on,
+        project_service=_project_channel(console),
+        sandbox_backend=sandbox_backend,
     )
     # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
     # 供入口层构造的 cron notifier 发布。没有任何 listener ⇒ 无中枢。
@@ -498,7 +518,13 @@ def build_http_service(
     bind_status_source(
         status_source, ws_servers, http_server=http_server, cli_hub=cli_hub, notification_hub=notification_hub
     )
-    return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
+    return EmbeddedHttpService(
+        http_server,
+        ws_servers,
+        cli_hub=cli_hub,
+        notification_hub=notification_hub,
+        sandbox_backend=sandbox_backend,
+    )
 
 
 # 启动失败时给用户的可执行选项：``embedded_http_error_message``（默认 CLI 内嵌入口）与
@@ -850,6 +876,7 @@ def http_server_cmd(
             port=ws_port,
             max_connections=ws_max_connections,
             project_service=_project_channel(console),
+            sandbox_backend=_effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend,
         )
     except WsConfigError as exc:
         # 非回环缺 token / WS_LAN_NO_AUTH 组合非法 / TLS 半配：配置不成立，压根不该尝试绑定。
