@@ -22,7 +22,7 @@ theme:
   locale: zh
 
 # API 参考由 docstring 自动生成（`mkdocstrings` 的 python handler + `show_submodules`）：
-# 每个 `docs/api/<包>.md` 只是 `::: heagent.<包>` 的壳，正文在源码 docstring 里 ⇒ API 文档与代码
+# 单页 `docs/api.md` 里每个核心包只有一条 `::: heagent.<包>` 指令，正文在源码 docstring 里 ⇒ API 文档与代码
 # 不存在「两份事实」。mkdocstrings 是**构建期工具**、不进依赖树（与 mkdocs 同档）：
 # `pip install mkdocs "mkdocstrings[python]"`，缺它时 `scripts/build_docs.py` 给安装提示。
 plugins:
@@ -46,26 +46,14 @@ nav:
   - 首页: README.md
   - 架构: framework.md
   - 设计理念: design.md
-  - 迭代历程: iteration.md
+  - 迭代指南: iteration/index.md
+  - 迭代历程: iteration/cycles.md
   - 测试与门禁: testing.md
   - 常见问题: faq.md
   - 错误索引: errors.md
   - 性能调优: performance.md
   - 沙箱机制: sandbox.md
-  - API 参考:
-      - 索引: api/index.md
-      - heagent.agent: api/agent.md
-      - heagent.config: api/config.md
-      - heagent.context: api/context.md
-      - heagent.cron: api/cron.md
-      - heagent.engine: api/engine.md
-      - heagent.events: api/events.md
-      - heagent.memory: api/memory.md
-      - heagent.network: api/network.md
-      - heagent.providers: api/providers.md
-      - heagent.pub: api/pub.md
-      - heagent.skills: api/skills.md
-      - heagent.tools: api/tools.md
+  - API 参考: api.md
   - 附: claude-updater/latest.md
   - 附: claude-updater/tips/new_features.md
 
