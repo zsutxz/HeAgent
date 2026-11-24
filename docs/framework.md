@@ -200,7 +200,7 @@ AgentLoop.run(prompt)
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `cli/terminal.py`） |
-| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_protocol.py` + `network/http_server/` + 包内 `web/`，协议、静态页与安全立场见 4.16） |
+| HTTP 入口 | `heagent http-server`（实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_protocol.py` + `network/http_server/` + 包内 `web/`，协议、静态页与安全立场见 4.16） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
