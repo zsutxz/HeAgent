@@ -1,0 +1,35 @@
+# E79 entry 表 —— 表序即构建序
+# covers 引用「本 epic Requirements 的 R1–R2」
+# after 取值：本 epic 兄弟 entry 的整数 id
+
+[[entry]]
+id = 1
+type = "story"
+title = "E79-S01 · `scripts/ws_tls_attest.py`：A76 服务端侧的四段承兑"
+description = "新增 `scripts/ws_tls_attest.py`（stdlib only）：① 绑定面（`host:port` 可连 + 指定地址必须 REFUSED，默认在被测地址非回环时加 `127.0.0.1:<port>`）② TLS 握手（版本 / 套件 / 对端叶证书，不校链不校主机名）③ pin 对账（对端 SPKI-SHA256 == `--cert`，打印三格式）④ 认证闸门（无 token 期望 `403`，给 `--token` 追加验 `101`），可选第 ⑤ 段 `--status-url` 比对 `/api/status` 的 `tls.spki_sha256`。退出码 0/1/2 契约；`--self-check` 进程内起 TLS stub 离线自证；token 只在请求头出现、任何输出行都不带值。同批补 `tests/test_ws_tls_attest_script.py`。"
+verify = "`pytest tests/test_ws_tls_attest_script.py -q` 全绿（自检 exit 0 / `--serve-cert` 指向别的证书判 `1` 且输出含 `pin 漂移` / 材料缺失 exit 2 且点名 `heagent tls init` / 目标未监听 exit 2 且含 `未在监听` / `--help` / token 静态断言 / `[::1]:9201` 脱括号）；`python scripts/ws_tls_attest.py --self-check --cert tests/fixtures/ws_tls/cert.pem --key tests/fixtures/ws_tls/key.pem` exit 0。"
+covers = ["R1"]
+after = []
+risk = "low"
+hitl = false
+parallel_group = "e79"
+write_set = [
+  "scripts/ws_tls_attest.py",
+  "tests/test_ws_tls_attest_script.py",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E79-S02 · A76 操作卡收成一条命令 + 工具链指针"
+description = "`_bmad-output/open-items.md` 的 A76 操作卡改为：① `python scripts/ws_tls_attest.py`（默认生产姿态）+ 期望输出（四段全 `[OK]`、exit 0、`127.0.0.1:9201 REFUSED`、`对端 SPKI == 本地 cert.pem：247a8b…fd301`、`无 token → HTTP/1.1 403`）② 宿主 `netstat` 降为可选补证 ③ 客户端三处对账不变；`AGENTS.md` 的 WS/TLS 工具链补 `ws_tls_attest.py`（排在 `heagent tls` 之后、`ws_manual_probe.py` 之前）。**不新增 A 号、活动计数与速读节集合不变**，A65 仍 frozen。"
+verify = "`pytest tests/test_deferred_id_registry.py tests/test_docs_links.py -q` 全绿；`grep -c 'ws_tls_attest.py' _bmad-output/open-items.md AGENTS.md` 各 ≥ 1；`grep -n '当前活动项：\\*\\*4 条\\*\\*' _bmad-output/open-items.md` 命中且 ID 列举仍为 `A55 / A67 / A76`（+ `frozen` A65）。"
+covers = ["R2"]
+after = [1]
+risk = "low"
+hitl = false
+parallel_group = "e79"
+write_set = [
+  "_bmad-output/open-items.md",
+  "AGENTS.md",
+]

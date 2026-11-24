@@ -80,7 +80,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 - **发版契约**：`src/heagent/__init__.py::__version__` 与 `pyproject.toml` 一致且纯 semver，`CHANGELOG.md` 保有 `## [Unreleased]`，判据 `tests/test_release_workflow_contract.py`；发版 = 两处同步 bump + 归节。
 - **Active ticket store** = 当前 goal 树自带的 `docs/<goal-id>/tickets/`（指针 `docs/current`；`tickets.py --project-root docs/<goal-id>/tickets …`，`mark` 是唯一写路径）。历史票树 `_bmad-output/Goal-3/tickets/`（Epic 70–73）与 `Goal-2-v6/tickets/`（Epic 61–69）是只读归档；`_bmad/custom/config.user.toml` 的 `active_initiative` 是 gitignored 用户配置 ⇒ 换机器 / 新 clone 需重写。布局、读取范围与守卫测试见 framework §8.5。
 - **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 62.1）；独立 intent 走 bmad 立项流程进票树；v6 追踪源（`epics.md` + `sprint-status.yaml`）已上移 `Goal-2-v6/` 根（只读）。
-- **WS/TLS 排障工具链**：`heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口）→ `scripts/ws_manual_probe.py`（配 `tls_ws_stub.py` 自证握手）→ `scripts/cleanup_orphan_containers.ps1`；细节见各脚本头注释。
+- **WS/TLS 排障工具链**：`heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口）→ `scripts/ws_tls_attest.py`（一条命令四段承兑：绑定面 / TLS 握手 / pin 对账 / 认证闸门，`--self-check` 可离线自证；台账 A76 的服务端侧闭合工具）→ `scripts/ws_manual_probe.py`（配 `tls_ws_stub.py` 自证握手、手工交互）→ `scripts/cleanup_orphan_containers.ps1`；细节见各脚本头注释。
 
 ## 已知缺口
 

@@ -1,4 +1,4 @@
-# WS 远程项目通道 —— epic 表序即构建顺序（E74 → E75 → E76 → E77 → E78）
+# WS 远程项目通道 —— epic 表序即构建顺序（E74 → E75 → E76 → E77 → E78 → E79）
 # 人读编号三处一致：code / title 前缀 / epic 文件 frontmatter 的 code
 # covers 引用 brief.md 信封 Requirements 的 R1–R14（与 PRD §5 同编号）
 
@@ -53,4 +53,15 @@ description = "台账 4 条活动项全等外部触发，本 epic 只做仓库�
 covers = ["R1", "R2", "R3"]
 after = [
   { epic = "epic-77-remote-contract-hardening", needs = "幂等窗口落地并收口" },
+]
+
+[[epic]]
+id = 79
+slug = "epic-79-a76-attest-tool"
+code = "E79"
+title = "E79 · A76 服务端侧收成一条命令"
+description = "新增 scripts/ws_tls_attest.py（绑定面 / TLS 握手 / pin 对账 / 认证闸门四段承兑 + 离线 --self-check + 退出码 0/1/2）把 A76 的服务端侧从三条手工命令收成一条；A76 台账操作卡同步收窄、宿主 netstat 降为可选补证；AGENTS.md 工具链补该脚本"
+covers = ["R1", "R2"]
+after = [
+  { epic = "epic-78-open-items-followthrough", needs = "A76 操作卡与一次性工具形态定稿" },
 ]

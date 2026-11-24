@@ -25,8 +25,9 @@
 - E76 `epic-76-remote-surface-closeout`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾 + Step 08 集成通过）
 - E77 `epic-77-remote-contract-hardening`：3 entry 全部 done（77.1 幂等键 / 77.2 具名码 / 77.3 只读能力面与收口），epic 容器 `status: done`（2026-11-24 用户 `approve e77`；回顾见 epic 目录 `-retrospective.md`，**三审 R1/R2/R3 未跑**，见交接块）
 - E78 `epic-78-open-items-followthrough`：3 entry 全部 done（78.1 幂等窗口可观测 / 78.2 `web_search_smoke.py` / 78.3 三条台账操作卡），epic 容器 `status: done`（2026-11-24 用户放行；三审单文档三镜头 + 回顾见 epic 目录）
-- 合计 `counts {total: 23, done: 23}`（E78 三条 `mark done` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（2026-11-24 E78 放行后）：五个 epic 容器全部 `done`，`longest_remaining_chain` 空（initiative 级 `status` / `next` 仍报 `config_utils.py` 缺失，属既有布局问题）
+- E79 `epic-79-a76-attest-tool`：2 entry 全部 built（79.1 `scripts/ws_tls_attest.py` 四段承兑 / 79.2 A76 操作卡收窄 + `AGENTS.md` 工具链指针），三审单文档已出（`-review.md`：4 Medium 落改、7 条注入反证、判据 7 → 11 例），epic 容器 `status: in-progress`，等放行
+- 合计 `counts {total: 25, done: 23}`（E78 三条 `mark done` + E79 两票 `built` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（2026-11-24 E79 立项后）：E79 两条为 `review`（等放行），其余四个 epic 容器 `done`（initiative 级 `status` / `next` 仍报 `config_utils.py` 缺失，属既有布局问题）
 
 ## 决策日志（追加式，只增不改）
 
@@ -173,3 +174,37 @@
   goal 状态回 `done`（`status` 实测 `done`）。放行前复跑锚点判据：`tests/test_ws_submission_cache.py` +
   `test_ws_project_adapter.py` + `test_web_search_smoke_script.py` + `test_deferred_id_registry.py` +
   `test_architecture_contracts.py` = **101 passed**（13.96s），与 `080c8471` 提交信息里的门禁记录一致。
+
+- 2026-11-24 **E79 立项并构建（用户回「3」= 修文档漂移 + 写承兑脚本一起做，并顺带改 A76 台账正文）**：
+  进票树 `docs/Goal-4/tickets/epic-79-a76-attest-tool/`（2 entry，`counts {2 built}`）。
+  ① 79.1 `scripts/ws_tls_attest.py`（stdlib only）四段承兑：绑定面（被测地址可连 + 默认要求 `127.0.0.1:<port>`
+  REFUSED）/ TLS 握手（版本 + 套件 + 对端叶证书，刻意不校链不校主机名）/ pin 对账（对端 SPKI == `--cert`，
+  打印 `spki_sha256` + 短指纹 + `sha256/<base64>` 三格式）/ 认证闸门（无 token 期望 403，`--token` 追加验 101）；
+  可选 `--status-url` 第 ⑤ 段比对 `/api/status` 的 `tls.spki_sha256`；退出码 0/1/2；`--self-check` 进程内起 TLS stub
+  离线自证四段，`--serve-cert` 专供「对端与本地材料不是同一套」的判红路径。判据 7 例（自检全绿 / 换证书判 1 且含
+  `pin 漂移` / 材料缺失 exit 2 / 目标未监听 exit 2 / `--help` / token 静态断言 / IPv6 脱括号）。
+  **真跑生产姿态**：`192.168.2.226:9201` 四段全 `[OK]`、exit 0，`127.0.0.1:9201 REFUSED`、
+  pin `247a8b…fd301`（`ER5I-WJUT-A7JP`）、`无 token → HTTP/1.1 403`。
+  ② 79.2 A76 操作卡把「宿主 `netstat` + `heagent tls fingerprint` 两条手工命令」收成「跑这一条 + 期望输出」，
+  `netstat` 降为可选补证；`AGENTS.md` 工具链序列补 `ws_tls_attest.py`（`heagent tls` → attest → `ws_manual_probe`）。
+  `docs/tls-connect-guide.md` 的漂移（引已退役 A75、写「生产姿态未切换」、「第一步（现行）」）**已在本地页修正**，
+  但该页被 `.gitignore` 排除（ADR-0004：客户端本地资料）⇒ 不入库，故 79.2 的 write_set 不含它。
+  门禁：全量 `pytest` 5872 passed / 0 failed（65 skipped = 本会话 PATH 无 node）、
+  `ruff check` + `format --check`（299 files）、`mypy src`（242 files）干净、`mkdocs --strict` 0 warning、
+  台账与链接守卫 27 passed。**工作树未提交，等放行。**
+
+- 2026-11-24 **E79 收口三审（单文档三镜头）+ 落改**：审查对象 = 未提交工作树（`HEAD 767f54b2` + 8 项）。
+  ① 镜头一（规格对账）R1/R2 逐条对读全成立，0 条发现；真跑生产姿态四段 `[OK]` / exit 0，与 A76 操作卡三行
+  期望输出逐字一致。② 镜头二（反脆弱）挖出 4 条 Medium 并当轮落改：
+  **M-1** 暴露面漂移（期望拒绝却 OPEN）原被当成「服务未在监听」→ `exit 2` + 误导文案，改为
+  `_segment_bind` 返 `(seg, reachable)`、漂移走 `1`；**M-2** `_split_host_port` 自写 `strip("[]")`（第四份
+  脱括号实现，且把 `[localhost]` 也剥掉）→ 改走 `network.exposure.unbracket_host`；**M-3** 第 ⑤ 段从人读
+  文案 `rsplit("：")` 反解析指纹 + 无叶证书时 `"" in seen` → 改 `_segment_pin` 显式返回 `remote_sha`、
+  缺指纹判红；**M-4** 本地材料不可解析（`TlsIdentityError`）与 `--refused` 非法串（`ValueError`）都退化成
+  traceback 且 `rc=1`（应 `2`）→ 前置解析 + 「参数错误」。另有 L-1 `tls.cipher()` 双调、L-2 `ws_listeners`
+  幻影别名顺手落改；L-3 常量重复 / L-4 真机 101 本环境不可验（用户级 token 不在容器）/ L-5 协议下限由
+  uvicorn 兜底，三条记录不改。③ 判据 7 → 11 例（漂移判 `1` / 材料不可解析判 `2` / `--refused` 非法判 `2` /
+  第 ⑤ 段显式指纹判据），7 条注入反证全部「红 → 复原 → 绿」。④ 门禁：全量 `pytest`（带 node）
+  **5924 passed / 0 failed**（336s）、台账与链接守卫 72 passed / 1 skipped、`ruff check` + `format --check`
+  （553 files）、`mypy src`（242 files）、`contract_snapshot --check` 五份 `[OK]`、`mkdocs --strict` 0 warning。
+  **工作树仍未提交，等放行。**
