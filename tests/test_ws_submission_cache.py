@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 
 import pytest
 
@@ -128,3 +129,53 @@ def test_window_defaults_match_the_documented_numbers() -> None:
     assert IDEMPOTENCY_MAX_ENTRIES == 256
     assert params["ttl"].default == IDEMPOTENCY_TTL_SECONDS
     assert params["max_entries"].default == IDEMPOTENCY_MAX_ENTRIES
+
+
+@pytest.mark.asyncio
+async def test_capacity_eviction_is_observable_without_leaking_the_request_id(caplog: pytest.LogCaptureFixture) -> None:
+    """容量淘汰恰一条 ``idempotency_evicted``：带 ``project_id`` 与 ``reason=capacity``，不带 ``request_id``。
+
+    ``request_id`` 是客户端的不透明键，与「ack 不回显、不落 ``x-request-id``」同一立场 ⇒ 日志里只留
+    项目维度，够定位「哪个项目在反复挤窗口」而不把客户端私有标识写进日志。
+    """
+    cache, _ = await _cache(max_entries=2)
+    cache.reserve(("p1234abc", "req-old"))
+    cache.reserve(("p1234abc", "req-live"))
+
+    with caplog.at_level(logging.DEBUG, logger="heagent.cli.ws_submission_cache"):
+        cache.reserve(("p1234abc", "req-new"))  # 淘汰最旧的 req-old
+
+    messages = [record.getMessage() for record in caplog.records if "idempotency_evicted" in record.getMessage()]
+    assert len(messages) == 1
+    assert "project_id=p1234abc" in messages[0]
+    assert "reason=capacity" in messages[0]
+    assert "req-old" not in messages[0] and "req-live" not in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_expired_entry_cleanup_stays_silent(caplog: pytest.LogCaptureFixture) -> None:
+    """TTL 过期清理**不打日志**：那是正常回收，逐请求刷一条只会淹掉真正的事件。"""
+    cache, now = await _cache()
+    future, _ = cache.reserve(_KEY)
+    future.set_result(_result())
+    now[0] += 61.0
+
+    with caplog.at_level(logging.DEBUG, logger="heagent.cli.ws_submission_cache"):
+        cache.reserve(_KEY)
+
+    assert not [record for record in caplog.records if "idempotency_" in record.getMessage()]
+
+
+@pytest.mark.asyncio
+async def test_drop_logs_the_reason_only_when_it_removes_something(caplog: pytest.LogCaptureFixture) -> None:
+    """``drop`` 记 ``reason``（失败 / 取消可分辨）；重复 drop 不刷第二条（幂等调用不该造噪声）。"""
+    cache, _ = await _cache()
+    cache.reserve(_KEY)
+
+    with caplog.at_level(logging.DEBUG, logger="heagent.cli.ws_submission_cache"):
+        cache.drop(_KEY, reason="cancelled")
+        cache.drop(_KEY, reason="cancelled")
+
+    messages = [record.getMessage() for record in caplog.records if "idempotency_dropped" in record.getMessage()]
+    assert len(messages) == 1
+    assert "reason=cancelled" in messages[0] and "project_id=p1234abc" in messages[0]

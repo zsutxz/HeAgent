@@ -1,0 +1,54 @@
+# E78 entry 表 —— 表序即构建序
+# covers 引用「本 epic Requirements 的 R1–R3」
+# after 取值：本 epic 兄弟 entry 的整数 id
+
+[[entry]]
+id = 1
+type = "story"
+title = "E78-S01 · 幂等窗口可观测：容量淘汰与键移出各一条 debug 日志"
+description = "给 `cli/ws_submission_cache.py` 加 logger 与两条 DEBUG 事件：`ws event=idempotency_evicted reason=capacity`（容量淘汰最旧一条时）与 `ws event=idempotency_dropped reason=failed|cancelled`（失败/取消移出窗口时，`drop(key, reason=…)` 新增关键字参数）。日志只含 `project_id` 与 reason（+ 淘汰时 `entries` 计数），**不含 `request_id`**（客户端不透明键，与「ack 不回显、不落 `x-request-id`」同一立场）；TTL 过期清理**不打日志**。同批改适配器两处调用传 reason，`docs/framework.md` 模块表行补事件名。"
+verify = "`pytest tests/test_ws_submission_cache.py tests/test_ws_project_adapter.py -q` 全绿，且含三例新断言：① 容量淘汰恰一条 `idempotency_evicted` 且带正确 `project_id`/`reason=capacity`；② 失败移出记 `reason=failed`、owner 取消记 `reason=cancelled`；③ 全量日志里不出现 `request_id`，TTL 过期清理零条事件。"
+covers = ["R1"]
+after = []
+risk = "low"
+hitl = false
+parallel_group = "e78"
+write_set = [
+  "src/heagent/cli/ws_submission_cache.py",
+  "src/heagent/cli/ws_project_adapter.py",
+  "tests/test_ws_submission_cache.py",
+  "tests/test_ws_project_adapter.py",
+  "docs/framework.md",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E78-S02 · `scripts/web_search_smoke.py`：A55 的真实全链冒烟前置"
+description = "新增 `scripts/web_search_smoke.py` 四段判据（config 解析 / 引擎直调 / 工具面截断 / 注入围栏），逐段打印 `[OK]/[FAIL]`；key 只从 `get_settings().web_search_api_key` 取且**任何分支都不打印值**（只报「已配置（长度 N）/未配置」）。无 key 且未加 `--self-check` ⇒ exit 2 并提示 `WEB_SEARCH_API_KEY` 落 `.env`；`--self-check` 走离线段（预算常量 + 合成注入文本跑 `guard_content`）。退出码契约 0 通过 / 1 判据失败 / 2 前提缺失。不进 CLI 命令面、不改工具与引擎行为、不写任何产物。"
+verify = "`python scripts/web_search_smoke.py --self-check` exit 0（四段中离线可验段全 `[OK]`）；隔离 cwd 无 key 跑主流程 exit 2 且 stderr 含 `WEB_SEARCH_API_KEY`；`pytest tests/test_web_search_smoke_script.py -q` 全绿（含 `--help` exit 0 与「源码不含打印 key 的路径」静态断言）。"
+covers = ["R2"]
+after = []
+risk = "low"
+hitl = false
+parallel_group = "e78"
+write_set = [
+  "scripts/web_search_smoke.py",
+  "tests/test_web_search_smoke_script.py",
+  "_bmad-output/open-items.md",
+]
+
+[[entry]]
+id = 3
+type = "story"
+title = "E78-S03 · 三条活动项的操作卡：命令原文 + 期望输出 + 回填位置"
+description = "`_bmad-output/open-items.md` 的 A55 / A67 / A76 三条正文各补「操作卡」：A55 = 冒烟脚本用法 + 通过判据（四段全 OK / exit 0）+ key 禁令；A67 = `time devcontainer up --workspace-folder .` 计时口径 + 回填位置（README 该行）+ 偏差 >2 倍改文案；A76 = 宿主 `netstat -ano | findstr :9201` 原文 + 期望输出（恰 `192.168.2.226:9201 LISTENING`，无 `0.0.0.0`/`127.0.0.1`/`9301`）+ 客户端三处对账清单。**不新增 A 号、不改活动计数与速读节集合**，A65 不动。"
+verify = "`pytest tests/test_deferred_id_registry.py tests/test_docs_links.py -q` 全绿；`grep -c '操作卡' _bmad-output/open-items.md` == 3；`grep -n '当前活动项：\\*\\*4 条\\*\\*' _bmad-output/open-items.md` 命中且 ID 列举仍为 `A55 / A67 / A76`（+`frozen` A65）。"
+covers = ["R3"]
+after = [2]
+risk = "low"
+hitl = false
+parallel_group = "e78"
+write_set = [
+  "_bmad-output/open-items.md",
+]

@@ -139,3 +139,30 @@
   L2 = `if not future.done()` 正常路径不可达（保留作防御，它是 R2-M-1 docstring 误述的成因）；
   L3 = 同一句错误文案两处硬编码（三行以内重复，按既有立场不抽）。落改后门禁：目标子集 978 passed、
   `ruff` / `format`（512）/ `mypy 242` 全绿、五份基线 `[OK]`、`mkdocs --strict` 0 warning。
+
+- 2026-11-24 **E78 立项并构建（用户：「在本 goal 继续 1 2 3」）**：台账 4 条活动项实测全等外部触发（A67 无 docker
+  daemon / A55 无 key 且无脚本 / A76 宿主 netstat 与客户端 pin 在仓外 / A65 用户裁定暂停），故只做仓库内三件，
+  进票树登记为 `docs/Goal-4/tickets/epic-78-open-items-followthrough/`（3 entry，`counts {3 done}`）。
+  ① 78.1 幂等窗口可观测：`SubmissionCache` 加两条 DEBUG 事件（`idempotency_evicted reason=capacity` /
+  `idempotency_dropped reason=failed|cancelled`），`drop(key, *, reason=…)`，适配器两处传对 reason；日志只带
+  `project_id`、`request_id` 不进日志、TTL 清理静默；判据 5 例（含 caplog 断言与「日志里无 `request_id`」），
+  注入反证 = 删掉 evicted 那行 ⇒ 1 failed。**不新登 A77**（立完即闭合的 A 号只增加迁移成本），闭合证据写进
+  E77 回顾原「可观察但未做」那条。② 78.2 `scripts/web_search_smoke.py`：四段判据（config / 引擎真调用 /
+  工具面截断 / 注入围栏）+ `--self-check` 离线自检 + 退出码 0/1/2 契约；key 只报「已配置（长度 N）」；
+  4 例判据（离线自检 exit 0 / 无 key exit 2 / `--help` / 「取 key 的行不得是输出行」静态断言）。
+  ③ 78.3 A55 / A67 / A76 三条台账正文各补「操作卡」（命令原文 + 期望输出 + 回填位置），活动条数仍 4、
+  ID 集合不变；`tests/test_deferred_id_registry.py` 全绿（其间被表格竖线绊过一次：`netstat -ano | findstr`
+  的 `|` 会拆单元格，改成「`netstat -ano`（再用 `findstr` 过滤）」）。
+
+- 2026-11-24 **E78 收口三审（用户：「2 三审合并为一个文档，以后也一样」）**：形态按裁定改为**单文档三镜头**
+  （`epic-78-open-items-followthrough-review.md`），`closeout.md` 同步（历史 epic 的三份不动）。
+  镜头一（规格对账）**通过** C0/H0/M0/L0：R1–R3 与 Done-when 四条逐条成立。镜头二（不变量与守卫反脆弱）
+  **有条件的通过** C0/H0/**M2**/L0，两条 Medium 都是冒烟脚本自身的判据缺陷、当轮落改：M1 = 条目解析按行首
+  `[n]` 数行，摘要是多行时会把摘要里的伪造行误计成第 6 条 ⇒ A55 闭合路径上的**假 FAIL**（探针实测 5 条被读成 6 条）⇒
+  改「空行分块 + 块首行匹配」并补 2 例；M2 = 段 2 文案写「0 条不算失败」而代码 `seg.check(bool(results))` 判 FAIL ⇒
+  0 条改 `note`。镜头三（契约 / 并发 / 文档）**通过** C0/H0/M0/**L1**：不新增码/不开基线漂移、日志只在真删除时打、
+  台账操作卡命令与 `--help` 实测一致；L1 = 无 key 时报告 `[FAIL]` 与 exit 2 并存（语义以退出码为准，记录不改）。
+  **七条注入反证**全「红 → 复原 → 绿」（删 evicted 日志 / 取消路径 reason 写死 / TTL 也打日志 / key 塞进输出行 /
+  evicted 日志带 request_id / 条目解析退回按行数 / 0 条判 FAIL）。门禁：全量 `pytest` 5910 passed / 0 failed、
+  `ruff` / `format`（539）/ `mypy 242` 干净、五份基线 `[OK]`、`mkdocs --strict` 0 warning、
+  `loop` 技能自检 `PASS=17 FAIL=0`。**工作树仍未提交，等放行。**

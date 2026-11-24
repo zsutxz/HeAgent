@@ -38,7 +38,7 @@
 ## 四、留给下一轮的东西
 
 - **未闭合（不属本 epic）**：`_bmad-output/open-items.md` 的 A76 仍只剩「客户端 pin 对账」（另一仓）。
-- **可观察但未做**：幂等窗口的容量/命中率没有任何日志或指标——窗口满了会静默淘汰最旧一条。若线上真出现
+- **可观察（2026-11-24 E78-S01 已补）**：幂等窗口补了两条 DEBUG 事件——`ws event=idempotency_evicted reason=capacity`（容量淘汰）与 `ws event=idempotency_dropped reason=failed|cancelled`（键移出），日志只带 `project_id`（`request_id` 不进日志）。原文：若线上真出现
   「同键重复起 run」，现在只能靠 `run_conflict` 现象反推。要可观测就加一条 `ws event=idempotency_evicted`
   类日志，但那属于新增可观测面，需单独立项。
 - **已知边界**：进程重启后窗口消失（显式选择，写进模块 docstring 与 `brief.md`），不假装持久。

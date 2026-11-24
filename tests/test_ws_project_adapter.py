@@ -19,6 +19,7 @@ import ast
 import asyncio
 import inspect
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -505,3 +506,35 @@ async def test_cancelling_one_joiner_does_not_cancel_the_other() -> None:
 
     assert [getattr(item, "run_id", item) for item in outcomes] == ["run-0001", "run-0001"]
     assert _start_calls(console) == 1
+
+
+async def test_failed_submission_is_marked_as_failed_in_the_window_log(caplog: pytest.LogCaptureFixture) -> None:
+    """失败移出的 reason 由适配器给：``failed``（与取消可分辨，E78-S01）。"""
+    console = _FakeConsole()
+    console.run_error = ConsoleOperationError("run_conflict", "a run is already in flight")
+    adapter = _adapter(console)
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="heagent.cli.ws_submission_cache"),
+        pytest.raises(HttpRunConflictError),
+    ):
+        await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+
+    messages = [record.getMessage() for record in caplog.records if "idempotency_dropped" in record.getMessage()]
+    assert len(messages) == 1 and "reason=failed" in messages[0]
+
+
+async def test_cancelled_owner_is_marked_as_cancelled_in_the_window_log(caplog: pytest.LogCaptureFixture) -> None:
+    """owner 被取消时 reason = ``cancelled``（≠ ``failed``）：日志能分清「没提交成」与「调用方撤了」。"""
+    console = _GatedConsole()
+    adapter = _adapter(console)
+    task = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await console.entered.wait()
+
+    with caplog.at_level(logging.DEBUG, logger="heagent.cli.ws_submission_cache"):
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    messages = [record.getMessage() for record in caplog.records if "idempotency_dropped" in record.getMessage()]
+    assert len(messages) == 1 and "reason=cancelled" in messages[0]

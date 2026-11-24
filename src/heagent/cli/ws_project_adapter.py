@@ -109,11 +109,11 @@ class ProjectChannelAdapter:
             result = await self._submit(project_id, prompt)
         except asyncio.CancelledError:
             # owner 被取消 ≠ 提交失败：合流者也不该拿到一个假结果，一律取消并放掉窗口。
-            self._submissions.drop(key)
+            self._submissions.drop(key, reason="cancelled")
             future.cancel()
             raise
         except Exception as exc:
-            self._submissions.drop(key)
+            self._submissions.drop(key, reason="failed")
             future.set_exception(exc)
             # 没有合流者时也标记「已取回」，避免 "Future exception was never retrieved" 噪声。
             future.exception()

@@ -1,4 +1,4 @@
-# WS 远程项目通道 —— epic 表序即构建顺序（E74 → E75 → E76 → E77）
+# WS 远程项目通道 —— epic 表序即构建顺序（E74 → E75 → E76 → E77 → E78）
 # 人读编号三处一致：code / title 前缀 / epic 文件 frontmatter 的 code
 # covers 引用 brief.md 信封 Requirements 的 R1–R14（与 PRD §5 同编号）
 
@@ -42,4 +42,15 @@ after = [
   { epic = "epic-74-ws-frame-contract", needs = "帧字段与错误码先定" },
   { epic = "epic-75-project-channel-runtime", needs = "项目通道端口与适配器就绪" },
   { epic = "epic-76-remote-surface-closeout", needs = "远程面收口与契约基线定稿" },
+]
+
+[[epic]]
+id = 78
+slug = "epic-78-open-items-followthrough"
+code = "E78"
+title = "E78 · 活动台账的仓库内跟办"
+description = "台账 4 条活动项全等外部触发，本 epic 只做仓库内三件：幂等窗口可观测（两条 debug 事件 + 判据）、web_search 真实冒烟脚本（无 key 显性退出）、A55/A67/A76 三条操作卡写进台账正文"
+covers = ["R1", "R2", "R3"]
+after = [
+  { epic = "epic-77-remote-contract-hardening", needs = "幂等窗口落地并收口" },
 ]

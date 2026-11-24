@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -32,7 +33,14 @@ IDEMPOTENCY_TTL_SECONDS = 60.0
 #: 窗口内最多记住多少条提交：满了按插入序淘汰最旧的一条（内存有界，不随重试无限增长）。
 IDEMPOTENCY_MAX_ENTRIES = 256
 
+logger = logging.getLogger(__name__)
+
 SubmissionKey = tuple[str, str]
+
+#: 可观测面的两个事件名（E78）：容量淘汰与键移出各一条 DEBUG。TTL 过期清理**不打日志**——
+#: 那是正常回收，逐请求刷一条只会淹掉真正的事件。
+_EVENT_EVICTED = "ws event=idempotency_evicted"
+_EVENT_DROPPED = "ws event=idempotency_dropped"
 
 
 class SubmissionCache:
@@ -69,14 +77,22 @@ class SubmissionCache:
         if len(self._entries) >= self._max_entries:
             completed = [k for k, (_, future) in self._entries.items() if future.done()]
             # dict 保插入序 ⇒ `completed` 的首项就是「已完成里最旧的一条」。
-            self._entries.pop(completed[0] if completed else next(iter(self._entries)), None)
+            victim = completed[0] if completed else next(iter(self._entries))
+            self._entries.pop(victim, None)
+            # 只记 project_id 与 reason：``request_id`` 是客户端的不透明键，不进日志（同 ack 不回显）。
+            logger.debug("%s project_id=%s reason=capacity entries=%d", _EVENT_EVICTED, victim[0], len(self._entries))
         future: asyncio.Future[SubmittedRun] = asyncio.get_running_loop().create_future()
         self._entries[key] = (now, future)
         return future, True
 
-    def drop(self, key: SubmissionKey) -> None:
-        """失败路径把键移出窗口：重试可以重来。"""
-        self._entries.pop(key, None)
+    def drop(self, key: SubmissionKey, *, reason: str = "failed") -> None:
+        """失败 / 取消路径把键移出窗口：重试可以重来。
+
+        ``reason``（``failed`` / ``cancelled``）只进 DEBUG 日志，不进任何对外面；键本来就不在窗口里
+        时**不打日志**（幂等调用不该刷两条事件）。
+        """
+        if self._entries.pop(key, None) is not None:
+            logger.debug("%s project_id=%s reason=%s", _EVENT_DROPPED, key[0], reason)
 
 
 __all__ = ["IDEMPOTENCY_MAX_ENTRIES", "IDEMPOTENCY_TTL_SECONDS", "SubmissionCache", "SubmissionKey"]
