@@ -6,7 +6,7 @@ epic: epic-78-open-items-followthrough
 risk: low
 hitl: false
 covers: ["R3"]
-status: built
+status: done
 ---
 
 # E78-S03 · 三条活动项的操作卡：命令原文 + 期望输出 + 回填位置

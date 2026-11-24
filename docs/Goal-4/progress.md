@@ -2,7 +2,7 @@
 
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
-- 状态：done（2026-11-24 E77 放行；Step 08 已于 2026-11-23 放行，E77 属重开增量）
+- 状态：done（2026-11-24 E78 放行；Step 08 已于 2026-11-23 放行，E77 / E78 属重开增量）
 - 当前步骤：全部完成（01–08 + E77 重开增量）
 
 ## 步骤状态
@@ -24,8 +24,9 @@
 - E75 `epic-75-project-channel-runtime`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
 - E76 `epic-76-remote-surface-closeout`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾 + Step 08 集成通过）
 - E77 `epic-77-remote-contract-hardening`：3 entry 全部 done（77.1 幂等键 / 77.2 具名码 / 77.3 只读能力面与收口），epic 容器 `status: done`（2026-11-24 用户 `approve e77`；回顾见 epic 目录 `-retrospective.md`，**三审 R1/R2/R3 未跑**，见交接块）
-- 合计 `counts {total: 20, done: 20}`（E77 三条 `mark done` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（2026-11-24 E77 放行后）：`ready_to_start` / `in_progress` / `blocked` 均空，四个 epic 容器全部 `done`
+- E78 `epic-78-open-items-followthrough`：3 entry 全部 done（78.1 幂等窗口可观测 / 78.2 `web_search_smoke.py` / 78.3 三条台账操作卡），epic 容器 `status: done`（2026-11-24 用户放行；三审单文档三镜头 + 回顾见 epic 目录）
+- 合计 `counts {total: 23, done: 23}`（E78 三条 `mark done` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（2026-11-24 E78 放行后）：五个 epic 容器全部 `done`，`longest_remaining_chain` 空（initiative 级 `status` / `next` 仍报 `config_utils.py` 缺失，属既有布局问题）
 
 ## 决策日志（追加式，只增不改）
 
@@ -166,3 +167,9 @@
   evicted 日志带 request_id / 条目解析退回按行数 / 0 条判 FAIL）。门禁：全量 `pytest` 5910 passed / 0 failed、
   `ruff` / `format`（539）/ `mypy 242` 干净、五份基线 `[OK]`、`mkdocs --strict` 0 warning、
   `loop` 技能自检 `PASS=17 FAIL=0`。**工作树仍未提交，等放行。**
+
+- 2026-11-24 Decision（E78 放行）：用户回复原文 `2 3`（在编号候选里选「放行 E78 收口」+「挑下一项」）⇒ 按契约把
+  78.1 / 78.2 / 78.3 逐条 `mark done`（实测 `counts {total: 3, done: 3}`），epic 容器 frontmatter 置 `status: done`，
+  goal 状态回 `done`（`status` 实测 `done`）。放行前复跑锚点判据：`tests/test_ws_submission_cache.py` +
+  `test_ws_project_adapter.py` + `test_web_search_smoke_script.py` + `test_deferred_id_registry.py` +
+  `test_architecture_contracts.py` = **101 passed**（13.96s），与 `080c8471` 提交信息里的门禁记录一致。

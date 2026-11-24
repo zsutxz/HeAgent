@@ -8,7 +8,7 @@ sources: ["docs/Goal-4/tickets/epic-77-remote-contract-hardening/epic-77-remote-
 after: ["epic-77-remote-contract-hardening"]
 risk: low
 refined: true
-status: in-progress
+status: done
 ---
 
 # E78 · 活动台账的仓库内跟办（幂等窗口可观测 / web_search 冒烟前置 / 三项操作卡）

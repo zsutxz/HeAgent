@@ -6,7 +6,7 @@ epic: epic-78-open-items-followthrough
 risk: low
 hitl: false
 covers: ["R2"]
-status: built
+status: done
 ---
 
 # E78-S02 · `scripts/web_search_smoke.py`：A55 的真实全链冒烟前置

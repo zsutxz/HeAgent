@@ -6,7 +6,7 @@ epic: epic-78-open-items-followthrough
 risk: low
 hitl: false
 covers: ["R1"]
-status: built
+status: done
 ---
 
 # E78-S01 · 幂等窗口可观测：容量淘汰与键移出各一条 debug 日志
