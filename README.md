@@ -97,6 +97,7 @@ heagent init --project
 - **工具与治理**：`@tool` 注册、内置 shell／文件／搜索／记忆／技能／Cron／子 Agent／Web／Git 工具、MCP 桥接，以及 `PolicyEngine → ToolExecutor → SafetyGuard → handler` 执行链。
 - **上下文与记忆**：会话持久化、分层上下文文件、token 计量、压缩或窗口重置；技能、事实记忆、用户画像和 `SOUL.md` 人格均可文件化管理。
 - **工作流与审计**：Markdown 声明的 `/goal`、checkpoint、独立 SubAgent 步骤、事件总线、JSONL 输出、rollout 落盘和回放。
+- **远程与多项目**：网页控制台的项目注册表（上限 32 含默认项）与项目内会话/配置面板；WS 单通道项目编址与远程提交；HTTP 面与 WS 面共享同一注册表（[ADR-0005](docs/decisions/adr-0005-ws-remote-project-channel.md)）。
 
 ## 常用命令
 
@@ -111,7 +112,7 @@ heagent init --project
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
 | `heagent tls init\|issue\|rotate-key\|fingerprint\|verify` | WS TLS 材料签发与校验（本地 CA + 长期身份密钥，SPKI-SHA256 可作客户端 pin）；Epic 73 起唯一签发入口 |
-| `heagent http-server` | 实验性网页入口（内置聊天页 + 任务/服务状态面板 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
+| `heagent http-server` | 实验性网页入口（内置聊天页 + 多项目控制台 + 任务/服务状态面板 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
 
 常用 `run` 选项：
 
@@ -127,7 +128,7 @@ heagent init --project
 | `--no-http` | 本次进程不启动内嵌 HTTP 网页入口（WS 监听不受影响） |
 | `--no-ws` | 本次进程不启动内嵌 WS 监听（HTTP 网页入口不受影响） |
 
-交互模式支持 `/provider`、`/model`、`/goal`、`/clear` 和 `/help`（`/help <命令>` 给语法、参数与示例）。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
+交互模式内置 `/provider`、`/model`、`/goal`、`/compact`、`/clear`、`/mcp-prompt`、`/deferred`、`/help`（`/help <命令>` 给语法、参数与示例）；自定义命令放在 `.heagent/commands/*.md`（`/loop` 即随仓库分发的一条自定义命令），自定义角色放在 `.heagent/agents/*.md`。
 
 ## HTTP 网页入口（实验性）
 
@@ -159,8 +160,11 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 | `GET /api/runs/{id}/events` | SSE：`text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out` |
 | `DELETE /api/runs/{id}` | 取消指定运行（协作式；不触碰其它运行） |
 | `GET /api/session` | 当前进程内会话快照（历史 + 运行状态） |
+| `GET /api/projects` | 多项目注册表列表（含 `available` / `is_default`；`POST` 登记走回环门，`DELETE` 需 `confirm=true` 且保留目录与数据） |
+| `POST /api/projects/{id}/runs`、`…/sessions*` | 项目内运行提交（不带 `session_id` 继续最近会话）与会话增删改查 |
+| `GET/PUT /api/projects/{id}/config` | 项目配置面板：生效值 + 来源 + 可写性（写需 `HTTP_CONSOLE_WRITE_ENABLED`，fail-closed） |
 | `GET /api/status` | 服务器运行状态：在途 run / WS 连接数 / 部署面（绑定与 TLS、沙箱、provider 档位）/ 依赖态（uptime、cron、技能与记忆计数）/ 资源采样 / 请求计数 |
-| `GET /api/tasks`（及 `/api/tasks/{task_id}`） | 进程内后台任务进度（当前生产者：上下文压缩；跨进程不可见） |
+| `GET /api/tasks`（及 `/api/tasks/{task_id}`） | 后台任务进度（当前生产者：上下文压缩；经 `<状态根>/tasks/` 落盘投影跨进程可见，在途任务不隐藏） |
 
 - 事件带从 1 开始的单调 `id`；断线重连带 `Last-Event-ID: N` 即可续读，越过缓存窗口会得到 `409 resync_required`（页面会自动拉会话快照重新同步，**不**伪造连续流）。
 - 断线**不会**取消运行；要停止必须显式 `DELETE`。空闲事件流每 15 秒一条心跳（SSE 注释帧）。
@@ -187,20 +191,25 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 WS 与 HTTP+SSE **并存但拓扑分离**：独立 listener（默认 `127.0.0.1:9201`）、独立 ASGI app、**零 HTTP 路由**
 （控制台页 / REST / 健康检查在这个端口上全是 404），是全部 WS 能力的唯一宿主。
 
-> ⚠ **breaking change**：Epic 56 之前 WS 端点挂在 HTTP 端口（8766）下；现在**端口改为 9001**（现行默认 **9201**：2026-10-29 起为 9901，2026-11-04 起为 9201），路径不变。
-> 只需改端口，帧契约与端点路径逐字未变。
+> ⚠ **breaking change**：WS 端点曾挂在 HTTP 端口（8766）下；现为独立 listener，现行默认 **9201**，帧契约与端点路径逐字未变。
 
 | 端点 | 用途 |
 | --- | --- |
-| `WS /api/runs/ws` | **提交 run**（Epic 56 新增）：发 `{"command":"run","prompt":"…"}`，收 `ack{run_id,status}`；名额满回 `run_conflict`（不排队） |
+| `WS /api/runs/ws` | **提交 run**（Epic 56 新增）：发 `{"command":"run","prompt":"…"}`，收 `ack{run_id,status}`；名额满回 `run_conflict`（不排队）。`run` 帧可带可选 `project_id`（Epic 74–76 项目编址，见下） |
 | `WS /api/runs/{run_id}/ws` | 订阅单个 run：先按 `?last_event_id=N` 重放缓存，再跟随实时事件；命令 `{"command":"cancel"}` / `{"command":"ping"}` |
 | `WS /api/cli/ws` | CLI 旁路只读事件流（`WS_CLI_BYPASS_ENABLED=true` 才有）：看**终端里那一轮** run 的事件，仅 `ping` |
 
 ```bash
 # 提交 → 拿 run_id → 订阅（aiohttp / websockets 等客户端示意）
-ws://127.0.0.1:9201/api/runs/ws          # → {"command":"run","prompt":"写一个快速排序"}
+ws://127.0.0.1:9201/api/runs/ws          # → {"command":"run","prompt":"写一个快速排序"}（可带 "project_id":"p…"）
 ws://127.0.0.1:9201/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"command":"cancel"} 等价 DELETE
 ```
+
+**远程多项目（Epic 74–76，ADR-005）**：同一条 `/api/runs/ws` 上的项目编址——
+
+- `run` 帧的可选 `project_id` 编址到已登记项目（缺省 = 启动工作区，旧路径逐字不变）；提交前走轻量前置探测，未登记 / 目录失效分别回 `unknown_project` / `project_unavailable`。
+- `{"command":"projects"}` 拉远程项目列表：每条只含 `id` / `name` / `available`（`path` 等宿主信息不出 WS 面），注册表不可读时帧内 `registry_state=unreadable` 显性上报。
+- HTTP 面的项目 API（上表）与 WS 编址共享**同一**注册表与同一控制台实例；设计裁定见 [ADR-0005](docs/decisions/adr-0005-ws-remote-project-channel.md)。
 
 **三种监听姿态，按绑定地址与显式开关切换**（`WS_HOST` / `WS_LAN_NO_AUTH` / `WS_TLS_*`）：
 
@@ -380,6 +389,7 @@ python scripts/quality_gate.py
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
 | `/goal` 工作流、产物与维护规则 | [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal) |
 | `/loop` 工作流（v7 主力） | [`.heagent/skills/loop/workflow.md`](.heagent/skills/loop/workflow.md)（契约）与 [同包 `SKILL.md`](.heagent/skills/loop/SKILL.md)（执行总则） |
+| 远程多项目通道设计裁定（WS 单通道 + `project_id` 编址） | [ADR-0005](docs/decisions/adr-0005-ws-remote-project-channel.md) |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
 | 历史规划与验收证据 | [_bmad-output/README.md](_bmad-output/README.md) |
 
