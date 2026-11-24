@@ -22,9 +22,9 @@
 
 - E74 `epic-74-ws-frame-contract`：5 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
 - E75 `epic-75-project-channel-runtime`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
-- E76 `epic-76-remote-surface-closeout`：6 entry，0 built（收口 E75 后解锁）
-- 合计 `counts {total: 17, review: 11, planned: 6}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（E75 收口后）：`ready_to_start` = `76.1` / `76.2` / `76.3` / `76.4`；`blocked` = `76.5`（waiting 1,2）/ `76.6`（waiting 1,2,4,5）
+- E76 `epic-76-remote-surface-closeout`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾 + Step 08 集成通过）
+- 合计 `counts {total: 17, done: 17}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（2026-11-23 全收口后）：无 `ready_to_start`、无 `blocked`——三个 epic 容器均 `status: done`（17/17 entry done）
 
 ## 决策日志（追加式，只增不改）
 
@@ -93,3 +93,5 @@
 - 质量门禁（Step 08 实测）：`python scripts/quality_gate.py` = **all gates passed**（五份契约基线 `[OK]`、冒烟 2 passed、全量 5869 passed / 覆盖率 93.50% / ruff / format / mypy 240 / bandit 0）；`mkdocs build --strict` 0 warning；逐 epic 场景 116 / 53 / 31 passed；跨 epic 端到端 83 passed。
 - 未关闭的门：**待用户裁决 3 条**（`brief.md` 延期项 R3 M-4 `request_id` 幂等键、R3 M-7 `invalid_request` 是否拆具名码；E75 Notes H-2 只读 listener 是否要能列项目清单）。三条均不阻塞本 goal 收口。
 - 恢复入口：新一轮 `/loop` 先读本节与 `brief.md` 延期项，再决定是开新 goal 还是先裁决上述三条。
+
+- 2026-11-24 进度表校正：E76 行与合计 / `next` 行按 `tickets.py status` 实测更新（6/6 done、total 17 / done 17、无 ready_to_start 与 blocked）；只改事实与状态行，不改历史 Decision 条目。
