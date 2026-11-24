@@ -49,7 +49,7 @@
 | 沙箱到底怎么跑 / 命令有没有被隔离 | [「沙箱机制」专题](sandbox.md)（调用链、四档后端、`container` 档前提） |
 | Epic/Story 如何由 Markdown 驱动 | [`framework.md` §4.13](framework.md#413-goal-驱动工作流-goal) 与 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md) |
 | 事件流 / rollout 字段含义 | [`framework.md`](framework.md) 的「事件契约」小节（4.15） |
-| 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`framework.md`](framework.md) 的 4.16（SSE 重连 / 同源防线 / 限额 / 观测） |
+| 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口」](../README.md) 与 [`framework.md`](framework.md) 的 4.16（SSE 重连 / 同源防线 / 限额 / 观测） |
 | 网页控制台：多项目 / 会话 / 配置面板与写入 | [`framework.md`](framework.md) 的 4.17（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
 | 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |

@@ -1,10 +1,8 @@
 # HeAgent
 
-> **实验性 Agent 框架。** HeAgent 用可读的 Python 代码拆解自主 Agent 的关键机制，适合学习、原型验证和按需扩展；它不是产品，也不是安全边界。
+> **HeAgent 是一个已在生产环境日常运行的单进程、异步 Python Agent 运行时。**
 
-HeAgent 是一个单进程、异步的 Python Agent 运行时，同时提供 CLI 和可嵌入的库接口。它把多 Provider 调用、工具执行、策略裁决、会话与记忆、MCP、子 Agent 委派和声明式 `/goal` 工作流组合在一起。
-
-如果目标是稳定完成日常编码任务，请优先使用 [Codex](https://github.com/openai/codex) 等产品级代理；如果目标是理解、替换或组合 Agent 的内部机制，HeAgent 提供了一套可直接阅读和改造的参考实现。
+HeAgent 同时提供 CLI 和可嵌入的库接口。它把多 Provider 调用、工具执行、策略裁决、会话与记忆、MCP、子 Agent 委派和声明式 `/loop` 工作流组合在一起。
 
 ## 适用范围
 
@@ -12,7 +10,7 @@ HeAgent 是一个单进程、异步的 Python Agent 运行时，同时提供 CLI
 | --- | --- |
 | 单进程异步 Python 库、CLI 和可选 Textual 终端 UI | HTTP 服务、多租户产品或稳定 SDK |
 | 可阅读、可替换的 Agent 参考实现 | 无人值守地操作真实环境的安全方案 |
-| 多 Provider、工具治理、记忆和工作流的实验场 | 生产就绪承诺、SLA 或大规模模型评测结果 |
+| 多 Provider、工具治理、记忆和工作流的组合运行时 | 生产就绪承诺、SLA 或大规模模型评测结果 |
 
 ## 快速开始
 
@@ -96,7 +94,7 @@ heagent init --project
 - **Provider**：DeepSeek、Kimi、GLM、OpenAI Chat Completions、OpenAI Responses、Anthropic 和显式启用的 Ollama；支持重试、密钥轮换、故障转移、手动切换与声明式路由池。
 - **工具与治理**：`@tool` 注册、内置 shell／文件／搜索／记忆／技能／Cron／子 Agent／Web／Git 工具、MCP 桥接，以及 `PolicyEngine → ToolExecutor → SafetyGuard → handler` 执行链。
 - **上下文与记忆**：会话持久化、分层上下文文件、token 计量、压缩或窗口重置；技能、事实记忆、用户画像和 `SOUL.md` 人格均可文件化管理。
-- **工作流与审计**：Markdown 声明的 `/goal`、checkpoint、独立 SubAgent 步骤、事件总线、JSONL 输出、rollout 落盘和回放。
+- **工作流与审计**：Markdown 声明的工作流（`/loop`）、checkpoint、独立 SubAgent 步骤、事件总线、JSONL 输出、rollout 落盘和回放。
 - **远程与多项目**：网页控制台的项目注册表（上限 32 含默认项）与项目内会话/配置面板；WS 单通道项目编址与远程提交；HTTP 面与 WS 面共享同一注册表（[ADR-0005](docs/decisions/adr-0005-ws-remote-project-channel.md)）。
 
 ## 常用命令
@@ -112,7 +110,7 @@ heagent init --project
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
 | `heagent tls init\|issue\|rotate-key\|fingerprint\|verify` | WS TLS 材料签发与校验（本地 CA + 长期身份密钥，SPKI-SHA256 可作客户端 pin）；Epic 73 起唯一签发入口 |
-| `heagent http-server` | 实验性网页入口（内置聊天页 + 多项目控制台 + 任务/服务状态面板 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
+| `heagent http-server` | 网页入口（内置聊天页 + 多项目控制台 + 任务/服务状态面板 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
 
 常用 `run` 选项：
 
@@ -128,9 +126,9 @@ heagent init --project
 | `--no-http` | 本次进程不启动内嵌 HTTP 网页入口（WS 监听不受影响） |
 | `--no-ws` | 本次进程不启动内嵌 WS 监听（HTTP 网页入口不受影响） |
 
-交互模式内置 `/provider`、`/model`、`/goal`、`/compact`、`/clear`、`/mcp-prompt`、`/deferred`、`/help`（`/help <命令>` 给语法、参数与示例）；自定义命令放在 `.heagent/commands/*.md`（`/loop` 即随仓库分发的一条自定义命令），自定义角色放在 `.heagent/agents/*.md`。
+交互模式内置 `/provider`、`/model`、`/compact`、`/clear`、`/mcp-prompt`、`/deferred`、`/help`（`/help <命令>` 给语法、参数与示例）；自定义命令放在 `.heagent/commands/*.md`（`/loop` 即随仓库分发的一条自定义命令），自定义角色放在 `.heagent/agents/*.md`。
 
-## HTTP 网页入口（实验性）
+## HTTP 网页入口
 
 默认 CLI 会在**同一进程内**起一个本机网页入口，浏览器打开 stderr 提示的地址即可聊天：
 
@@ -238,25 +236,9 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 
 经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 非回环入口（`lan` / `external`）能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
 
-## 工作流（`/goal` 与 `/loop`）
+## 工作流（`/loop`）
 
-两条声明式工作流并存，都是「Markdown 定义步骤与门禁、代码只做解析与调度」，互不读写对方的产物目录。
-
-### `/goal`（v6）
-
-权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
-
-```text
-/goal <目标描述>      创建目标并启动首个步骤
-/goal next            推进一步或一条 Story
-/goal run             连续推进，直到 checkpoint 或阻塞
-/goal status          查看状态和产物
-/goal pause           保存并暂停
-/goal resume [回复]   提交回复并继续
-/goal auto [cron]     注册定时推进；off 注销
-```
-
-运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见 [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal)。
+声明式工作流：Markdown 定义步骤与门禁、代码只做解析与调度。
 
 ### `/loop`（v7，当前主力）
 
@@ -387,7 +369,6 @@ python scripts/quality_gate.py
 | 沙箱后端、四档分级与会话目录 | [沙箱机制](docs/sandbox.md) |
 | 文档职责、权威顺序与阅读路径 | [文档索引](docs/README.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
-| `/goal` 工作流、产物与维护规则 | [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal) |
 | `/loop` 工作流（v7 主力） | [`.heagent/skills/loop/workflow.md`](.heagent/skills/loop/workflow.md)（契约）与 [同包 `SKILL.md`](.heagent/skills/loop/SKILL.md)（执行总则） |
 | 远程多项目通道设计裁定（WS 单通道 + `project_id` 编址） | [ADR-0005](docs/decisions/adr-0005-ws-remote-project-channel.md) |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
