@@ -104,7 +104,7 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 ```bash
 python scripts/contract_snapshot.py --check          # 五份基线：公共导出面 / 传输路由 / 异常类型 / 传输错误码 / 框架错误码
 pytest tests/test_contract_baselines.py tests/test_architecture_contracts.py -q
-pytest tests/test_docs_links.py tests/test_deferred_id_registry.py -q   # 文档链接/锚点与台账计数诚实性
+pytest tests/test_docs_links.py tests/test_frame_index_contract.py tests/test_deferred_id_registry.py -q   # 文档链接/锚点、frame 分册布局与台账计数诚实性
 pytest tests/test_comment_conventions.py -q          # 注释/docstring 口径（框架 §8.4 第 5 条）
 ```
 

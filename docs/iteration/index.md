@@ -179,7 +179,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 **下一步（候选，非承诺）**：
 
-- ✅→⏳ **生产化**（2026-11-23 更新）：PyPI 已发 `0.10.0`；`0.11.0` 已归节（Epic 72/73 的破坏性变更按 0.x「minor 即破坏性变更」口径走 minor），待打 `v0.11.0` tag 触发发布。`ci.yml` 内 release job 已具备 build / twine check / OIDC 发布 / 多架构推送；仍缺 Docker Hub 镜像。
+- ✅→⏳ **生产化**（2026-11-23 更新）：PyPI 已发 `0.10.0`；`0.11.0` 已归节（Epic 72/73 的破坏性变更按 0.x「minor 即破坏性变更」口径走 minor）；2026-11-24 起对外版本号重编为 `0.2.0`（历史节保留），下一次发布打 `v0.2.0` tag。`ci.yml` 内 release job 已具备 build / twine check / OIDC 发布 / 多架构推送；仍缺 Docker Hub 镜像。
 - 🔮 **可选增强**：多模态（vision）、Web API 服务端（均与 `design.md` 当前非目标冲突，需重新评估）；Hooks 增强（`UserPromptSubmit`/`Stop`/`SubagentStop` 事件、参数模板引擎）。
 
 ---

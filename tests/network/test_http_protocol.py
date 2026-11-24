@@ -41,7 +41,7 @@ class TestErrorCodes:
         assert all(" " not in value and "/" not in value for value in values)
 
     def test_story_contract_codes_are_present(self) -> None:
-        """错误码表（``docs/framework.md`` 4.16）覆盖本 Epic 全部故事需要的语义。"""
+        """错误码表（``docs/frame/network.md`` 4.16）覆盖本 Epic 全部故事需要的语义。"""
         expected = {
             "invalid_request",
             "empty_prompt",
@@ -176,7 +176,7 @@ class TestPromptBound:
 
 
 class TestSanitizeMessageMasksHostPaths:
-    """客户端文案不得带宿主绝对路径（``docs/framework.md`` 4.16 的协议承诺）。"""
+    """客户端文案不得带宿主绝对路径（``docs/frame/network.md`` 4.16 的协议承诺）。"""
 
     @pytest.mark.parametrize(
         ("raw", "expected"),

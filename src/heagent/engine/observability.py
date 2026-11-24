@@ -1,6 +1,6 @@
 """运行时事件总线与轻量观察者（observability）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。``EventBus`` 在进程内
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12）。``EventBus`` 在进程内
 发布结构化的 :class:`EngineEvent`（工具执行 started / completed / failed / blocked、迭代
 事件等），并以有界 ``deque`` 保留近期事件供查询。``LoggingObserver`` 是默认观察者，把事件
 镜像到标准日志。

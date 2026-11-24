@@ -1,6 +1,6 @@
 """工具审批抽象（approval）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。为
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12）。为
 :class:`~heagent.engine.policy.PolicyEngine` 产出的 ``APPROVAL_REQUIRED`` 裁决提供
 **可注入的交互审批闭环**——库消费者（CLI / GUI）各自注入 :class:`ApprovalHandler`
 实现，主循环（:class:`~heagent.agent.loop.AgentLoop`）与工具执行链零改动。

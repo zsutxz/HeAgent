@@ -1,12 +1,12 @@
 """运行时服务的依赖注入（DI）容器。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。``EngineContainer``
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12）。``EngineContainer``
 把全部运行时服务（策略 / 执行器 / 运行快照 / 幂等账本 / 事件总线）聚合到一个对象，
 经 :meth:`EngineContainer.default` 装配后注入 :class:`~heagent.agent.loop.AgentLoop`：
 
 - 主 Agent 经 ``engine=EngineContainer.default()`` 持有；
 - 子 Agent 经 ``parent_run_id`` **继承父 engine**（运行时服务复用，仅按角色替换 PolicyEngine，
-  见 ``docs/framework.md`` 4.2 / D4）。
+  见 ``docs/frame/agent.md`` 4.2 / D4）。
 
 V2 新增：``enable_file_locks`` 参数——开启后 ``RunStore``/``ExecutionLedger`` 的写操作
 自动获取跨进程文件锁，防止多进程并发写 ``.heagent/`` 时数据损坏。
@@ -358,7 +358,7 @@ class EngineContainer:
         if backend == "auto":
             # 自动档只认 firejail（Linux/macOS 的真实 OS 级隔离）。Windows 的 Job
             # Objects 需显式指定——它无文件系统隔离，自动启用会改掉所有 shell 命令的进程
-            # 语义而隔离收益有限（诚实取舍，见 docs/framework.md 配置表）。
+            # 语义而隔离收益有限（诚实取舍，见 docs/frame/config.md 配置表）。
             import shutil as _shutil
 
             backend = "firejail" if _shutil.which(settings.sandbox_firejail_path) else "passthrough"

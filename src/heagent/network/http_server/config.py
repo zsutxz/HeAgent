@@ -18,7 +18,7 @@ class HttpStartupError(RuntimeError):
 
 
 class HttpServerConfig(BaseModel):
-    """单个 HTTP 服务实例的有界配置（默认值与 ``HTTP_*`` 设置、``docs/framework.md`` 4.16 一致）。
+    """单个 HTTP 服务实例的有界配置（默认值与 ``HTTP_*`` 设置、``docs/frame/network.md`` 4.16 一致）。
 
     ``port=0`` 允许（操作系统分配随机端口），仅用于程序化/测试用法——CLI 与设置层限定 1..65535。
     所有超时都禁 ``inf``/``nan``：``Inf`` 会让「有界关闭」静默变成无界等待。

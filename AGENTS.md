@@ -17,15 +17,15 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂回环（`local`）listener，`lan` / `external` 恒不注册；只读通知流 `/api/notifications/ws` 随 listener 注册，`lan` / `external` 上同样可见（`external` 在 token 之后、`lan` 上无认证）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
 6. **已知缺口与台账**：清单落 `_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三），本节不复述。
 
-落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/framework.md` 4.16 与 4.16.1；非回环入口（`lan` / `external`）能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
+落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame/network.md` 4.16 与 4.16.1；非回环入口（`lan` / `external`）能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
 <!-- bmad:context -->
 <!-- Verified 2026-11-03 against 31cf7cb. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
 ## 文档指向
 
-**架构权威 = `docs/framework.md`**（数据流 §二 / 模块 DAG 与依赖规则 §三 / 模块详解 §四 / 调用链 §七 /
-技术规范 §八 / 安全口径 §4.18 / 台账与规划产物布局 §8.5）；全目录索引见 `docs/README.md`。
+**架构权威 = `docs/framework.md`**（数据流 §二 / 模块 DAG 与依赖规则 §三 / 各模块职责与边界 §四 /
+安全口径 §4.18 / 已知缺口 §五 / 技术规范与台账布局 §八）；逐模块机制细节按同编号分册在 `docs/frame/`；全目录索引见 `docs/README.md`。
 
 | 想知道什么 | 权威落点 |
 | --- | --- |
@@ -54,7 +54,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 - **门禁红了第一步**：`python scripts/verify_baseline.py <用例> -q` 判「环境产物 vs 回归」，判读见 `docs/testing.md`
 - **测试约定**：`StubProvider` 模拟、不调真实 API；provider 测试放 `tests/providers/`；异步由 `pytest-asyncio` 自动驱动
 
-## 扩展点（详解见 framework §4.3 / §4.4）
+## 扩展点（详解见 `docs/frame/providers.md` / `docs/frame/tools.md`）
 
 - Provider 实现 `send` / `stream` / `get_metadata`
 - Tool 放 `tools/builtins/`：`@tool(read_only=...)`、路径经 `tools/path_safety` 校验、在 `builtins/__init__.py` 注册

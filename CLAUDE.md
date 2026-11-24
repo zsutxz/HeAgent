@@ -12,7 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 想知道什么 | 权威落点 |
 | --- | --- |
 | 安装、Provider 配置、CLI / HTTP / WS 用法、常用命令、开发与门禁命令、发版 | [`README.md`](README.md) |
-| 架构权威：数据流、模块 DAG 与依赖规则、模块详解、完整调用链、技术规范（单文件 1000 行上限、包边界契约、注释与 Windows 规范） | [`docs/framework.md`](docs/framework.md) |
+| 架构权威：数据流、模块 DAG 与依赖规则、各模块职责与边界、安全口径、技术规范（单文件 1000 行上限、包边界契约、注释与 Windows 规范） | [`docs/framework.md`](docs/framework.md) |
+| 逐模块机制细节（子模块表、参数与默认值、逐 kind 发射点、调用链） | [`docs/frame/`](docs/frame/README.md)（编号同 framework 的 §4.x） |
 | 安全口径（canonical）：三层非边界 / OS 沙箱兜底 / `local` · `lan` · `external` 三档 / 端点可见性 / 已知缺口 | [`docs/framework.md` §4.18](docs/framework.md#418-安全口径canonical) |
 | 缺口台账与规划产物布局（goal 树、`_bmad-output/` 三代归档、台账守卫测试） | [`docs/framework.md` §8.5](docs/framework.md#85-台账与规划产物布局) |
 | 门禁红了怎么分诊（`verify_baseline` 的 VERDICT 判读、耗时基线、marker 口径） | [`docs/testing.md`](docs/testing.md) |

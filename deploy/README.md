@@ -193,7 +193,7 @@ git tag v<X.Y.Z>
 git push origin v<X.Y.Z>
 ```
 
-`v<X.Y.Z>` 必须与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致；发布 = 两处真源同步 bump + CHANGELOG 的 `Unreleased` 内容落成版本节（`tests/test_release_workflow_contract.py` 钉死）。当前状态：`0.11.0` 已于 2026-11-23 归节（含 Epic 72/73 的破坏性变更，按 0.x「minor 即破坏性变更」口径走 minor），`Unreleased` 当前为空。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
+`v<X.Y.Z>` 必须与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致；发布 = 两处真源同步 bump + CHANGELOG 的 `Unreleased` 内容落成版本节（`tests/test_release_workflow_contract.py` 钉死）。当前状态：对外版本号于 2026-11-24 **重编为 `0.2.0`**（`0.3.0`–`0.11.0` 各节保留为已发布记录，编号重排不回退），`Unreleased` 当前为空。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
 
 CI release job 自动：
 1. `twine check` → PyPI（Trusted Publisher OIDC）

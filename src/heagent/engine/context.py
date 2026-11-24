@@ -1,6 +1,6 @@
 """单次运行的运行时上下文与状态模型。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12），定义
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12），定义
 :class:`~heagent.agent.loop.AgentLoop` 每次 ``run()`` 期间随迭代演进的**可变元数据**：
 
 - :class:`RunContext` —— 一次 run 的上下文（run_id / session_id / parent_run_id /

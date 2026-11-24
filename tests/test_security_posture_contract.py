@@ -250,7 +250,7 @@ _PREDICATE_GROUPS: dict[str, tuple[str, ...]] = {
         "http_port_auto_find_attempts",
         "ws_port",
     ),
-    # 0 = 不限：`http_max_total_inflight` 见 docs/framework.md 4.17 D9（有记录的显式选择），
+    # 0 = 不限：`http_max_total_inflight` 见 docs/frame/network.md 4.17 D9（有记录的显式选择），
     # 其余三项（请求超时 / 内存 / CPU 秒数 / 进程数）同理——**不是**安全默认，故只断言 >= 0。
     "unlimited-zero": (
         "http_max_total_inflight",

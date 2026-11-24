@@ -1,6 +1,6 @@
 """按策略裁决结果分发工具调用（executor）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。工具执行链固定为
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12）。工具执行链固定为
 ``PolicyEngine.evaluate() → ToolExecutor → SafetyGuard.check() → handler``。本模块负责其中
 「ToolExecutor」一环：接收 :class:`~heagent.engine.policy.PolicyVerdict`，按其 ``mode``
 选择执行路径，并在内部串行调用 :class:`~heagent.tools.safety.SafetyGuard`。

@@ -37,7 +37,7 @@ Error: <原消息，逐字保留>
 
 **码的现状**：传输层（`HttpErrorCode`）与框架层（`pub/exceptions.py::code`）都是封闭码集合；
 CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义分组与权威口径见
-[架构参考 4.16](framework.md)。
+[网络入口 4.16](frame/network.md)。
 
 ## 一、传输层稳定错误码
 

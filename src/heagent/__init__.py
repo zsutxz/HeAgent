@@ -1,6 +1,6 @@
 """HeAgent —— 可自我改进的 AI Agent 核心框架。"""
 
-__version__ = "0.11.0"
+__version__ = "0.2.0"
 
 from heagent.agent.loop import AgentLoop as Agent
 from heagent.config import Settings, get_settings

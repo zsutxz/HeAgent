@@ -325,7 +325,7 @@ class TestRunFailures:
 
         frames = _parse_sse(body)
         assert frames[-1][1] == "error"
-        # 宿主路径被掩码（framework.md 4.16 的承诺：客户端文案不含绝对路径）。
+        # 宿主路径被掩码（frame/network.md 4.16 的承诺：客户端文案不含绝对路径）。
         assert frames[-1][2]["message"] == "provider exploded at <path>"
         assert "secret" not in body and "key.txt" not in body
         assert "_Boom" not in body

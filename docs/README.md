@@ -10,13 +10,14 @@
 
 | 分类 | 入口 | 维护责任与更新触发 |
 | --- | --- | --- |
-| 架构 | [framework.md](framework.md) | 模块变更提交者同步依赖、接口和运行行为 |
+| 架构 | [framework.md](framework.md)：定位 / 数据流 / 模块 DAG / 各模块职责与边界 / 安全口径 / 技术规范 | 模块变更提交者同步依赖、边界与运行行为 |
+| 机制细节分册 | [frame/](frame/README.md)：按 `4.x` 编号迁出的实现事实（子模块表、参数与默认值、逐 kind 发射点、判据） | 改对应机制时同步该页；架构与安全立场仍回 framework.md |
 | 开发 | [项目协作规则](../AGENTS.md)、[上手说明](../README.md) | 工程维护者随命令、依赖和规范变更更新 |
 | 测试 | [testing.md](testing.md)（门禁红了的怎么分诊）、[质量门禁脚本](../scripts/quality_gate.py) | 各阶段实施者验证命令、结果、限制和待办 |
 | 部署 | [部署说明](../deploy/README.md) | 部署变更提交者同步环境前提并在 4 种部署姿态里核对监听身份 |
 | 产品设计 | [design.md](design.md) | 产品需求变更提交者同步目标与非目标 |
-| 使用问答 | [faq.md](faq.md) | 常见问题提交者补充问答与命令；机制细节仍归 framework.md |
-| 错误索引 | [errors.md](errors.md) | 新增/改名错误码与常见报错时同步四张表；码的权威口径仍归 framework.md 4.16 |
+| 使用问答 | [faq.md](faq.md) | 常见问题提交者补充问答与命令；机制细节归 frame/，架构与边界归 framework.md |
+| 错误索引 | [errors.md](errors.md) | 新增/改名错误码与常见报错时同步四张表；码的权威口径仍归 [frame/network.md](frame/network.md) 4.16 |
 | 性能调优 | [performance.md](performance.md) | 基准/阈值/常用开关变更时同步方法、瓶颈与推荐值 |
 | 迁移与历史 | [迭代历程](iteration/cycles.md)（§3.3 架构沿革与参考来源） | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](../news/news.md)（`news/` 与 `docs/news.md` 均已 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
@@ -38,19 +39,20 @@
 
 1. 先读本索引了解文档职责和权威顺序。
 2. 再读 [`design.md`](design.md) 了解项目定位、目标和非目标。
-3. 最后按需读 [`framework.md`](framework.md) 的数据流、模块 DAG、`engine/`、网络入口（HTTP 4.16 / 网页控制台 4.17）、`/goal` 和已知缺口。
+3. 最后按需读 [`framework.md`](framework.md) 的数据流、模块 DAG、各模块职责与边界、安全口径与已知缺口；
+   具体机制（含网络入口 HTTP 4.16 / WS 4.16.1 / 网页控制台 4.17）按编号读 [`frame/`](frame/README.md)。
 
 ## 快速定位
 
 | 想了解什么 | 阅读位置 |
 | --- | --- |
 | LLM、工具和 Agent 如何串起来 | [`framework.md`](framework.md) 的“数据流”和“核心模块” |
-| 策略、审批、ledger、沙箱 | [`framework.md`](framework.md) 的 `engine/` 与“已知缺口” |
+| 策略、审批、ledger、沙箱 | [`framework.md`](framework.md) 的 `engine/` 与“已知缺口”，模块细节见 [`frame/engine.md`](frame/engine.md) |
 | 沙箱到底怎么跑 / 命令有没有被隔离 | [「沙箱机制」专题](sandbox.md)（调用链、四档后端、`container` 档前提） |
 | Epic/Story 如何由 Markdown 驱动 | [`framework.md`](framework.md) 与 [`.heagent/skills/loop/workflow.md`](../.heagent/skills/loop/workflow.md) |
-| 事件流 / rollout 字段含义 | [`framework.md`](framework.md) 的「事件契约」小节（4.15） |
-| 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口」](../README.md) 与 [`framework.md`](framework.md) 的 4.16（SSE 重连 / 同源防线 / 限额 / 观测） |
-| 网页控制台：多项目 / 会话 / 配置面板与写入 | [`framework.md`](framework.md) 的 4.17（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
+| 事件流 / rollout 字段含义 | [`frame/events.md`](frame/events.md) 的 4.15（字段表 / 逐 kind 发射点）；契约边界见 [`framework.md`](framework.md) 4.15 |
+| 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口」](../README.md) 与 [`frame/network.md`](frame/network.md) 的 4.16（SSE 重连 / 同源防线 / 限额 / 观测） |
+| 网页控制台：多项目 / 会话 / 配置面板与写入 | [`frame/network.md`](frame/network.md) 的 4.17（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
 | 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration/cycles.md`](iteration/cycles.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |

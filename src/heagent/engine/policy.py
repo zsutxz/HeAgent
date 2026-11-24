@@ -1,6 +1,6 @@
 """工具执行策略裁决（policy）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/framework.md`` 4.12）。工具执行链固定为
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame/engine.md`` 4.12）。工具执行链固定为
 ``PolicyEngine.evaluate() → ToolExecutor → SafetyGuard.check() → handler``（项目硬约束）。
 ``PolicyEngine`` 在**任何实际执行之前**对一次 :class:`~heagent.pub.types.ToolCall` 做裁决，
 产出 :class:`PolicyVerdict`，交由 :class:`~heagent.engine.executor.ToolExecutor` 分发。

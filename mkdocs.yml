@@ -45,6 +45,21 @@ plugins:
 nav:
   - 首页: README.md
   - 架构: framework.md
+  - 机制细节分册:
+      - 索引: frame/README.md
+      - CLI 入口: frame/cli.md
+      - Agent 核心: frame/agent.md
+      - Provider 层: frame/providers.md
+      - 工具与 MCP: frame/tools.md
+      - 上下文管理: frame/context.md
+      - 记忆系统: frame/memory.md
+      - 配置管理: frame/config.md
+      - 运行时引擎: frame/engine.md
+      - Goal 工作流: frame/goal.md
+      - 事件契约: frame/events.md
+      - 网络入口与控制台: frame/network.md
+      - 完整调用链: frame/call-chains.md
+      - 目录结构: frame/layout.md
   - 设计理念: design.md
   - 迭代指南: iteration/index.md
   - 迭代历程: iteration/cycles.md
