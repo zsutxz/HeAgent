@@ -451,3 +451,61 @@ async def test_story_products_written_in_the_worktree_land_in_the_main_workspace
     moved = goal_dir / "step-01-step" / "epic-e1" / "s-1" / "story.md"
     assert moved.read_text(encoding="utf-8") == "story 四件套之一\n", "worktree 产物必须回到主工作区"
     assert roots and not roots[0].exists(), "worktree 用完即清"
+
+
+@pytest.mark.asyncio
+async def test_step_report_survives_a_conflicting_story_pick(tmp_path, monkeypatch) -> None:
+    """pick 冲突 ⇒ 步骤 FAILED，但 worktree 里 gitignore 面的步骤报告必须先搬回（排障唯一现场）；
+    主工作区保持干净（未提交改动不落盘），worktree 照常清除。"""
+    monkeypatch.chdir(tmp_path)
+    for rel in ("src/a.py", "src/b.py"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{rel}\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("_he-output/\n", encoding="utf-8")
+    _git("init", cwd=tmp_path)
+    _git("add", "-A", cwd=tmp_path)
+    _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "base", cwd=tmp_path)
+    goal_dir = tmp_path / "_he-output" / "goals" / "demo"
+    goal_dir.mkdir(parents=True)
+    engine_stub = _AuditEngineStub()
+    roots: list[Path] = []
+
+    async def fake_session(provider, engine, prompt, **kwargs):
+        root = Path(kwargs["context_dir"])
+        roots.append(root)
+        (root / "src/a.py").write_text("story\n", encoding="utf-8")
+        product = root / "_he-output" / "goals" / "demo" / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+        product.parent.mkdir(parents=True, exist_ok=True)
+        product.write_text("story 报告\n", encoding="utf-8")
+        _git("add", "src/a.py", cwd=root)
+        _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "feat: s1", cwd=root)
+        # 兄弟 story 已先把同一行改掉并合回主工作区 ⇒ 本 story 的 pick 必冲突
+        (tmp_path / "src/a.py").write_text("main\n", encoding="utf-8")
+        _git("add", "src/a.py", cwd=tmp_path)
+        _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "main edits a", cwd=tmp_path)
+        return SimpleNamespace(success=True, output="done")
+
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", fake_session)
+    workflow = _parallel_workflow()
+    story = parse_story_list(_DISJOINT_THREE)[0]
+    execution = StoryExecutionContext(
+        story_id=story.id,
+        parallel=True,
+        write_allowlist=["src/a.py"],
+        batch_members=[story.id],
+        sibling_write_sets={},
+    )
+
+    result = await cli_goal._goal_execute_step(
+        SimpleNamespace(), engine_stub, workflow, "demo goal", goal_dir, {}, workflow.steps[0], story, execution
+    )
+
+    assert result.status is WorkflowStatus.FAILED
+    assert "could not be merged back" in result.reason
+    moved = goal_dir / "step-01-step" / "epic-e1" / "s-1" / "story.md"
+    assert moved.read_text(encoding="utf-8") == "story 报告\n", "pick 失败也必须留下步骤报告"
+    assert "1 ignored product file(s) were moved back to the goal directory" in result.reason
+    assert (tmp_path / "src/a.py").read_text(encoding="utf-8") == "main\n", "主工作区不被本 story 的提交覆盖"
+    assert sorted(path.name for path in (tmp_path / "src").iterdir()) == ["a.py", "b.py"], "src 下不落任何未提交产物"
+    assert roots and not roots[0].exists(), "worktree 用完即清"

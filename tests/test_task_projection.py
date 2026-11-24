@@ -136,3 +136,31 @@ def test_truncation_keeps_the_newest_writes_and_warns(tmp_path: Path, caplog: py
     warnings = [record.getMessage() for record in caplog.records if "Task projection" in record.getMessage()]
     assert len(warnings) == 1, warnings
     assert "257" in warnings[0] and "256" in warnings[0]
+
+
+def _over_limit_warnings(caplog: pytest.LogCaptureFixture) -> int:
+    return sum("Task projection directory has" in record.getMessage() for record in caplog.records)
+
+
+def test_over_limit_warning_is_logged_once_per_overflow(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """目录持续超界时 WARNING 只记一条：轮询方每次查询都会调 ``load_all``，逐次重打会刷屏。
+    回落到上限内之后守卫复位——再次超界要再记一次，不能一辈子只记一次。"""
+    root = tmp_path / "tasks"
+    registry = _registry(root)
+    limit = TaskProjection._MAX_PROJECTION_FILES
+    caplog.set_level(logging.WARNING, logger="heagent.engine.tasks")
+    ids = [registry.start("context_compression") for _ in range(limit + 1)]
+
+    for _ in range(3):
+        registry.snapshot(limit=limit)
+    assert _over_limit_warnings(caplog) == 1, "持续超界不得每次查询都重打"
+
+    for task_id in ids[:2]:  # 回落到上限内
+        (root / f"{task_id}.json").unlink()
+    registry.snapshot(limit=limit)
+    assert _over_limit_warnings(caplog) == 1, "回落到上限内不记"
+
+    registry.start("context_compression")
+    registry.start("context_compression")
+    registry.snapshot(limit=limit)
+    assert _over_limit_warnings(caplog) == 2, "再次超界要再记一次"

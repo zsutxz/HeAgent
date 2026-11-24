@@ -129,7 +129,13 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
         return await head_commit(repo_root)
 
 
-async def promote_goal_products(repo_root: str | Path, worktree: str | Path, goal_dir: str | Path) -> list[str]:
+async def promote_goal_products(
+    repo_root: str | Path,
+    worktree: str | Path,
+    goal_dir: str | Path,
+    *,
+    ignored_only: bool = False,
+) -> list[str]:
     """把 worktree 里本 Story 写出的 ``goal_dir`` 产物增量搬回主工作区，返回搬动的相对路径。
 
     为什么需要这一步：``_he-output/`` 是 gitignore 面（步骤报告、story 四件套都落在这里），
@@ -144,6 +150,9 @@ async def promote_goal_products(repo_root: str | Path, worktree: str | Path, goa
     这样 ``_he-output`` 被 tracked 的消费者也不会被「worktree 里的旧版本」覆盖掉主工作区的新
     产物（未改动的 tracked 文件不在清单里）；删除不传播（``--modified`` 里出现的已删路径按
     ``is_file()`` 跳过），产物只增不删。源目录不存在（该 Story 没写产物）返回空列表。
+
+    ``ignored_only=True`` 只搬被忽略的那档：story 提交 pick 回主工作区失败后的抢救用它——被忽略的
+    文件不进 git，不会把未提交改动落进主工作区。
     """
     repo = Path(repo_root).resolve()
     rel = _relative_goal_dir(repo, goal_dir)
@@ -151,11 +160,16 @@ async def promote_goal_products(repo_root: str | Path, worktree: str | Path, goa
     if not source_root.is_dir():
         return []
     listed = ""
-    for selector in (
-        ("--others", "--exclude-standard"),
-        ("--others", "--ignored", "--exclude-standard"),
-        ("--modified",),
-    ):
+    selectors = (
+        (("--others", "--ignored", "--exclude-standard"),)
+        if ignored_only
+        else (
+            ("--others", "--exclude-standard"),
+            ("--others", "--ignored", "--exclude-standard"),
+            ("--modified",),
+        )
+    )
+    for selector in selectors:
         listed += await _git(worktree, "ls-files", *selector, "-z", "--", rel.as_posix())
     copied: list[str] = []
     for entry in sorted({path for path in listed.split("\0") if path}):

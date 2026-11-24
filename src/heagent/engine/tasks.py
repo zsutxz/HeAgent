@@ -113,7 +113,7 @@ class TaskProjection:
 
     扫描有界：``load_all`` 最多读 ``_MAX_PROJECTION_FILES`` 个文件，超界按 mtime **取最新写入**的
     （在途任务持续被写 ⇒ 永远在最新档；被截断的只会是早已停写的旧条目——「在途不隐藏」），并记一条
-    WARNING（目录被外部塞满时不至于拖死查询，也不静默丢条目）。
+    WARNING（目录被外部塞满时不至于拖死查询，也不静默丢条目；持续超界只记一次，回落到上限内后复位）。
     """
 
     _MAX_PROJECTION_FILES = 256
@@ -121,6 +121,8 @@ class TaskProjection:
     def __init__(self, root: str | Path, *, retention_seconds: float = DEFAULT_RETENTION_SECONDS) -> None:
         self._root = Path(root)
         self._retention = timedelta(seconds=retention_seconds)
+        #: 超界 WARNING 的「只记一次」守卫：目录回落到上限内时复位。
+        self._over_limit_warned = False
 
     @property
     def root(self) -> Path:
@@ -151,12 +153,16 @@ class TaskProjection:
             return []
         if len(paths) > self._MAX_PROJECTION_FILES:
             paths.sort(key=_projection_mtime, reverse=True)
-            logger.warning(
-                "Task projection directory has %d files; keeping the %d newest and dropping the rest",
-                len(paths),
-                self._MAX_PROJECTION_FILES,
-            )
+            if not self._over_limit_warned:
+                logger.warning(
+                    "Task projection directory has %d files; keeping the %d newest and dropping the rest",
+                    len(paths),
+                    self._MAX_PROJECTION_FILES,
+                )
+                self._over_limit_warned = True
             paths = paths[: self._MAX_PROJECTION_FILES]
+        else:
+            self._over_limit_warned = False
         entries: list[TaskProgress] = []
         for path in paths:
             progress = self._read(path)

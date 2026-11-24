@@ -249,7 +249,8 @@ async def _goal_execute_step(
     cherry-pick 回主工作区（用户 2026-11-21 裁定：批内按声明顺序串行 pick，pick 前先建
     ``refs/heagent/stories/<story>`` 临时引用防 gc）、**再**搬产物——``--modified`` 档的未提交
     改动先落主工作区会让 pick 触同路径即被 git 拒绝（local changes would be overwritten）。合并冲突 ⇒ ``cherry-pick --abort``
-    已恢复干净工作区后 FAILED 显性报出，不静默丢产出；worktree 在 finally 里移除
+    已恢复干净工作区后 FAILED 显性报出：只搬回 gitignore 面的步骤报告，其余未提交产物随 worktree 丢弃
+    并写进报错；worktree 在 finally 里移除
     （移除失败只 WARNING，残留可由 ``git worktree prune`` 回收）。
     """
     if step.executor_mode == "script":
@@ -343,12 +344,25 @@ async def _goal_execute_step(
             try:
                 await promote_story_commit(repo_root, f"{goal_dir.name}-{story.id}", commit=story_head)
             except WorktreeError as exc:
+                # 步骤报告是排障唯一现场，pick 失败也要留下：只搬 gitignore 面（不落任何未提交改动，
+                # 主工作区保持干净）；其余产物随 worktree 移除，并在报错里写明，不静默丢。
+                try:
+                    rescued = await promote_goal_products(repo_root, worktree, goal_dir, ignored_only=True)
+                except (WorktreeError, OSError) as rescue_exc:
+                    rescued_note = f"ignored products could not be moved back from the worktree: {rescue_exc}"
+                else:
+                    rescued_note = (
+                        f"{len(rescued)} ignored product file(s) were moved back to the goal directory"
+                        if rescued
+                        else "no ignored products were found in the worktree"
+                    )
                 return WorkflowStepResult(
                     status=WorkflowStatus.FAILED,
                     reason=(
                         f"story '{story.id}' worktree could not be merged back into the main workspace: {exc}; "
                         "the cherry-pick was aborted and the main workspace is clean - resolve the conflict "
-                        "manually, then rerun the story"
+                        f"manually, then rerun the story; {rescued_note}, other uncommitted products were "
+                        "discarded with the worktree"
                     ),
                 )
         # `_he-output/` 不进 cherry-pick（gitignore 面）：worktree 移除前把本 Story 写出的产物搬回

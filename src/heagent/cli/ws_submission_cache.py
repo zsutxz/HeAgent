@@ -3,7 +3,7 @@
 住在入口层而不是传输层：幂等是**提交语义**，网络层只把客户端的 `request_id` 原样透传给
 `ProjectChannelService`。本模块不认识项目目录、不读配置、不写盘——只有一个有界的内存字典。
 
-三条语义（与 `ProjectChannelService` docstring 同口径）：
+三条语义（与 `ProjectChannelService` docstring 同口径）外加一条显式边界：
 
 - **在途合流**：同一 `(project_id, request_id)` 的第二个等待者等同一个 `Future`，因此两侧拿到
   同一个 `run_id`；owner 失败时异常转交给等待者。**在途项不因 TTL 过期被踢**——它的键还在用着，

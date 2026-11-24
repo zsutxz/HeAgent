@@ -268,3 +268,26 @@ async def test_uncommitted_tracked_edits_must_not_land_before_the_story_pick(rep
     copied = await promote_goal_products(repo, worktree, GOAL_REL)
     assert copied == ["_he-output/goals/g1/report.md"]
     assert tracked.read_text(encoding="utf-8") == "v3\n"
+
+
+async def test_ignored_only_promotion_leaves_uncommitted_changes_in_the_worktree(repo: Path) -> None:
+    """pick 失败后的抢救只搬 gitignore 面：未提交改动不得落进主工作区（主工作区要保持干净）。"""
+    (repo / ".gitignore").write_text("_he-output/goals/g1/_ignored/\n", encoding="utf-8")
+    notes = repo / "notes.md"
+    notes.write_text("v1\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore", "notes.md")
+    _git(repo, "commit", "-q", "-m", "track notes")
+    worktree = await create_worktree(repo, "g1", "s1")
+    report = worktree / GOAL_REL / "_ignored" / "report.md"
+    report.parent.mkdir(parents=True)
+    report.write_text("步骤报告\n", encoding="utf-8")
+    (worktree / GOAL_REL / "plan.md").write_text("未跟踪产物\n", encoding="utf-8")
+    (worktree / "notes.md").write_text("v2\n", encoding="utf-8")
+
+    copied = await promote_goal_products(repo, worktree, GOAL_REL, ignored_only=True)
+
+    assert copied == ["_he-output/goals/g1/_ignored/report.md"]
+    assert (repo / GOAL_REL / "_ignored" / "report.md").read_text(encoding="utf-8") == "步骤报告\n"
+    assert not (repo / GOAL_REL / "plan.md").exists(), "未跟踪且未被忽略的产物不搬"
+    assert notes.read_text(encoding="utf-8") == "v1\n", "tracked 改动不搬"
+    assert _git(repo, "status", "--porcelain", "--untracked-files=no").strip() == "", "主工作区的 tracked 文件必须干净"

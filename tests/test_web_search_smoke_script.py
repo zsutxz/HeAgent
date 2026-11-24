@@ -7,14 +7,31 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from heagent.tools.builtins.web_search_engine import SearchEngineError
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "web_search_smoke.py"
+
+
+def _isolated_env(home: Path, *, key: str | None = "") -> dict[str, str]:
+    """密封子进程的三个配置来源，用例结论不得取决于开发机上有没有配 key：用户级目录指向空目录；
+    ``key`` 缺省是空串，作为环境变量压过项目 `.env` 与用户级 setting.md，传 ``None`` 则不设这个环境
+    变量，让项目 `.env` 生效。"""
+    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+    if key is None:
+        env.pop("WEB_SEARCH_API_KEY", None)
+    else:
+        env["WEB_SEARCH_API_KEY"] = key
+    return env
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -30,9 +47,9 @@ def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None)
     )
 
 
-def test_self_check_passes_without_any_credential() -> None:
+def test_self_check_passes_without_any_credential(tmp_path: Path) -> None:
     """离线段（预算常量 + 注入围栏）无 key 也要全绿：否则「没有 key 就无法自检脚本」= 死循环。"""
-    completed = _run("--self-check")
+    completed = _run("--self-check", cwd=tmp_path, env=_isolated_env(tmp_path / "home"))
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "③ 预算常量自检" in completed.stdout
@@ -40,11 +57,20 @@ def test_self_check_passes_without_any_credential() -> None:
     assert "api_key = 未配置" in completed.stdout
 
 
+def test_self_check_also_passes_when_a_key_is_configured(tmp_path: Path) -> None:
+    """项目 `.env` 里有 key 时自检同样通过并如实报「已配置」——自检不以「没配 key」为前提。"""
+    (tmp_path / ".env").write_text("WEB_SEARCH_API_KEY=dummy-key\n", encoding="utf-8")
+
+    completed = _run("--self-check", cwd=tmp_path, env=_isolated_env(tmp_path / "home", key=None))
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "api_key = 已配置（长度 9）" in completed.stdout
+    assert "dummy-key" not in completed.stdout + completed.stderr
+
+
 def test_missing_key_exits_with_the_precondition_code(tmp_path: Path) -> None:
     """无 key 跑主流程：退出码 `2`（前提缺失，不是判据失败）+ 明确提示配置位置。"""
-    env = {**os.environ, "WEB_SEARCH_API_KEY": ""}
-
-    completed = _run(cwd=tmp_path, env=env)
+    completed = _run(cwd=tmp_path, env=_isolated_env(tmp_path / "home"))
     output = completed.stdout + completed.stderr
 
     assert completed.returncode == 2, output
@@ -118,3 +144,62 @@ def test_empty_result_is_reported_but_is_not_a_failure() -> None:
     assert "不判 FAIL" in source
     assert "seg.check(bool(results)" not in source
     assert module is not None
+
+
+class _SettingsStub:
+    """只带脚本用到的两个字段（不读 `.env`、不碰用户级 setting.md）。"""
+
+    web_search_engine = "tavily"
+    web_search_api_key = "s3cr3t-token"
+
+
+@pytest.mark.parametrize("json_mode", [False, True])
+def test_a_raising_segment_becomes_a_fail_detail_and_later_segments_still_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], json_mode: bool
+) -> None:
+    """真调用段抛异常（key 失效 / 限流 / 断网）要落成一段可读的 FAIL，后面的段照跑，不出 traceback。"""
+    module = _script_module()
+
+    def _denied(name: str, api_key: str = "") -> object:
+        raise SearchEngineError(f"401 denied for {api_key}")
+
+    async def _network_down(query: str, max_results: int = 5) -> str:
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("heagent.config.get_settings", _SettingsStub)
+    monkeypatch.setattr("heagent.tools.builtins.web_search_engine.create_engine", _denied)
+    monkeypatch.setattr("heagent.tools.builtins.web.web_search", _network_down)
+
+    code = module.main(["--json"] if json_mode else [])
+    out, err = capsys.readouterr()
+
+    assert code == 1
+    assert "s3cr3t-token" not in out + err, "异常文案回显了 key：输出前必须抹掉"
+    assert "Traceback" not in err
+    if json_mode:
+        segments = json.loads(out)
+        assert [segment["ok"] for segment in segments] == [True, False, False, True]
+        assert "401 denied for <redacted>" in out and "network down" in out
+    else:
+        assert "[OK]   ① config 解析" in out
+        assert "[FAIL] ② 引擎调用（真打外部 API）" in out
+        assert "FAIL: 抛异常 SearchEngineError: 401 denied for <redacted>" in out
+        assert "[FAIL] ③ 工具面截断（条数钳位 + 三层预算 + 汇总闸）" in out
+        assert "FAIL: 抛异常 RuntimeError: network down" in out
+        assert "[OK]   ④ 注入围栏（合成用例，离线）" in out
+
+
+def test_a_missing_dependency_exits_with_the_precondition_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """懒加载的依赖缺失 = 前提缺失（退出码 2 + 点名缺的模块），不是判据失败，更不是 traceback。"""
+    module = _script_module()
+    monkeypatch.setattr("heagent.config.get_settings", _SettingsStub)
+    monkeypatch.setitem(sys.modules, "heagent.tools.builtins.web_search_engine", None)
+
+    code = module.main([])
+    out, err = capsys.readouterr()
+
+    assert code == 2
+    assert "缺依赖" in err and "web_search_engine" in err
+    assert "Traceback" not in err and out == ""
