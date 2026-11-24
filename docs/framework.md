@@ -1347,7 +1347,8 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ——`network/` 只承载传输（HTTP 协议模型 / 路由 / 运行服务 / 安全响应头 / 静态资源 / listener
 生命周期），装配在入口层 `cli/http.py`；`network/` 不构造 Agent，运行入口由入口层以可调用对象注入。
 
-**Epic 56 D1 起是「同进程双 server」（期二可再起一条对外 WS listener，共 2–3 条）**：本节的 HTTP listener（默认 `127.0.0.1:9101`）只服务
+**Epic 56 D1 起是「同进程双 server」**（HTTP + WS 各一条；Epic 72 起第二 WS listener 已退役，非回环入口走
+`lan` / `external`）：本节的 HTTP listener（默认 `127.0.0.1:9101`）只服务
 HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独立 listener（默认 `127.0.0.1:9201`，
 见 4.16.1），两者共享的只有注入的进程内状态（`HttpRunService` / `CliEventHub`）与 `network/`
 同层协议模型。入口层 `EmbeddedHttpService` 拥有**两条** listener、一个生命周期：HTTP 先启动、

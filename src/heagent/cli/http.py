@@ -413,7 +413,7 @@ def build_http_service(
     http_enabled: bool | None = None,
     ws_enabled: bool | None = None,
 ) -> EmbeddedHttpService:
-    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 9101 + 1–2 个 WS listener，Epic 56 D1/期二）。
+    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 9101 + 1 条 WS listener）。
 
     ``HTTP_ENABLED`` / ``WS_ENABLED`` 为假时对应 listener 不装配；两者都为假 ⇒ 休眠服务（零监听）。
     ``http_enabled`` / ``ws_enabled`` 是**本次进程**的显式覆盖（``None`` = 照配置取值），供默认 CLI
@@ -429,8 +429,8 @@ def build_http_service(
 
     ``settings.ws_cli_bypass_enabled`` 为真时**另建**一个 :class:`CliEventHub` 并在**本地模式的** WS
     listener 上注册 ``/api/cli/ws``（Epic 55 的 CLI 旁路，Epic 56 D7 起宿主 = WS server）：它与
-    ``executor`` 无关——旁路订阅的是**终端自己那一轮** run，不是网页创建的 run。它**不会**挂到对外
-    listener 上（期二 D9）：终端事件可能含文件内容，认证只降低风险、不消除风险。
+    ``executor`` 无关——旁路订阅的是**终端自己那一轮** run，不是网页创建的 run。非回环绑定
+    （``lan`` / ``external``）不挂旁路：旁路内容含从未提交过的终端输入。
     """
     config = build_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
