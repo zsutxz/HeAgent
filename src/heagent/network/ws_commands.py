@@ -157,21 +157,26 @@ async def _start_project_run(
     project_service: ProjectChannelService | None,
     project_id: str,
     prompt: str,
+    request_id: str | None = None,
 ) -> SubmittedRun | None:
     """带 ``project_id`` 的提交分支（未装配护栏**唯一**一处）：先 ``ensure_available`` 后提交。
 
-    ``project_service`` 为 ``None`` 时回 ``invalid_request`` 并返回 ``None``——静默按启动工作区执行
-    会把「装配漏了」变成「跑错项目」。前置校验不占名额，其返回值才是后续用的 ``project_id``。
+    ``project_service`` 为 ``None`` 时回 ``project_channel_unavailable`` 并返回 ``None``——静默按
+    启动工作区执行会把「装配漏了」变成「跑错项目」；用独立码而不是 ``invalid_request``，客户端才能
+    把「环境没装好、重试无用」与「我的帧写错了」分开处置（Epic 77 D2）。前置校验不占名额，其返回值
+    才是后续用的 ``project_id``。
+
+    ``request_id`` 原样透传给端口（Epic 77 D1）：幂等表住实现方，传输层不认识也不缓存提交结果。
     """
     if project_service is None:
         await _send_error_frame(
             websocket,
-            HttpErrorCode.INVALID_REQUEST,
+            HttpErrorCode.PROJECT_CHANNEL_UNAVAILABLE,
             "project addressing is not available on this listener",
         )
         return None
     resolved = await project_service.ensure_available(project_id)
-    return await project_service.start_project_run(resolved, prompt)
+    return await project_service.start_project_run(resolved, prompt, request_id)
 
 
 async def _send_projects_frame(
@@ -180,15 +185,16 @@ async def _send_projects_frame(
 ) -> None:
     """``projects`` 命令：把已投影的项目列表帧原样发给客户端。
 
-    ``project_service`` 为 ``None`` 时回 ``invalid_request`` 且**不断连**——与带 ``project_id`` 的
-    提交同一个护栏口径：不静默回一张空表（客户端会把「没装配」误读成「一个项目都没有」）。
+    ``project_service`` 为 ``None`` 时回 ``project_channel_unavailable`` 且**不断连**——与带
+    ``project_id`` 的提交同一个护栏口径：不静默回一张空表（客户端会把「没装配」误读成「一个项目都
+    没有」），也不复用 ``invalid_request``（那是「你的帧写错了」的码，Epic 77 D2）。
     端口抛 ``HttpRunConflictError`` 时代码逐字透传；其余异常不在此兜，由连接骨架收敛为
     ``server_error`` + 断连（漏译必须显性，与提交分支同档）。
     """
     if project_service is None:
         await _send_error_frame(
             websocket,
-            HttpErrorCode.INVALID_REQUEST,
+            HttpErrorCode.PROJECT_CHANNEL_UNAVAILABLE,
             "project addressing is not available on this listener",
         )
         return
@@ -207,6 +213,7 @@ async def _submit_run(
     *,
     project_id: str | None = None,
     project_service: ProjectChannelService | None = None,
+    request_id: str | None = None,
 ) -> None:
     """提交一次运行：校验复用 ``RunRequest``，创建复用 ``HttpRunService.start_run``。
 
@@ -225,7 +232,7 @@ async def _submit_run(
         if project_id is None:
             record = await service.start_run(request.prompt)
         else:
-            record = await _start_project_run(websocket, project_service, project_id, request.prompt)
+            record = await _start_project_run(websocket, project_service, project_id, request.prompt, request_id)
     except HttpRunConflictError as exc:
         await _send_error_frame(websocket, exc.code, str(exc))
         return
@@ -267,6 +274,7 @@ async def _handle_submit_commands(
                 frame.prompt or "",
                 project_id=frame.project_id,
                 project_service=project_service,
+                request_id=frame.request_id,
             )
             continue
         if frame.command is WsCommand.PROJECTS:

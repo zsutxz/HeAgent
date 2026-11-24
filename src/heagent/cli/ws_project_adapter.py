@@ -9,6 +9,9 @@
 ``HttpRunConflictError``，不改写、不折叠。未登记进 ``HttpErrorCode`` 的码让 ``ValueError``
 直接冒出（漏译必须显性），连接骨架随后把它收敛成 ``server_error``。
 
+幂等表（Epic 77 D1）住 `cli/ws_submission_cache.py`：本模块只负责在提交前后调它
+（在途合流 / 成功重放 / 失败移出），窗口语义与有界内存都在那边单点实现。
+
 注册表健康守卫：注册表读不出/解析不了时**提交径 fail-loud** 回 ``project_registry_unreadable``
 ——注册表的读路径是 fail-soft（不可读 ⇒ 空表），若不在这里先判，「注册表坏了」会在下游被译成
 ``unknown_project``，客户端会把「服务端坏了、重试无用」误读成「这个项目不存在、换个 id 试试」。
@@ -19,6 +22,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Literal
 
+from heagent.cli.ws_submission_cache import SubmissionCache, SubmissionKey
 from heagent.network.http_console_protocol import ConsoleOperationError, ProjectRunRequest
 from heagent.network.http_protocol import HttpErrorCode, HttpRunConflictError
 from heagent.network.ws_protocol import ProjectChannelEntry, SubmittedRun, WsProjectsFrame
@@ -44,6 +48,7 @@ class ProjectChannelAdapter:
     def __init__(self, console: ConsoleHandler, registry_health: Callable[[], RegistryState]) -> None:
         self._console = console
         self._registry_health = registry_health
+        self._submissions = SubmissionCache()
 
     async def list_projects(self) -> WsProjectsFrame:
         """项目列表 → 帧：每条只留客户端用得上的三项，顺序沿用控制台给定顺序。
@@ -80,8 +85,45 @@ class ProjectChannelAdapter:
                 code=HttpErrorCode.PROJECT_REGISTRY_UNREADABLE,
             )
 
-    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
-        """提交到该项目，把结果收窄成 ``SubmittedRun``（``session_id`` 不出入口层）。"""
+    async def start_project_run(
+        self,
+        project_id: str,
+        prompt: str,
+        request_id: str | None = None,
+    ) -> SubmittedRun:
+        """提交到该项目，把结果收窄成 ``SubmittedRun``（``session_id`` 不出入口层）。
+
+        ``request_id`` 缺省 = 每次都是新提交（旧帧逐字等价）。带键时窗口内只真正提交一次：owner 走
+        :meth:`_submit` 把结果写进 ``Future``，合流者经 ``asyncio.shield`` 等同一个结果。shield 挡的是
+        「一个合流者的取消连坐兄弟合流者」（``InvalidStateError`` 由下方 ``future.done()`` 守卫挡掉，实测
+        去掉 shield 是兄弟收 ``CancelledError``）；失败先交异常再移出窗口，owner 被取消则连坐取消。
+        **键不含 prompt**：同键不同 prompt 静默重放第一次结果——键是客户端的不透明承诺，服务端不比对载荷。
+        """
+        if request_id is None:
+            return await self._submit(project_id, prompt)
+        key: SubmissionKey = (project_id, request_id)
+        future, owner = self._submissions.reserve(key)
+        if not owner:
+            return await asyncio.shield(future)
+        try:
+            result = await self._submit(project_id, prompt)
+        except asyncio.CancelledError:
+            # owner 被取消 ≠ 提交失败：合流者也不该拿到一个假结果，一律取消并放掉窗口。
+            self._submissions.drop(key)
+            future.cancel()
+            raise
+        except Exception as exc:
+            self._submissions.drop(key)
+            future.set_exception(exc)
+            # 没有合流者时也标记「已取回」，避免 "Future exception was never retrieved" 噪声。
+            future.exception()
+            raise
+        if not future.done():
+            future.set_result(result)
+        return result
+
+    async def _submit(self, project_id: str, prompt: str) -> SubmittedRun:
+        """一次**真实**提交（幂等窗口之外的那一半）：健康守卫 + 控制台调用 + 收窄。"""
         await self._guard_registry(project_id)
         try:
             response = await self._console.start_project_run(project_id, ProjectRunRequest(prompt=prompt))

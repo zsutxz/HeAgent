@@ -30,9 +30,9 @@ Error: <原消息，逐字保留>
   [建议命令](#建议命令)。不是所有错误都有这一段——它按错误文本的场景映射产出。
 - 状态行（`▶启动` / `✔完成`）、WARNING 与进度提示**不带**这些段落——它们不是错误。
 
-**覆盖口径**：「用户可见错误」在本页被界定为三个可枚举集合的并集——传输层全部 **35** 个稳定码
+**覆盖口径**：「用户可见错误」在本页被界定为三个可枚举集合的并集——传输层全部 **37** 个稳定码
 （`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **29** 个异常类
-（`pub/exceptions.py`，每个都带稳定码）+ CLI/启动期 **12** 条常见报错，合计 **76** 条，三条链路各自 **100%** 覆盖。
+（`pub/exceptions.py`，每个都带稳定码）+ CLI/启动期 **12** 条常见报错，合计 **78** 条，三条链路各自 **100%** 覆盖。
 可枚举集合之外的自由文本不在此口径内。
 
 **码的现状**：传输层（`HttpErrorCode`）与框架层（`pub/exceptions.py::code`）都是封闭码集合；
@@ -63,6 +63,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `project_not_removable` | 409 | 该项目不允许被移除 | **默认项目**不能移除（注册表的兜底条目） | 先移除其它项目；注册表落点是 `HTTP_CONSOLE_PROJECTS_FILE`（缺省 `.heagent/console/projects.json`） |
 | `project_busy` | 409 | 该项目被占用（有在途运行 / 正在被删除） | 同一项目同时跑多个运行 | 等当前运行结束；或 `DELETE /api/runs/{run_id}` 取消 |
 | `project_limit_reached` | 409 | 项目注册表已满 | 注册表条目数达到上限 | 移除不用的项目后重试；注册表落点见 `HTTP_CONSOLE_PROJECTS_FILE` |
+| `project_channel_unavailable` | 无固定状态 | 这条 WS listener 没有装配项目通道（`project_service=None`） | 该 listener 只提供 run 订阅 / 提交，未注入项目端口 ⇒ `run` 带 `project_id` 与 `projects` 两条路径都回它 | **重试无用**：换一条装配了项目通道的 listener（或让宿主带上项目面）再试；帧字段拼错的 `invalid_request` 是另一回事 |
 | `project_registry_unreadable` | 500 | 项目注册表读不出或解析不了 | 注册表文件被改坏（坏 JSON / BOM / 超 32 条 / 无读权限），只有提交径会回它 | 备份并重建 `HTTP_CONSOLE_PROJECTS_FILE` 指向的文件；日志里有 `Unable to read project registry` 或 `Invalid project registry` |
 | `unknown_session` | 404 | 没有该会话 | 会话 id 拼错，或会话文件已被保留期清理 | `ls .heagent/sessions/` 核对 id；清理周期由 `SESSION_RETENTION_DAYS` 控制 |
 | `invalid_session_id` | 400 | 会话 id 形态非法 | 含路径分隔符、控制字符、保留名（如 Windows 的 `NUL`） | 用服务端返回的会话 id，不要自己拼路径 |

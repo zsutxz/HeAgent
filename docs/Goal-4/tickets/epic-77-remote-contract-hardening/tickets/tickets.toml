@@ -1,0 +1,62 @@
+# E77 entry 表 —— 表序即构建序
+# covers 引用「本 epic Requirements 的 R1–R3」（父 tickets.toml 的 epic.covers 另引用 brief 延期项编号，两层不混用）
+# after 取值：本 epic 兄弟 entry 的整数 id
+
+[[entry]]
+id = 1
+type = "story"
+title = "E77-S01 · 提交幂等键 request_id：同键重发只起一个 run，失败不缓存"
+description = "`run` 帧加可选 `request_id`（1–64 字符、不 strip），网络层原样透传给 `ProjectChannelService.start_project_run(project_id, prompt, request_id=…)`；幂等表住入口层适配器（`cli/ws_project_adapter.ProjectChannelAdapter`），语义 = 同一 `(project_id, request_id)` 在 60s 窗口内只调用一次控制台 `start_project_run`：在途时第二个等待者合流到同一个 Future（同一个 `run_id`），已完成时直接回缓存结果。约束：成功才缓存，失败即移除（重试可以重来，与「提交失败不做原子性保证」并存）；无 `request_id` 的帧逐字走旧路径；ack 字段集合不变（四格冻结）。同批把 `ProjectChannelService` docstring 的「无幂等键」口径改写成新的三态语义（无键不覆盖 / 成功可重放 60s / 失败不保证），并同步该文案的判据。"
+verify = "`pytest tests/test_ws_project_adapter.py tests/network/test_ws_project_commands.py tests/network/test_ws_protocol.py -q` 全绿，且含四例：① 同 `request_id` 并发两次 ⇒ 控制台 `start_project_run` 调用次数 == 1、两个结果 `run_id` 相同；② 不同 `request_id` ⇒ 2 次；③ 不带 `request_id` ⇒ 2 次（旧路径逐字等价）；④ 首次抛 `HttpRunConflictError` 后同键重试 ⇒ 控制台被再次调用（失败未缓存）；`pytest tests/network -q` 零回归。"
+covers = ["R1"]
+after = []
+risk = "medium"
+hitl = false
+parallel_group = "e77"
+write_set = [
+  "src/heagent/network/ws_protocol.py",
+  "src/heagent/network/ws_commands.py",
+  "src/heagent/cli/ws_project_adapter.py",
+  "tests/network/test_ws_protocol.py",
+  "tests/network/test_ws_project_commands.py",
+  "tests/network/test_ws_project_submit.py",
+  "tests/test_ws_project_adapter.py",
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "E77-S02 · 具名码 project_channel_unavailable：未装配与帧拼错可凭 code 分流"
+description = "`HttpErrorCode` 只增一个成员 `project_channel_unavailable`（36 → 37），`ws_commands.py` 里「项目通道未装配」的两条路径（带 `project_id` 的 `run` 与 `projects`）改用它，`message` 与「不断连」口径不变；「帧字段拼错」仍是 `invalid_request`（且仍按既有口径以 `WS_CLOSE_POLICY` 收尾）。同批重生成 `tests/fixtures/contract_baselines/transport_errors.json`（INV-8 只增不减），并在 `docs/framework.md` 错误码表与 `docs/errors.md` 各补一行：客户端口径 = 见到本码说明该 listener 没装配项目通道，重试无用、要换环境或换 listener。"
+verify = "`pytest tests/network -q` 全绿且新增两例断言 `project_channel_unavailable` 逐字出现（`run` 与 `projects` 各一），另有一例断言帧字段拼错仍是 `invalid_request` 且连接被关；`.heagent/tmp/py311-venv-linux/bin/python scripts/contract_snapshot.py --write --only transport_errors` 后 `--check` 五份全 `[OK]`，`git diff tests/fixtures/contract_baselines/transport_errors.json` 只含新增的一条 entry、无其它改动。"
+covers = ["R2"]
+after = [1]
+risk = "low"
+hitl = false
+parallel_group = "e77"
+write_set = [
+  "src/heagent/network/http_protocol.py",
+  "src/heagent/network/ws_commands.py",
+  "tests/network/test_ws_project_commands.py",
+  "tests/fixtures/contract_baselines/transport_errors.json",
+  "docs/framework.md",
+  "docs/errors.md",
+]
+
+[[entry]]
+id = 3
+type = "story"
+title = "E77-S03 · 只读能力面与延期项收口：AD-8 措辞对齐代码、三条裁决回写需求真源"
+description = "H-2 裁决 = 维持零能力面。① 把 `architecture-ws-remote-project-channel.md` 的 AD-8 里「只读 listener 上 `projects` 帧**允许**」改成与实现一致的措辞（只读 listener 不注册集合级端点 ⇒ `projects` 不可达；被拒替代 (a) 即实现），并把 `docs/framework.md` §4.16.1 只读旁观行补上「`projects` 亦不可达」这半句；② `docs/Goal-4/brief.md` 延期项三条全部改写成「裁决日期 + 结论 + 落点」，不留「待裁决」；③ `docs/Goal-4/progress.md` 追加决策日志（三条裁决原文与理由）并把 E77 行、status、交接块同步；④ 重生成五份契约快照（应零漂移）并跑 `mkdocs build --strict`。"
+verify = "`pytest tests/test_docs_links.py tests/test_deferred_id_registry.py -q` 全绿；`mkdocs build --strict` 退出码 0 且 WARNING 计数 == 0；`grep -c \"待裁决\" docs/Goal-4/brief.md` == 0；`grep -rn \"只读 listener 上 \\`projects\\` 帧\" docs/` 零命中（矛盾措辞已清除）；`.heagent/tmp/py311-venv-linux/bin/python scripts/contract_snapshot.py --check` 五份全 `[OK]`、`git diff --stat tests/fixtures/contract_baselines/` 为空。"
+covers = ["R3"]
+after = [1, 2]
+risk = "low"
+hitl = false
+parallel_group = "e77"
+write_set = [
+  "docs/Goal-4/architecture-ws-remote-project-channel/architecture-ws-remote-project-channel.md",
+  "docs/framework.md",
+  "docs/Goal-4/brief.md",
+  "docs/Goal-4/progress.md",
+]

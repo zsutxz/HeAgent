@@ -4,7 +4,8 @@
 
 ① 集合级端点装配了项目端口 ⇒ 收到 ``projects`` 帧（键集恰 ``{type, projects, registry_state}``，
 每条恰 ``{id, name, available}``），端口异常仍走错误帧且 ``code`` 逐字透传；
-② 未装配（``project_service=None``）⇒ ``invalid_request`` 且**不断连**（随后 ``ping`` 照常 ack），
+② 未装配（``project_service=None``）⇒ ``project_channel_unavailable`` 且**不断连**（随后 ``ping``
+   照常 ack；与「帧写错」的 ``invalid_request`` + 断连可分辨，Epic 77 D2），
 不静默回空表；
 ③ 单 run 端点 / CLI 旁路 / 通知流收到 ``projects`` 一律 ``invalid_request`` 且不断连——它们是
 「观众席」，项目视角属于集合级连接；
@@ -26,6 +27,7 @@ from pydantic import ValidationError
 from heagent.network.http_protocol import HttpErrorCode, HttpRunConflictError, RunStatus
 from heagent.network.ws_commands import _handle_commands
 from heagent.network.ws_protocol import (
+    WS_CLOSE_POLICY,
     ProjectChannelEntry,
     ProjectChannelService,
     WsCommand,
@@ -156,7 +158,12 @@ class _ProjectChannelStub:
     async def ensure_available(self, project_id: str) -> str:  # pragma: no cover - projects 用例不提交
         raise AssertionError("the projects command must not ensure availability")
 
-    async def start_project_run(self, project_id: str, prompt: str) -> Any:  # pragma: no cover
+    async def start_project_run(
+        self,
+        project_id: str,
+        prompt: str,
+        request_id: str | None = None,  # noqa: ARG002 - 端口签名的一部分，本文件不测提交
+    ) -> Any:  # pragma: no cover
         raise AssertionError("the projects command must not start a run")
 
     async def list_projects(self) -> WsProjectsFrame:
@@ -219,18 +226,39 @@ async def test_projects_command_returns_the_frame_on_the_collection_endpoint() -
 
 @pytest.mark.asyncio
 async def test_projects_without_project_service_is_rejected_and_keeps_the_connection() -> None:
-    """未装配项目端口：``invalid_request`` 且不静默回空表；随后 ``ping`` 照常 ack（连接没断）。"""
+    """未装配项目端口：``project_channel_unavailable`` 且不静默回空表；随后 ``ping`` 照常 ack。"""
     service = _RunServiceStub()
     ws = _HangingWebSocket([_PROJECTS_FRAME, _PING_FRAME])
 
     frames = await _run_until_idle(ws, _collection_endpoint(None))
 
     assert frames[1]["type"] == "error"
-    assert frames[1]["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+    assert frames[1]["error"]["error"]["code"] == HttpErrorCode.PROJECT_CHANNEL_UNAVAILABLE.value
     assert frames[2]["type"] == "ack"
     assert frames[2]["command"] == "ping"
     assert service.start_run_calls == 0
     assert ws.closed_code is None
+
+
+@pytest.mark.asyncio
+async def test_malformed_frame_is_still_invalid_request_and_closes_the_connection() -> None:
+    """对照用例（Epic 77 D2）：帧字段拼错仍是 ``invalid_request`` 且按口径断连。
+
+    两条信号因此都能分流「未装配」与「帧写错」：``code`` 不同，**连接状态**也不同（前者保留、
+    后者关闭）——客户端不必读文案，更不该依赖「是否断连」这种脆弱信号单独判错。
+    """
+    service = _RunServiceStub()
+    ws = _QueueWebSocket([json.dumps({"command": "projects", "project_id": "p1234abcd"})])
+
+    await _collection_endpoint(_ProjectChannelStub())(ws)
+
+    frames = [json.loads(frame) for frame in ws.sent]
+    assert frames[-1]["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+    # 替身只记住**最后一次** close：协议层先以 ``WS_CLOSE_POLICY``（1008）关，骨架收尾再补一次默认
+    # 1000。判据因此只取「连接确实关了」（未装配那例反过来断言 ``closed_code is None``）。
+    assert ws.closed_code is not None
+    assert WS_CLOSE_POLICY != 1000  # 断言本身不放宽：两档 code 确实不同
+    assert service.start_run_calls == 0
 
 
 @pytest.mark.asyncio
@@ -346,7 +374,7 @@ def test_project_channel_port_documents_its_three_obligations() -> None:
     doc = inspect.getdoc(ProjectChannelService) or ""
 
     assert "超时是实现方义务" in doc
-    assert "无幂等键" in doc
+    assert "幂等键只覆盖成功提交" in doc
     assert "错误消息不含路径" in doc
     for method in (ProjectChannelService.ensure_available, ProjectChannelService.start_project_run):
         assert "timeout" not in inspect.signature(method).parameters

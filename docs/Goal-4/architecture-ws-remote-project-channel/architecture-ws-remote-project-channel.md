@@ -25,7 +25,7 @@
 | 注册表真源 + 可判定健康信号 | `pub/projects.py::ProjectRegistry` | 同左 | 只被 `cli/` 消费 |
 | 错误码字面值 | `network/http_protocol.py::HttpErrorCode` | — | — |
 
-依赖方向：`cli/ws_project_adapter.py`（入口层）→ `network.ws_protocol`（帧模型）+ `cli.http_console`（编排）+ `pub.projects`（健康探针）；`network/*` 不反向导入任何一项。新增 cli 子模块要同步 `tests/test_architecture_contracts.py::test_cli_package_layout_is_pinned` 白名单与 `docs/frame.md` 的 cli 表/目录树。
+依赖方向：`cli/ws_project_adapter.py`（入口层）→ `network.ws_protocol`（帧模型）+ `cli.http_console`（编排）+ `pub.projects`（健康探针）；`network/*` 不反向导入任何一项。新增 cli 子模块要同步 `tests/test_architecture_contracts.py::test_cli_package_layout_is_pinned` 白名单与 `docs/framework.md` §4.1 的 cli 子模块表 /「六、目录结构」（`docs/frame.md` 是 v6 命名遗留，该文件不存在）。
 
 ### 2.2 哑传输的具体形态
 
@@ -82,7 +82,7 @@
   - I4 `WsAckFrame.model_fields` == `{type, command, run_id, status}`、`WsEventFrame.model_fields` == `{type, event}`（R4/R6 的契约钉子）。
   - I10 `WsProjectsFrame` 的每个 entry 序列化后键集 == `{"id","name","available"}`（`extra="forbid"` + 键集断言双重钉）。
   - I7 所有 server 帧仍是单行 JSON，`type` ∈ `WsFrameType` 值集。
-- **验证判据**：`pytest tests/network -q -k "ws_protocol or ws_server"`；`python scripts/contract_snapshot.py --write` 后 review 四份基线的 diff。
+- **验证判据**：`pytest tests/network -q -k "ws_protocol or ws_server"`；`python scripts/contract_snapshot.py --write` 后 review **五份**基线的 diff。
 
 ### AD-4 `parse_command_frame` 的字段白名单升级为「命令 → 允许键集合」单一映射表
 
@@ -126,12 +126,12 @@
 ### AD-8 远程暴露面不扩张 + 启动 WARNING + 契约与文档收口
 
 - **决策**：
-  - 只读 listener 上 `projects` 帧**允许**（纯读，与「通知流对所有 listener 注册」同档），`cancel_run` 与 `cancel` 同样回 `invalid_request` 且不断连；集合级端点仍不在只读 listener 注册（既有行为）。
+  - 只读 listener 的能力面 = **零**：集合级端点 `/api/runs/ws` 不在其上注册 ⇒ `projects` 帧**不可达**（**2026-11-24 Epic 77 更正**：本行原写「`projects` 允许」，与 §4.1 端点集和实现相反——实现落到的正是下方「被拒替代 (a)」，现以实现为准并把 (a) 标为**采用**）；`cancel_run` 与 `cancel` 回 `invalid_request` 且不断连（事件流照常、运行不受影响），`ping` 正常。
   - `external` 档（非回环 + token）且沙箱后端非 docker 时，启动打**一条** WARNING，落 `cli/http_config.py` 的启动自检族（与 `_check_tls_identity` 同处），文案进入 `cli/http.py::_ws_access_note` 的访问说明。
-  - `docs/frame.md`（cli 新模块 + WS 帧面）、`docs/framework.md` 的 WS 段、`tests/fixtures/contract_baselines/` 四份快照同批更新。
+  - `docs/framework.md`（cli 子模块表 / 目录树、WS 帧面）、`tests/fixtures/contract_baselines/` **五份**快照同批更新。
 - **理由**：远程能提交带项目围栏的 run 之后，「宿主直连执行」的风险等级变了；但这是提示不是闸门（三层非边界立场不因本 epic 改变）。
-- **被拒替代**：(a) 把 `projects` 也拒给只读 listener（客户端失去可用项目清单）；(b) 非 docker 时拒绝启动（超出 R12 的「一条 WARNING」）。
-- **落点**：`cli/http_config.py::_warn_external_without_sandbox`（新增，紧跟 `_check_tls_identity`）；`cli/http.py::_ws_access_note`；`network/ws_server.py` 的 readonly 分支。
+- **被拒替代**：(a) ~~把 `projects` 也拒给只读 listener~~ —— **2026-11-24 采用**（只读 listener 上 `projects` 无从触发：集合级端点未注册；该档位自 Epic 72 起无入口层配置键，生产不存在，故不另开端点）；(b) 非 docker 时拒绝启动（超出 R12 的「一条 WARNING」）。
+- **落点**：`cli/http_config.py::_warn_remote_without_sandbox`（Epic 76 落地时按 external / lan 两档拆分，紧跟 `_check_tls_identity`）；`cli/http.py::_ws_access_note`；`network/ws_host.py::build_ws_app` 的 `if not config.readonly` 分支（只读 listener 因此没有集合级端点）。
 - **不变量**：WS 命令面不新增任何改配置 / 改注册表 / 删文件的命令（R11）；`_ws_access_note` 的既有三段文案逐字不变，只在尾部追加一行。
 - **验证判据**：`pytest tests/test_cli_http_lifecycle.py -q`（WARNING 计数 == 1 / 启动一次）；`python scripts/contract_snapshot.py --write` + 基线 diff review；`mkdocs build --strict`（动过 `docs/` 时）。
 
@@ -302,17 +302,17 @@ ruff check src tests && mypy src && bandit -r src/ -ll
 
 ## 7. 刻意留开的项
 
-1. **提交命令无幂等键 ⇒ ack 丢失会重复提交。** 触发条件：客户端自动重试提交帧。默认处置：客户端**只重试订阅**（带 cursor），提交失败交用户重试；要闭合需在帧上加 `request_id` 并在 console 侧去重（不在本 epic 范围）。
+1. ~~**提交命令无幂等键 ⇒ ack 丢失会重复提交。**~~ **2026-11-24 Epic 77 闭合**：`run` 帧加可选 `request_id`，入口层 `cli/ws_submission_cache.py` 做 60s / 256 条**内存**窗口（在途合流、成功重放、失败不缓存）⇒ 同键重发不会再起第二个 run。**残余边界（刻意保留）**：窗口随进程重启失效、TTL 从提交开始计时、键不含 prompt（同键不同 prompt 重放第一次结果）；落盘幂等 = 把提交升级成有状态事务，与「提交失败不做原子性保证」的既有立场冲突，故不做。
 2. **项目内并发上限固定为 1（沿用 console 现状），不参数化。** 触发条件：需要同项目并行 N 条 run（R9「参数不动」）。默认处置：先只做全局名额，项目内 1 条；将来放开时改 console 判据，不改帧面。
 3. **WS 提交不 `touch()` 项目、不刷新 `last_opened_at`。** 触发条件：产品要求「远程提交后项目跃到列表前面」。默认处置：不动（传输层不写盘）；要改就改在 `HttpProjectConsole.start_project_run` 内部一次调用。
 4. **`registry_state` 只区分 `ok` / `unreadable`，不带具体原因。** 触发条件：客户端要提示「BOM / 超 32 条 / 重复 id」。默认处置：原因留在服务端 WARNING 日志；要外露则给帧加 `notes: tuple[str, ...]`（稳定码）。
 5. **事件帧不含 `project_id`（R6 冻结）。** 订阅者只拿得到 `run_id`。触发条件：客户端只握 WS、需要按项目聚合。默认处置：客户端在提交时自存 `run_id → project_id` 映射。
 6. **ack 不回 `session_id`（R4 冻结）。** 触发条件：纯 WS 客户端要「续该项目的同一会话」而不是默认最近会话。默认处置：走 HTTP 会话端点（本机）或后续新增 WS `sessions` 命令。
-7. **`projects` 帧在只读 listener 上开放（含项目名）。** 触发条件：安全评审认为项目名本身构成信息泄漏。默认处置：允许（与通知流同档，均在 token 之后 / `lan` 无认证面）；若收紧则退化为只回 `id` + `available`。
+7. ~~**`projects` 帧在只读 listener 上开放（含项目名）。**~~ **2026-11-24 Epic 77 关闭：不成立**——只读 listener 零能力面（集合级端点 `/api/runs/ws` 不在其上注册），`projects` 命令根本不可达；项目名因此不经过只读档，无需为它设计「只回 `id` + `available`」的退化形态。
 8. **`HttpProjectConsole` 的并发写安全未在本 spine 复核。** 触发条件：WS 提交与 HTTP 控制台同时 `start_project_run` 同一项目。默认处置：依赖 console 既有的 `project_has_inflight_run` 判据；若实测存在 check-then-act 竞态，在 console 内加项目级锁（不改传输层）。
 
 ## 8. 给实现期的三条硬提醒（实测得出，最容易踩）
 
 - `network/` 里连 `is_dir` 都不能出现；`available` 只能由入口层算好塞进帧。
 - `build_ws_servers` 有 `cli/http.py:449` 与 `:789` 两个调用点，漏一处就是「一条装配分支静默没有项目通道」。
-- 新增 `cli/ws_project_adapter.py` 必须同批改 `tests/test_architecture_contracts.py` 的 cli 布局白名单与 `docs/frame.md`，否则契约测试当场红。
+- 新增 `cli/ws_project_adapter.py`（及 Epic 77 的 `cli/ws_submission_cache.py`）必须同批改 `tests/test_architecture_contracts.py` 的 cli 布局白名单与 `docs/framework.md`，否则契约测试当场红。（原文写的 `docs/frame.md` 是 v6 命名遗留，该文件不存在。）

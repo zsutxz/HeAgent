@@ -87,8 +87,22 @@
 ## 延期项
 
 > 三审（R1/R2/R3）与 Step 07 期间发现的**不在本轮落改**项。逐条给来源轮次、位置与为何延后。
-> 2026-11-23 复核：E74 / E75 / E76 三条 epic 交付后逐条取证，只剩下面两条仍待用户裁决；其余
+> 2026-11-23 复核：E74 / E75 / E76 三条 epic 交付后逐条取证，当时只剩下面三条未裁决（M-4 / M-7 / H-2）；其余
 > （含 R1 L-1/L-2/L-3/L-4/L-5/L-6/L-7、R2 M-1/M-2/M-3、R3 M-1/M-3）已闭合，记录见 `progress.md`。
+> **2026-11-24 收口：下面三条（M-4 / M-7 / H-2）已全部裁决并在 E77 落地或改文档，本段不再有未裁决项。**
 
-- 2026-11-23 R3 M-4（**待裁决**）：提交失败无幂等键。现口径 = 「不提供原子性、不替客户端去重」，写在 `ProjectChannelService` docstring 并有一条判据钉住文案；是否引入 `request_id`（客户端可安全重试）由用户决定。
-- 2026-11-23 R3 M-7（**待裁决**）：「未装配项目通道」与「帧字段拼错」共用 `invalid_request`，`message` 不进 `transport_errors` 契约面 ⇒ 客户端只能靠文案分流。是否新增具名码（如 `project_channel_unavailable`）由用户决定。
+- 2026-11-23 R3 M-4 → **2026-11-24 已裁决并落地（用户选「最小幂等」）**：提交失败仍**不做原子性保证**，
+  但带 `request_id` 的成功提交可安全重放。落点 = `run` 帧新增可选 `request_id`（1–64、不 strip）+
+  `cli/ws_submission_cache.py::SubmissionCache`（60s TTL / 256 条上限 / 在途 Future 合流 / 成功重放 /
+  失败移出，**纯内存**，进程重启即失效）⇒ 同键两次提交拿到同一个 `run_id`、控制台只被调一次；ack 四格
+  冻结不回声。判据 `tests/test_ws_project_adapter.py` 六例（在途合流 / 成功重放 / 不同键 / 无键 / 失败
+  重试 / 窗口过期）+ `tests/network/test_ws_project_submit.py` 透传与「ack 不含 request_id」。
+- 2026-11-23 R3 M-7 → **2026-11-24 已裁决并落地（用户选「新增具名码」）**：「项目通道未装配」改回
+  `project_channel_unavailable`（`run` 带 `project_id` 与 `projects` 两条路径，`message` 与「不断连」不变），
+  帧字段拼错仍是 `invalid_request` 并以 `WS_CLOSE_POLICY` 收尾 ⇒ 客户端凭 `code`（可再看连接状态）分流，
+  不必读文案。`HttpErrorCode` 36 → 37，`transport_errors.json` 只增一条（`status: null` /
+  `status_source: "unmapped"`），`docs/errors.md` 与 `docs/framework.md` 同批同步。
+- 2026-11-23 R3 H-2（只读 listener 是否要能列项目）→ **2026-11-24 已裁决：维持零能力面，只修文档**。
+  取证 = `WsServerConfig.readonly` 自 Epic 72 起无入口层配置键、生产不存在该档位，且集合级端点不注册 ⇒
+  `projects` 无从触发。落点 = 架构 AD-8 措辞与 `docs/framework.md` §4.16.1 只读旁观行改成与实现一致（不新增
+  端点、不放开 `projects`、不删 `readonly` 字段）。

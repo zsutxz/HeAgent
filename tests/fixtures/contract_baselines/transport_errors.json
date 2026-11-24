@@ -171,6 +171,16 @@
       "status_source": "console_status_map"
     },
     {
+      "code": "project_channel_unavailable",
+      "enum_member": "PROJECT_CHANNEL_UNAVAILABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
       "code": "project_limit_reached",
       "enum_member": "PROJECT_LIMIT_REACHED",
       "keys": [
@@ -371,12 +381,13 @@
     "call_site_ambiguous": 0,
     "call_site_literal": 6,
     "console_status_map": 25,
-    "unmapped": 5
+    "unmapped": 6
   },
   "unmapped_codes": [
     "agent_error",
     "empty_prompt",
     "origin_forbidden",
+    "project_channel_unavailable",
     "shutting_down",
     "timeout"
   ]

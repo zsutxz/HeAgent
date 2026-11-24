@@ -141,6 +141,8 @@ class _HttpProjectConsoleStub:
         self._start_error = start_error
         self.ensure_calls = 0
         self.start_project_run_calls = 0
+        # 幂等键透传的证据面（Epic 77 D1）：网络层只搬不改，断言里逐字比对。
+        self.request_ids: list[str | None] = []
 
     async def ensure_available(self, project_id: str) -> str:
         self.ensure_calls += 1
@@ -149,8 +151,14 @@ class _HttpProjectConsoleStub:
             raise self._ensure_error
         return project_id
 
-    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
+    async def start_project_run(
+        self,
+        project_id: str,
+        prompt: str,
+        request_id: str | None = None,
+    ) -> SubmittedRun:
         self.start_project_run_calls += 1
+        self.request_ids.append(request_id)
         self._calls.append(f"start_project_run:{project_id}")
         if self._start_error is not None:
             raise self._start_error
@@ -236,6 +244,23 @@ async def test_ensure_available_failure_is_translated_and_has_no_side_effect() -
 
 
 @pytest.mark.asyncio
+async def test_request_id_is_passed_through_and_never_echoed_in_the_ack() -> None:
+    """E77-S01：幂等键原样透传给端口，ack 仍是四格（客户端按单飞 + ``run_id`` 关联）。"""
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    project_service = _HttpProjectConsoleStub(calls)
+    frame = json.loads(_run_frame(project_id="p1234abcd"))
+    frame["request_id"] = "req-1"
+    ws = _QueueWebSocket([json.dumps(frame)])
+
+    await _endpoint(service, project_service)(ws)
+
+    ack = json.loads(ws.sent[1])
+    assert project_service.request_ids == ["req-1"]
+    assert set(ack) == {"type", "command", "run_id", "status"}
+
+
+@pytest.mark.asyncio
 async def test_start_project_run_failure_is_translated_to_the_error_frame() -> None:
     """提交失败：``run_conflict`` 逐字进错误帧，``start_run`` 仍 0 次（提前失败不改走启动工作区）。"""
     calls: list[str] = []
@@ -258,14 +283,19 @@ def test_project_channel_port_takes_only_opaque_id_and_prompt() -> None:
     start_params = set(inspect.signature(ProjectChannelService.start_project_run).parameters) - {"self"}
     ensure_params = set(inspect.signature(ProjectChannelService.ensure_available).parameters) - {"self"}
 
-    assert start_params == {"project_id", "prompt"}
+    assert start_params == {"project_id", "prompt", "request_id"}
     assert ensure_params == {"project_id"}
 
 
 class _ExplodingProjectConsoleStub(_HttpProjectConsoleStub):
     """端口抛非 ``HttpRunConflictError``：适配器**漏译**时的形状（E75 适配器的义务判据）。"""
 
-    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
+    async def start_project_run(
+        self,
+        project_id: str,
+        prompt: str,
+        request_id: str | None = None,  # noqa: ARG002 - 端口签名的一部分，本用例只验漏译
+    ) -> SubmittedRun:
         raise RuntimeError("adapter blew up")
 
 

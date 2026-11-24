@@ -63,7 +63,7 @@ class HttpErrorCode(StrEnum):
     - **输入类**：``invalid_request`` / ``empty_prompt`` / ``request_too_large``；
     - **项目与会话类**：``unknown_project`` / ``invalid_project_path`` / ``project_unavailable`` /
       ``project_not_removable`` / ``project_busy`` / ``project_limit_reached`` /
-      ``project_registry_unreadable`` / ``unknown_session`` /
+      ``project_registry_unreadable`` / ``project_channel_unavailable`` / ``unknown_session`` /
       ``invalid_session_id`` / ``session_conflict`` / ``session_busy`` / ``session_unreadable``；
     - **原生选择类**：``dialog_unavailable``（无图形后端 / 被 ``--dialog-backend none`` 禁用）/
       ``dialog_busy``（已有一次选择在途）——「用户取消」与「超时」都用成功响应里的
@@ -90,6 +90,8 @@ class HttpErrorCode(StrEnum):
     PROJECT_LIMIT_REACHED = "project_limit_reached"
     # 注册表读不出 / 解析不了：提交径 fail-loud 回本码，绝不退化成「当成 default 项目」。
     PROJECT_REGISTRY_UNREADABLE = "project_registry_unreadable"
+    # 「这条 listener 没装配项目通道」（Epic 77）：环境/装配问题，重试无用，与「帧写错」可分辨。
+    PROJECT_CHANNEL_UNAVAILABLE = "project_channel_unavailable"
     UNKNOWN_SESSION = "unknown_session"
     INVALID_SESSION_ID = "invalid_session_id"
     SESSION_CONFLICT = "session_conflict"

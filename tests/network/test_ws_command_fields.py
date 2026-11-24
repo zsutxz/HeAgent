@@ -4,7 +4,8 @@
 ② ``run`` 帧的 ``project_id`` 可带、原样不 strip、空串判 ``malformed``；
 ③ 未登记键仍判 ``malformed``（白名单语义没被放宽）；
 ④ 未装配项目通道（``project_service=None``）时带 ``project_id`` 的提交回
-``invalid_request`` 且**不**触达 ``service.start_run``——静默按启动工作区执行是禁止的。
+``project_channel_unavailable``（Epic 77 起不再是 ``invalid_request``）且**不**触达
+``service.start_run``——静默按启动工作区执行是禁止的。
 """
 
 from __future__ import annotations
@@ -113,7 +114,7 @@ def test_unknown_field_is_still_malformed() -> None:
 
 @pytest.mark.asyncio
 async def test_project_id_without_project_service_is_rejected_without_starting_run() -> None:
-    """未装配项目通道：带 ``project_id`` 的提交回 ``invalid_request`` 且一次都不触达 ``start_run``。"""
+    """未装配项目通道：带 ``project_id`` 的提交回 ``project_channel_unavailable`` 且不触达 ``start_run``。"""
     service = _NeverCalledRunService()
     endpoint = build_runs_collection_endpoint(
         service,
@@ -127,7 +128,7 @@ async def test_project_id_without_project_service_is_rejected_without_starting_r
 
     types = [json.loads(frame)["type"] for frame in ws.sent]
     assert types == ["hello", "error"]
-    assert json.loads(ws.sent[1])["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+    assert json.loads(ws.sent[1])["error"]["error"]["code"] == HttpErrorCode.PROJECT_CHANNEL_UNAVAILABLE.value
     assert service.start_run_calls == 0
 
 

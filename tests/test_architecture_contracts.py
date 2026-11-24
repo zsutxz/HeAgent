@@ -805,6 +805,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "wiring",
         "wizard",
         "ws_project_adapter",
+        "ws_submission_cache",
     ]
 
 

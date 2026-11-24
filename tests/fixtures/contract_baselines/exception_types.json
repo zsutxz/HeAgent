@@ -98,6 +98,11 @@
       "name": "_InvalidValue"
     },
     {
+      "bases": [],
+      "module": "heagent.cli.ws_submission_cache",
+      "name": "SubmissionCache"
+    },
+    {
       "bases": [
         "BaseModel"
       ],
@@ -1398,6 +1403,7 @@
       "NOT_FOUND": "not_found",
       "ORIGIN_FORBIDDEN": "origin_forbidden",
       "PROJECT_BUSY": "project_busy",
+      "PROJECT_CHANNEL_UNAVAILABLE": "project_channel_unavailable",
       "PROJECT_LIMIT_REACHED": "project_limit_reached",
       "PROJECT_NOT_REMOVABLE": "project_not_removable",
       "PROJECT_REGISTRY_UNREADABLE": "project_registry_unreadable",

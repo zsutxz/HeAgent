@@ -95,17 +95,17 @@ class WsCommand(StrEnum):
 #: 命令 → **允许出现**的键（字段白名单）。解析器与模型校验器共读这一张表：新增命令不登记即
 #: 被 ``set(_FRAME_FIELDS) == set(WsCommand)`` 判据拦下，「按命令判字段」的规则因此只有一份。
 _FRAME_FIELDS: dict[WsCommand, frozenset[str]] = {
-    WsCommand.RUN: frozenset({"command", "prompt", "project_id"}),
+    WsCommand.RUN: frozenset({"command", "prompt", "project_id", "request_id"}),
     WsCommand.CANCEL: frozenset({"command"}),
     WsCommand.CANCEL_RUN: frozenset({"command", "run_id"}),
     WsCommand.PING: frozenset({"command"}),
     WsCommand.PROJECTS: frozenset({"command"}),
 }
 
-#: 允许**缺席**（一旦出现仍须合法）的字段：只有 ``run`` 的 ``project_id``——缺省即「启动工作区」，
-#: 与这条字段出现之前的旧路径逐字等价。白名单内其余键一律必带，所以不需要第二张「必带表」，
-#: 也就没有两表漂移的余地。
-_OPTIONAL_FRAME_FIELDS: frozenset[str] = frozenset({"project_id"})
+#: 允许**缺席**（一旦出现仍须合法）的字段：``run`` 的 ``project_id``（缺省即「启动工作区」）与
+#: ``request_id``（缺省即不带幂等语义）——两者的「缺省」都与该字段出现之前的旧路径逐字等价。
+#: 白名单内其余键一律必带，所以不需要第二张「必带表」，也就没有两表漂移的余地。
+_OPTIONAL_FRAME_FIELDS: frozenset[str] = frozenset({"project_id", "request_id"})
 
 
 def required_frame_fields(command: WsCommand) -> frozenset[str]:
@@ -261,6 +261,9 @@ class WsCommandFrame(BaseModel):
     规则放在模型里而不是只放解析器里，是为了让运行时与测试共用同一份；解析器另在 JSON 层先按
     同一张表判一次，好让「字段拼错」在进模型之前就是 ``malformed``。
 
+    ``request_id`` 是客户端给提交起的**不透明**幂等键（Epic 77 D1）：服务端只把它当去重键，不解释、
+    不 strip、不回显（ack 四格冻结，客户端按单飞 + ``run_id`` 关联）。缺省即不带幂等语义。
+
     ``project_id`` **不做 strip**：它由项目注册表的 ``project_id_for()``（``"p" + sha256[:8]``）
     或字面量 ``"default"`` 产出，客户端必须原样回传——strip 会造出第二个合法拼写。
 
@@ -275,6 +278,8 @@ class WsCommandFrame(BaseModel):
     prompt: str | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=16)
     run_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # 与 ``run_id`` 同档长度界：两者都是客户端原样回传的 opaque 短 id。
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def _validate_fields_per_command(self) -> WsCommandFrame:
@@ -389,14 +394,26 @@ class ProjectChannelService(Protocol):
 
     - **超时是实现方义务**：端口没有 ``timeout`` 参数，端点不做超时兜底——阻塞多久由实现方保证
       有界。提交连接不订阅事件，端口迟迟不返回时客户端只会看到「一直没有 ack」。
-    - **提交失败不做原子性保证、无幂等键**：``start_project_run`` 抛错并不等于「什么都没发生」
-      （可能已分配 run id、已占名额），重试可能重复提交；服务端不替客户端去重。
+    - **提交失败不做原子性保证；幂等键只覆盖成功提交**：``start_project_run`` 抛错并不等于
+      「什么都没发生」（可能已分配 run id、已占名额），重试仍可能重复提交；带 ``request_id`` 时
+      实现方只在**成功**结果上做窗口内去重，失败一律不进缓存（见方法 docstring）。
     - **错误消息不含路径**：``HttpRunConflictError`` 的文案会原样进错误帧给远程客户端看，不得
       回显项目目录或绝对路径。
     """
 
-    async def start_project_run(self, project_id: str, prompt: str) -> SubmittedRun:
-        """在该项目围栏内起 run 并返回收窄后的提交结果。"""
+    async def start_project_run(
+        self,
+        project_id: str,
+        prompt: str,
+        request_id: str | None = None,
+    ) -> SubmittedRun:
+        """在该项目围栏内起 run 并返回收窄后的提交结果。
+
+        ``request_id``（Epic 77 D1）是客户端起的不透明幂等键：同一 ``(project_id, request_id)``
+        在实现方窗口内只提交一次——在途请求合流到同一个等待、已完成的直接回同一个结果，两次调用
+        因此拿到同一个 ``run_id``。``None`` = 不带幂等语义，与旧帧逐字等价。窗口是**内存态**：
+        进程重启后失效，这一点是显式边界而不是缺陷。
+        """
         ...
 
     async def ensure_available(self, project_id: str) -> str:

@@ -58,6 +58,8 @@ class TestErrorCodes:
             "project_busy",
             "project_limit_reached",
             "project_registry_unreadable",
+            # Epic 77：「这条 listener 没装配项目通道」独立成码（重试无用 vs 帧写错）。
+            "project_channel_unavailable",
             "unknown_session",
             "invalid_session_id",
             "session_conflict",

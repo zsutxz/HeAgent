@@ -6,6 +6,9 @@
 （未登记的码不折叠，`ValueError` 冒出）；④ 适配器源码里没有任何文件系统 / 注册表逻辑——它是
 「传输层不认识项目目录」的实现侧一半。
 
+第五件事（Epic 77 D1）：`request_id` 幂等窗口——同键在途合流（控制台只被调一次、两路拿到同一个
+`run_id`）、成功结果 60s 内可重放、失败不缓存、TTL 过期后可再次提交。
+
 替身是 `ConsoleHandler` 项目面的最小鸭子类型（只实现被适配器调用的三个方法），不用真控制台：
 本 story 的判据是**翻译**，控制台侧行为另有用例覆盖。
 """
@@ -13,6 +16,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import json
 from pathlib import Path
@@ -370,3 +374,134 @@ async def test_default_project_stays_usable_when_the_registry_is_unreadable(tmp_
     else:
         assert (await adapter.start_project_run("default", "写个快排")).run_id == "run-0001"
     assert [name for name, _ in console.calls]  # 确实走到了控制台
+
+
+# ── 提交幂等窗口（Epic 77 D1） ──
+
+
+class _GatedConsole(_FakeConsole):
+    """把提交停在闸门上，用来造「同键在途」的确定性窗口。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = asyncio.Event()
+        self.entered = asyncio.Event()
+
+    async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:
+        self.calls.append(("start_project_run", (project_id, request)))
+        self.entered.set()
+        await self.gate.wait()
+        return ProjectRunResponse(run_id="run-0001", session_id="sess-0001", status=RunStatus.RUNNING)
+
+
+def _start_calls(console: _FakeConsole) -> int:
+    return sum(1 for name, _ in console.calls if name == "start_project_run")
+
+
+async def test_same_request_id_in_flight_reuses_the_first_submission() -> None:
+    """同键在途：第二路合流，控制台只被调一次，两路拿到同一个 ``run_id``。"""
+    console = _GatedConsole()
+    adapter = _adapter(console)
+
+    first = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await console.entered.wait()
+    second = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await asyncio.sleep(0)
+    console.gate.set()
+
+    outcomes = [await first, await second]
+
+    assert [item.run_id for item in outcomes] == ["run-0001", "run-0001"]
+    assert _start_calls(console) == 1
+
+
+async def test_same_request_id_after_success_replays_the_cached_result() -> None:
+    """同键串行（第一次已完成）：60s 内直接重放，控制台仍只被调一次。"""
+    console = _FakeConsole()
+    adapter = _adapter(console)
+
+    first = await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+    second = await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+
+    assert (first.run_id, second.run_id) == ("run-0001", "run-0001")
+    assert _start_calls(console) == 1
+
+
+async def test_different_request_id_starts_two_runs() -> None:
+    """不同键（或键含不同项目）互不干扰：两次都是真提交。"""
+    console = _FakeConsole()
+    adapter = _adapter(console)
+
+    await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+    await adapter.start_project_run(_PROJECT_ID, "hi", "req-2")
+    await adapter.start_project_run("default", "hi", "req-1")
+
+    assert _start_calls(console) == 3
+
+
+async def test_without_request_id_every_call_is_a_new_submission() -> None:
+    """旧帧逐字等价：不带幂等键就是每次新提交。"""
+    console = _FakeConsole()
+    adapter = _adapter(console)
+
+    await adapter.start_project_run(_PROJECT_ID, "hi")
+    await adapter.start_project_run(_PROJECT_ID, "hi")
+
+    assert _start_calls(console) == 2
+
+
+async def test_failure_is_not_cached_so_the_retry_can_start_again() -> None:
+    """失败不进窗口：同键重试必须再次触达控制台（与「失败不做原子性保证」并存）。"""
+    console = _FakeConsole()
+    console.run_error = ConsoleOperationError("run_conflict", "a run is already in flight")
+    adapter = _adapter(console)
+
+    with pytest.raises(HttpRunConflictError):
+        await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+
+    console.run_error = None
+    result = await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+
+    assert result.run_id == "run-0001"
+    assert _start_calls(console) == 2
+
+
+async def test_expired_window_starts_a_new_submission() -> None:
+    """窗口按单调时钟计时：过期后同键重新提交（不假装持久、也不无限去重）。"""
+    console = _FakeConsole()
+    adapter = _adapter(console)
+    now = [1000.0]
+    adapter._submissions._clock = lambda: now[0]  # type: ignore[attr-defined] - 判据要控制单调时钟
+
+    await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+    now[0] += 61.0
+    await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+
+    assert _start_calls(console) == 2
+
+
+async def test_cancelling_one_joiner_does_not_cancel_the_other() -> None:
+    """合流者被取消不得连坐兄弟合流者——`asyncio.shield` 的唯一必要性，别把它当装饰去掉。
+
+    实测口径（去掉 shield 即红）：取消其中一个合流者会把共享 `Future` 一起取消，另一个合流者因此
+    收到 `CancelledError` 而不是结果；owner 侧照常返回（`if not future.done()` 守卫挡掉了
+    `InvalidStateError`）。
+    """
+    console = _GatedConsole()
+    adapter = _adapter(console)
+
+    owner = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await console.entered.wait()
+    doomed = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    survivor = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)  # 让两个合流者都进到 `await shield(...)`
+    doomed.cancel()
+    console.gate.set()
+
+    outcomes = await asyncio.gather(owner, survivor, return_exceptions=True)
+    with pytest.raises(asyncio.CancelledError):
+        await doomed
+
+    assert [getattr(item, "run_id", item) for item in outcomes] == ["run-0001", "run-0001"]
+    assert _start_calls(console) == 1

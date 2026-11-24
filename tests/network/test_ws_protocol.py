@@ -228,6 +228,23 @@ def test_cancel_run_frame_requires_exactly_a_run_id() -> None:
     assert parse_command_frame(json.dumps({"command": "cancel_run", "run_id": " run-abc "})).run_id == " run-abc "
 
 
+def test_run_frame_carries_an_opaque_request_id_and_does_not_strip_it() -> None:
+    """E77-S01：``request_id`` 是可选的幂等键，原样保留（客户端不透明 id，不 strip）。"""
+    plain = parse_command_frame(json.dumps({"command": "run", "prompt": "hi"}))
+    assert plain.request_id is None  # 旧帧逐字等价：缺省 = 不带幂等语义
+
+    keyed = parse_command_frame(json.dumps({"command": "run", "prompt": "hi", "request_id": " req-1 "}))
+    assert keyed.request_id == " req-1 "
+
+
+@pytest.mark.parametrize("request_id", ["", "x" * 65])
+def test_run_request_id_is_bounded_to_sixty_four_chars(request_id: str) -> None:
+    """与 ``run_id`` 同档长度界：空串与超长在解析面即 ``malformed``。"""
+    with pytest.raises(WsFrameError) as exc_info:
+        parse_command_frame(json.dumps({"command": "run", "prompt": "hi", "request_id": request_id}))
+    assert exc_info.value.kind is WsFrameErrorKind.MALFORMED
+
+
 @pytest.mark.parametrize(
     "project_id",
     ["", "x" * 17],
@@ -367,7 +384,7 @@ _EXPECTED_REMOTE_FRAME_FIELDS: dict[str, frozenset[str]] = {
     "cancel_run": frozenset({"command", "run_id"}),
     "ping": frozenset({"command"}),
     "projects": frozenset({"command"}),
-    "run": frozenset({"command", "prompt", "project_id"}),
+    "run": frozenset({"command", "prompt", "project_id", "request_id"}),
 }
 
 #: 协议层入站 + 出站帧模型：帧面冻结，新增一格的字段就等于新开一格对外可见面。
@@ -386,7 +403,7 @@ _REMOTE_FRAME_MODELS: dict[str, type[BaseModel]] = {
 }
 
 _EXPECTED_REMOTE_MODEL_FIELDS: dict[str, frozenset[str]] = {
-    "WsCommandFrame": frozenset({"command", "prompt", "project_id", "run_id"}),
+    "WsCommandFrame": frozenset({"command", "prompt", "project_id", "request_id", "run_id"}),
     "WsHelloFrame": frozenset({"type", "version"}),
     "WsEventFrame": frozenset({"type", "event"}),
     "WsAckFrame": frozenset({"type", "command", "run_id", "status"}),

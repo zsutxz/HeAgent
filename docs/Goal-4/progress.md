@@ -2,8 +2,8 @@
 
 - 目标：WS 远程项目通道（多项目控制）
 - Initiative：Goal-4（goal 目录本身即 initiative 根，Step 04 写定）
-- 状态：done（2026-11-23 Step 08 最终放行）
-- 当前步骤：全部完成（01–08）
+- 状态：done（2026-11-24 E77 放行；Step 08 已于 2026-11-23 放行，E77 属重开增量）
+- 当前步骤：全部完成（01–08 + E77 重开增量）
 
 ## 步骤状态
 
@@ -23,8 +23,9 @@
 - E74 `epic-74-ws-frame-contract`：5 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
 - E75 `epic-75-project-channel-runtime`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾）
 - E76 `epic-76-remote-surface-closeout`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾 + Step 08 集成通过）
-- 合计 `counts {total: 17, done: 17}`；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（2026-11-23 全收口后）：无 `ready_to_start`、无 `blocked`——三个 epic 容器均 `status: done`（17/17 entry done）
+- E77 `epic-77-remote-contract-hardening`：3 entry 全部 done（77.1 幂等键 / 77.2 具名码 / 77.3 只读能力面与收口），epic 容器 `status: done`（2026-11-24 用户 `approve e77`；回顾见 epic 目录 `-retrospective.md`，**三审 R1/R2/R3 未跑**，见交接块）
+- 合计 `counts {total: 20, done: 20}`（E77 三条 `mark done` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（2026-11-24 E77 放行后）：`ready_to_start` / `in_progress` / `blocked` 均空，四个 epic 容器全部 `done`
 
 ## 决策日志（追加式，只增不改）
 
@@ -88,10 +89,41 @@
 
 ## 交接块（下一轮入口）
 
-- 下一条：**无** —— Goal-4 三个 epic / 17 条 entry 全部 `done`，goal 状态 `done`；Step 08 报告与三份 epic 集成报告已落盘。
-- 票树实测：E74 `{total:5, done:5}` / E75 `{total:6, done:6}` / E76 `{total:6, done:6}`，三棵 `problems` 全空。
-- 质量门禁（Step 08 实测）：`python scripts/quality_gate.py` = **all gates passed**（五份契约基线 `[OK]`、冒烟 2 passed、全量 5869 passed / 覆盖率 93.50% / ruff / format / mypy 240 / bandit 0）；`mkdocs build --strict` 0 warning；逐 epic 场景 116 / 53 / 31 passed；跨 epic 端到端 83 passed。
-- 未关闭的门：**待用户裁决 3 条**（`brief.md` 延期项 R3 M-4 `request_id` 幂等键、R3 M-7 `invalid_request` 是否拆具名码；E75 Notes H-2 只读 listener 是否要能列项目清单）。三条均不阻塞本 goal 收口。
-- 恢复入口：新一轮 `/loop` 先读本节与 `brief.md` 延期项，再决定是开新 goal 还是先裁决上述三条。
+- 下一条：**无** —— E77 三条 entry 全部 `done`、epic 容器 `status: done`，Goal-4 合计 4 epic / 20 entry 全 done。
+- 票树实测：E74 `{5 done}` / E75 `{6 done}` / E76 `{6 done}` / E77 `{3 done}`，`problems` 全空；合计 `{total:20, done:20}`。
+- **构建轮差异已补齐**：E77 构建是单 lane + 用户直批（当时没跑三审）；**2026-11-24 已补跑 R1/R2/R3**，
+  三份报告落 `tickets/epic-77-remote-contract-hardening/epic-77-remote-contract-hardening-review-r{1,2,3}.md`
+  （契约面 / 并发面 / 文档面），落改 8 处已进工作树，等提交。
+- 质量门禁（E77 三审落改后实测）：全量 `pytest` 5899 passed / 0 failed；`ruff` / `format` / `mypy 242` / `bandit` 干净；
+  五份契约基线 `[OK]`；`mkdocs build --strict` 0 warning；docs 守卫 20 passed。
+- 恢复入口：读本节 + `brief.md` 延期项（三条已裁决，无未裁决项）+ `tickets/epic-77-remote-contract-hardening/`。
 
 - 2026-11-24 进度表校正：E76 行与合计 / `next` 行按 `tickets.py status` 实测更新（6/6 done、total 17 / done 17、无 ready_to_start 与 blocked）；只改事实与状态行，不改历史 Decision 条目。
+
+
+- 2026-11-24 Decision（三条延期项裁决，用户回复「1 B 按推荐」）：`brief.md` 延期项三条逐条落定 ——
+  - R3 M-4（提交幂等）取**最小幂等**形态：`run` 帧加可选 `request_id`，适配器做 60s / 256 条内存窗口，在途合流 + 成功结果重放，失败不缓存；不落盘、不跨进程（显式边界）。
+  - R3 M-7（错误码分流）取**新增具名码**：`project_channel_unavailable` 只给「项目通道未装配」两条路径用，帧拼错仍 `invalid_request`；`HttpErrorCode` 36 → 37，`transport_errors` 基线只增一条。
+  - E75 H-2（只读 listener 项目清单）取**维持零能力面**：只读 listener 不注册集合级端点 ⇒ `projects` 不可达，改 AD-8 措辞与代码对齐，不新开端点（该档位自 Epic 72 起无入口层配置键）。
+  - 落点：`docs/Goal-4/tickets/epic-77-remote-contract-hardening/`（3 entry）。
+
+- 2026-11-24 Decision（E77 放行）：用户回复原文 `approve e77` ⇒ 按契约把 77.1 / 77.2 / 77.3 逐条 `mark done`，
+  epic 容器 frontmatter 置 `status: done`，goal 状态回 `done`。本轮构建为单 lane，**三审 R1/R2/R3 未跑**
+  （用户在报告页直接 approve），差异已写进交接块，供下一轮决定是否补审。
+
+- 2026-11-24 **E77 补跑三审（用户：「3」= 补三审 R1/R2/R3）**：评审对象 = 未提交工作树（`HEAD 669ed177`）。
+  R1（规格对账）有条件的通过：C0 / H0 / **M1** / L2，M1 = `docs/errors.md` 传输层码计数差一（写 36、实际 37，
+  HEAD 时已是 35 vs 36 的旧偏差，本 epic 顺着 +1 未修）⇒ 落改 37 / 78（异常类 29、CLI 12 两条已核对自洽）。
+  R2（不变量与守卫反脆弱）有条件的通过：C0 / H0 / **M2** / L2。M1 = `asyncio.shield` **零判据**且 docstring 把失败模式
+  写成 `InvalidStateError`（实测被 `if not future.done()` 守卫挡掉，真实现象是**兄弟合流者收到 `CancelledError`**）⇒
+  改写 docstring + 补连坐取消用例（去掉 shield 即红）。M2 = 在途项会被 TTL 过期 / 容量淘汰**踢出** ⇒「在途合流」
+  有静默空洞（实测 61s 后在途同键 `is_owner=True`、`max_entries=2` 时最旧在途被淘汰）⇒ 落改「过期只清已完成项 +
+  容量满优先淘汰已完成项」，新增 `tests/test_ws_submission_cache.py` 5 例。L2 = 同键不同 prompt 静默重放第一次结果
+  ⇒ 写成显式边界（键不含 prompt，服务端不比对载荷）。
+  R3（三镜头对抗式）通过：C0 / H0 / **M2** / L3，两条 Medium 都是**同一文档内自相矛盾**——架构 §7 第 7 条仍写
+  「`projects` 在只读 listener 上开放」（与 AD-8 更正相反）、第 1 条仍写「提交命令无幂等键 … 不在本 epic 范围」
+  （E77 R1 就是闭合它）⇒ 两条都按裁决改成闭合态并显式写出残余边界；L = `brief.md` 表头「两条」与正文三条不符、
+  架构三处指向不存在的 `docs/frame.md` 与两处「四份基线」（现行五份）⇒ 全部落改。
+  五条注入反证（A 连坐取消 / B 在途不过期 / C 帧可选性 / D 失败移出窗口 / E `network/` 零命中幂等窗口）全部
+  「红 → 复原 → 绿」。落改后门禁：全量 `pytest` 5899 passed / 0 failed、`ruff` / `format`（512 files）/ `mypy 242` /
+  `bandit` 干净、五份基线 `[OK]`、`mkdocs --strict` 0 warning。**工作树当前有未提交改动，等用户放行提交。**
