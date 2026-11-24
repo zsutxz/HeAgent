@@ -8,7 +8,7 @@ sources: ["_bmad-output/open-items.md", "docs/decisions/adr-0004-ws-tls-install-
 after: ["epic-78-open-items-followthrough"]
 risk: low
 refined: true
-status: in-progress
+status: done
 ---
 
 # E79 · A76 服务端侧收成一条命令（wss 承兑工具 + 台账操作卡收窄）
@@ -74,4 +74,5 @@ E78 给 A76 写了操作卡，但「宿主 `netstat` 对账 + pin 三格式人�
 - 2026-11-24 Decision：脚本取 **stdlib only**（`ssl` / `socket` / `urllib`），不依赖 `websockets`——
   宿主 `python scripts/ws_tls_attest.py` 直接可跑，不必先装 dev 依赖；离线自检自带 TLS stub，
   不复用 `tls_ws_stub.py`（后者是给人手测用的常驻进程，这里要的是进程内、可断言的形态）。
-- 2026-11-24 Review：三审单文档见 `epic-79-a76-attest-tool-review.md`（四镜头一 0 条 / 镜头二 4 Medium 落改 / 镜头三 1 Low 记录）。核心落改 = 暴露面漂移不再被误报成「服务未在监听」（`1` vs `2`）、脱括号改走`network.exposure.unbracket_host`、第 ⑤ 段用显式指纹而非反解析文案、材料不可解析与非法参数不再 traceback；判据 7 → 11 例。epic 仍 `in-progress`，等用户放行。
+- 2026-11-24 Review：三审单文档见 `epic-79-a76-attest-tool-review.md`（镜头一 0 条 / 镜头二 4 Medium 落改 / 镜头三 1 Low 记录）。核心落改 = 暴露面漂移不再被误报成「服务未在监听」（`1` vs `2`）、脱括号改走 `network.exposure.unbracket_host`、第 ⑤ 段用显式指纹而非反解析文案、材料不可解析与非法参数不再 traceback；判据 7 → 11 例。epic 仍 `in-progress`，等用户放行。
+- 2026-11-24 Close：用户 `approve e79` ⇒ 两票 `mark done`、epic 容器置 `done`；回顾见 `epic-79-a76-attest-tool-retrospective.md`。

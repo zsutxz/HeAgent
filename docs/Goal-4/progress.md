@@ -25,9 +25,9 @@
 - E76 `epic-76-remote-surface-closeout`：6 entry 全部 built，epic 容器 `status: done`（2026-11-23 收口：三审 R1/R2/R3 + 回顾 + Step 08 集成通过）
 - E77 `epic-77-remote-contract-hardening`：3 entry 全部 done（77.1 幂等键 / 77.2 具名码 / 77.3 只读能力面与收口），epic 容器 `status: done`（2026-11-24 用户 `approve e77`；回顾见 epic 目录 `-retrospective.md`，**三审 R1/R2/R3 未跑**，见交接块）
 - E78 `epic-78-open-items-followthrough`：3 entry 全部 done（78.1 幂等窗口可观测 / 78.2 `web_search_smoke.py` / 78.3 三条台账操作卡），epic 容器 `status: done`（2026-11-24 用户放行；三审单文档三镜头 + 回顾见 epic 目录）
-- E79 `epic-79-a76-attest-tool`：2 entry 全部 built（79.1 `scripts/ws_tls_attest.py` 四段承兑 / 79.2 A76 操作卡收窄 + `AGENTS.md` 工具链指针），三审单文档已出（`-review.md`：4 Medium 落改、7 条注入反证、判据 7 → 11 例），epic 容器 `status: in-progress`，等放行
-- 合计 `counts {total: 25, done: 23}`（E78 三条 `mark done` + E79 两票 `built` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
-- `next` 实测（2026-11-24 E79 立项后）：E79 两条为 `review`（等放行），其余四个 epic 容器 `done`（initiative 级 `status` / `next` 仍报 `config_utils.py` 缺失，属既有布局问题）
+- E79 `epic-79-a76-attest-tool`：2 entry 全部 done（79.1 `scripts/ws_tls_attest.py` 四段承兑 / 79.2 A76 操作卡收窄 + `AGENTS.md` 工具链指针），epic 容器 `status: done`（2026-11-24 用户 `approve e79`；三审单文档三镜头 + 回顾见 epic 目录）
+- 合计 `counts {total: 25, done: 25}`（E79 两票 `mark done` 后实测）；`unpinned_after` / `undeclared_after` / `order_conflict` 全空
+- `next` 实测（2026-11-24 E79 放行后）：五个 epic 容器全部 `done`、`longest_remaining_chain` 空（initiative 级 `status` / `next` 仍报 `config_utils.py` 缺失，属既有布局问题）
 
 ## 决策日志（追加式，只增不改）
 
@@ -208,3 +208,9 @@
   **5924 passed / 0 failed**（336s）、台账与链接守卫 72 passed / 1 skipped、`ruff check` + `format --check`
   （553 files）、`mypy src`（242 files）、`contract_snapshot --check` 五份 `[OK]`、`mkdocs --strict` 0 warning。
   **工作树仍未提交，等放行。**
+
+- 2026-11-24 **E79 放行（用户 `approve e79`）**：两票 `mark done`（`tickets.py status` 实测
+  `counts {total: 2, done: 2}`、`longest_remaining_chain` 空），epic 容器置 `done`；回顾写进
+  `epic-79-a76-attest-tool-retrospective.md`。goal 级合计 `{total: 25, done: 25}`，五个 epic 全部收口。
+  **A76 仍不闭合**：剩客户端 `X509TrustManager` pin 与设备三处对账（`aihome-client` 仓），服务端侧已机器化
+  （`python scripts/ws_tls_attest.py` 一条命令四段 `[OK]`）。

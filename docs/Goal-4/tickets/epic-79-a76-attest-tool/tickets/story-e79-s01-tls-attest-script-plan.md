@@ -6,7 +6,7 @@ epic: epic-79-a76-attest-tool
 risk: low
 hitl: false
 covers: ["R1"]
-status: built
+status: done
 ---
 
 # E79-S01 · `scripts/ws_tls_attest.py`：A76 服务端侧的四段承兑

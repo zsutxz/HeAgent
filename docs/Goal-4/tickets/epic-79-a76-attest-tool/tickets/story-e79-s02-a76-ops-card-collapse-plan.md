@@ -6,7 +6,7 @@ epic: epic-79-a76-attest-tool
 risk: low
 hitl: false
 covers: ["R2"]
-status: built
+status: done
 ---
 
 # E79-S02 · A76 操作卡收成一条命令 + 工具链指针
