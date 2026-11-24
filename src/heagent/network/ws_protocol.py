@@ -262,7 +262,10 @@ class WsCommandFrame(BaseModel):
     同一张表判一次，好让「字段拼错」在进模型之前就是 ``malformed``。
 
     ``request_id`` 是客户端给提交起的**不透明**幂等键（Epic 77 D1）：服务端只把它当去重键，不解释、
-    不 strip、不回显（ack 四格冻结，客户端按单飞 + ``run_id`` 关联）。缺省即不带幂等语义。
+    不 strip、不回显（ack 四格冻结，客户端按单飞 + ``run_id`` 关联）。缺省即不带幂等语义。它**只在
+    带 ``project_id`` 的项目径生效**——幂等窗口住项目通道适配器，启动工作区径没有它，所以「带键但
+    不带 ``project_id``」的帧合法却不去重（两次提交就是两个 run）；与 HTTP 的 ``x-request-id`` 追踪
+    id 同名不同义，互不填充。
 
     ``project_id`` **不做 strip**：它由项目注册表的 ``project_id_for()``（``"p" + sha256[:8]``）
     或字面量 ``"default"`` 产出，客户端必须原样回传——strip 会造出第二个合法拼写。

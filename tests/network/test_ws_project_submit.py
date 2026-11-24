@@ -261,6 +261,27 @@ async def test_request_id_is_passed_through_and_never_echoed_in_the_ack() -> Non
 
 
 @pytest.mark.asyncio
+async def test_request_id_without_project_id_never_reaches_the_idempotency_window() -> None:
+    """带 ``request_id`` 却不带 ``project_id``：走启动工作区旧路径，**两次提交就是两个 run**。
+
+    这一格是显式边界（幂等窗口住项目通道适配器，启动工作区径没有它），用例把它钉住，免得有人
+    以为「request_id 单独也能去重」。同一帧重发两次，`start_run` 必须被调两次、项目端口零触达。
+    """
+    calls: list[str] = []
+    service = _RunWebSocketServiceStub(calls)
+    project_service = _HttpProjectConsoleStub(calls)
+    frame = json.loads(_run_frame())
+    frame["request_id"] = "req-1"
+    ws = _QueueWebSocket([json.dumps(frame), json.dumps(frame)])
+
+    await _endpoint(service, project_service)(ws)
+
+    assert service.start_run_calls == 2
+    assert project_service.start_project_run_calls == 0
+    assert [json.loads(item)["type"] for item in ws.sent].count("ack") == 2
+
+
+@pytest.mark.asyncio
 async def test_start_project_run_failure_is_translated_to_the_error_frame() -> None:
     """提交失败：``run_conflict`` 逐字进错误帧，``start_run`` 仍 0 次（提前失败不改走启动工作区）。"""
     calls: list[str] = []

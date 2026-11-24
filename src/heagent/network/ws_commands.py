@@ -167,6 +167,7 @@ async def _start_project_run(
     才是后续用的 ``project_id``。
 
     ``request_id`` 原样透传给端口（Epic 77 D1）：幂等表住实现方，传输层不认识也不缓存提交结果。
+    它只在**项目径**（``project_id`` 非空）被传下去——启动工作区径没有幂等窗口，该键在此被忽略。
     """
     if project_service is None:
         await _send_error_frame(

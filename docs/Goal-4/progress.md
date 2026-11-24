@@ -127,3 +127,15 @@
   五条注入反证（A 连坐取消 / B 在途不过期 / C 帧可选性 / D 失败移出窗口 / E `network/` 零命中幂等窗口）全部
   「红 → 复原 → 绿」。落改后门禁：全量 `pytest` 5899 passed / 0 failed、`ruff` / `format`（512 files）/ `mypy 242` /
   `bandit` 干净、五份基线 `[OK]`、`mkdocs --strict` 0 warning。**工作树当前有未提交改动，等用户放行提交。**
+
+- 2026-11-24 **E77 提交后代码复审（用户：「3」= 审查这轮已提交代码）**：对象 = `95945586`，报告落
+  `tickets/epic-77-remote-contract-hardening/epic-77-remote-contract-hardening-review-r4.md`。
+  C0 / H0 / **M2** / L3。M1 = `request_id` 不带 `project_id` 时被**静默忽略**（探针实测：同帧重发两次
+  `start_run` 2 次、ack 两个 run_id）⇒ 不改行为、把边界写进帧模型 / 命令层 docstring 与 framework 提交 run 行，
+  并补判据 `test_request_id_without_project_id_never_reaches_the_idempotency_window`。
+  M2 = 文档口径「60s / 256」无判据且两个常量无人消费 ⇒ 补 `test_window_defaults_match_the_documented_numbers`
+  （常量 == 文档数字、构造默认 == 常量；注入把 60.0 改 30.0 ⇒ 2 failed）。
+  L1 = WS `request_id`（幂等键）与 HTTP `request_id`（`x-request-id` 追踪）同名不同义 ⇒ 文档同句消歧（已落改）；
+  L2 = `if not future.done()` 正常路径不可达（保留作防御，它是 R2-M-1 docstring 误述的成因）；
+  L3 = 同一句错误文案两处硬编码（三行以内重复，按既有立场不抽）。落改后门禁：目标子集 978 passed、
+  `ruff` / `format`（512）/ `mypy 242` 全绿、五份基线 `[OK]`、`mkdocs --strict` 0 warning。

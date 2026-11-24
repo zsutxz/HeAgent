@@ -14,10 +14,15 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import pytest
 
-from heagent.cli.ws_submission_cache import SubmissionCache
+from heagent.cli.ws_submission_cache import (
+    IDEMPOTENCY_MAX_ENTRIES,
+    IDEMPOTENCY_TTL_SECONDS,
+    SubmissionCache,
+)
 from heagent.network.ws_protocol import RunStatus, SubmittedRun
 
 _KEY = ("p1234abc", "req-1")
@@ -110,3 +115,16 @@ async def test_drop_is_idempotent_and_frees_the_key() -> None:
     cache.drop(_KEY)  # 幂等：没有该键也不抛
 
     assert cache.reserve(_KEY)[1] is True
+
+
+def test_window_defaults_match_the_documented_numbers() -> None:
+    """60s / 256 是写进 `docs/framework.md` 的对外口径：常量与构造默认值必须同源。
+
+    没有这条，改一个数字会让文档静默失真——窗口大小是客户端算「多久内可以安全重发」的依据。
+    """
+    params = inspect.signature(SubmissionCache.__init__).parameters
+
+    assert IDEMPOTENCY_TTL_SECONDS == 60.0
+    assert IDEMPOTENCY_MAX_ENTRIES == 256
+    assert params["ttl"].default == IDEMPOTENCY_TTL_SECONDS
+    assert params["max_entries"].default == IDEMPOTENCY_MAX_ENTRIES
