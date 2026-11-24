@@ -14,6 +14,8 @@
 
 > 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
 
+## [0.11.0] - 2026-11-23
+
 ### Changed（破坏性）
 
 - **`/api/status` 的 listener 条目 `tls` 从布尔改为对象**（Epic 73）：`{"enabled": bool,
