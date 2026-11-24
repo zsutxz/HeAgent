@@ -3,83 +3,33 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > 本文件独立于 AGENTS.md（并行维护、不互为真源、不合并）——2026-11-12 裁定，再覆盖/合并即违规。
+>
+> 本文件只放两件事：**去哪读**（§1，项目事实一律外链、此处不复述）与**协作纪律**（§2–§3）。
+> 要补项目事实，先补进 `README.md` 或 `docs/framework.md`，这里只留指针——否则同一事实会有第二份真相。
 
-## 常用命令
+## 1. 先读哪个文档
 
-```bash
-pip install -e ".[dev]"                # 开发安装（Python ≥3.11；gui/http 另有 extras）
+| 想知道什么 | 权威落点 |
+| --- | --- |
+| 安装、Provider 配置、CLI / HTTP / WS 用法、常用命令、开发与门禁命令、发版 | [`README.md`](README.md) |
+| 架构权威：数据流、模块 DAG 与依赖规则、模块详解、完整调用链、技术规范（单文件 1000 行上限、包边界契约、注释与 Windows 规范） | [`docs/framework.md`](docs/framework.md) |
+| 安全口径（canonical）：三层非边界 / OS 沙箱兜底 / `local` · `lan` · `external` 三档 / 端点可见性 / 已知缺口 | [`docs/framework.md` §4.18](docs/framework.md#418-安全口径canonical) |
+| 缺口台账与规划产物布局（goal 树、`_bmad-output/` 三代归档、台账守卫测试） | [`docs/framework.md` §8.5](docs/framework.md#85-台账与规划产物布局) |
+| 门禁红了怎么分诊（`verify_baseline` 的 VERDICT 判读、耗时基线、marker 口径） | [`docs/testing.md`](docs/testing.md) |
+| 沙箱后端、四档分级与会话目录 | [`docs/sandbox.md`](docs/sandbox.md) |
+| 文档职责、权威顺序与阅读路径 | [`docs/README.md`](docs/README.md) |
+| 扩展点（新增 provider / tool / 技能包）与测试约束 | [`AGENTS.md`](AGENTS.md) |
+| 当前 goal 与票树 | 指针 `docs/current` → `docs/<goal-id>/tickets/`：`tickets.py --project-root docs/<goal-id>/tickets …`，`mark` 是状态唯一合法写路径 |
 
-pytest                                 # 全量测试（自动跳过 integration/benchmark）
-pytest tests/test_agent_loop.py::test_basic_run   # 单个用例
-pytest --cov --cov-report=term-missing # 覆盖率（门限 87%；CI 口径）
-# ⚠ 本地 Py3.13 的 --cov 有 pydantic-settings×coverage 兼容 bug，本地验证用不带 cov 的 pytest
+## 2. 协作纪律（本文件负责的部分）
 
-ruff check src tests scripts examples  # 静态检查（CI lint 同参数；bandit 只认 # nosec）
-ruff format --check src tests scripts examples
-mypy src
-bandit -r src/ -ll
+- **提交前必须呈报**：每次 `git commit` 前呈报提交信息与文件清单，获得明确同意后才执行。
+- 提交信息用**中文** Conventional Commit（`feat(provider): 增加模型回退`）；只写修改点（改了什么 / 为什么），不写开发过程叙事（评审轮次、triage 统计、plan 闭合状态）——过程记录归 plan 与台账。
+- 提交前跑相关测试 + `ruff check` + `mypy`。
+- **monkeypatch 缝是搬移红线**：搬代码前先 `grep` patch 用的字符串路径（如 `heagent.cli.console._run_prompt`）。
+- 信任「读到的」而不是「记得的」：动包边界、新增 `cli/*.py` 子模块、改台账之前，先读对应契约测试（`tests/test_architecture_contracts.py`、`tests/test_deferred_*.py`）的头部注释与 §1 表里的落点。
 
-python scripts/quality_gate.py         # 本地全门（冒烟+回归+lint+format+mypy+bandit，fail-fast）
+## 3. 本机环境注意（非项目事实）
 
-# 门禁红了的第一步：干净 HEAD 副本复跑同批用例，判「环境产物 vs 回归」
-python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
-# 判读口径（VERDICT: environmental / REGRESSION / clean / inconclusive）见 docs/testing.md
-
-heagent "写一个快速排序"               # 单次执行（python -m heagent 等价）
-heagent                                # 交互模式（/provider 切 provider 条目、/model 钉路由池档位）
-heagent init --project                 # 初始化项目配置
-heagent gui                            # TUI（需 pip install -e ".[gui]"）
-heagent http-server                    # HTTP 127.0.0.1:9101 + WS 127.0.0.1:9201（需 ".[http]"）
-powershell scripts/start_heagent.ps1   # Windows 推荐：cwd 钉在仓库根再启动
-# ⚠ 必须在仓库根启动：workspace_root = 进程 cwd，从盘根启动会把整盘挂进容器沙箱
-
-mkdocs build --strict                  # CI 文档门：动 docs/ 后本地先 strict 构建（按需 pip install mkdocs "mkdocstrings[python]"）
-```
-
-## 架构骨架
-
-单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**架构权威 = `docs/framework.md`**（完整数据流/模块详解/调用链）——改 `agent/`、`providers/`、`tools/`、`engine/` 前先读它；门禁红了的分诊手册在 `docs/testing.md`；沙箱机制在 `docs/sandbox.md`。
-
-```
-依赖方向（下层禁止反向导入）：
-pub/ → config/ → providers · tools · context → engine/ → agent/ → cli · gui · goal
-
-旁支：memory、skills（对 engine 仅 TYPE_CHECKING）；events（运行期仅依赖 pub.exceptions）；
-      cron（运行期依赖 engine）；network/（仅 stdlib+pydantic，被入口层单向使用）；
-      web/（静态资源，零 heagent 导入，契约测试钉死）
-```
-
-**工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
-
-**产物文档（`_bmad-output/`，规划/台账区，非代码事实源；BMAD v7 体系 2026-11-15 起，2026-11-20 三代定名）**：**第一代 `epics/`**（27 周期目录，最早产物，67-ID 契约钉死勿动）；**第二代 `Goal-2-v6/`**（BMad v6 时代归档：规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61-69 含 retrospective，只读）；**第三代 `Goal-3/tickets/`**（goal-3 活跃票树，Epic 70-73 + 根 tickets.toml——**Epic/Story 状态唯一写目标**，entry 引用 `<epic>.<entry>` 如 `62.1`）；ADR 在 `docs/decisions/`。根级台账：`epic-overview.md`（状态+总目录）、`open-items.md`（唯一活动台账）、`retrospective-all-cycles.md`（历史唯一载体；§二编号位**有意空缺**保 §三 锚点，勿当缺陷修）、`migration-v6-v7.md`（迁移记录）。`implementation-artifacts/` 已整体解除（2026-11-20），勿再引用。`_bmad/custom/config.user.toml` 的 `active_initiative` = `Goal-3`（gitignored 用户配置，换机器/新 clone 需重写）。文档导航见 `_bmad-output/README.md`；读取范围与台账细节见 AGENTS.md「BMAD v7 产物体系」节。
-
-## 硬约束
-
-- 跨模块数据一律 Pydantic 模型（`pub/types.py`），禁止原始 dict（例外：`AgentState`/`SubAgentResult` 用 dataclass）
-- **单文件 ≤1000 行**：`src/heagent/**/*.py` 逐文件受 `tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling` 约束（`MAX_SOURCE_FILE_LINES`），超限即红并点名；接近上限先拆模块再加功能（拆法示例：`cli/help_view.py` 自 `interactive.py` 拆出渲染面）
-- 新增 provider / tool 禁止从 `agent/` 导入；`network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置；`network/ws_server.py` 不得导入 `network/http_server.py`（共享契约住 `http_protocol.py`）
-- 改包间依赖后必须同步 `tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS` 并跑 `pytest tests/test_architecture_contracts.py -q`
-- **monkeypatch 缝是搬移红线**：搬代码前先 grep patch 字符串路径（如 `heagent.cli.console._run_prompt`）
-- `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块延迟导入必须指向实模块
-- 全异步：库代码无同步 I/O，CLI 经 `asyncio.run()` 桥接；日志 `logging.getLogger(__name__)` 仅标准库
-- **代码注释只写当前不变量与契约，保持简单**；开发历程（story 号、评审过程、日期沿革）不入代码注释——变更史归 git log 与 BMAD 产物文档；存量历史注释不主动回洗，动到哪处顺手净化哪处
-- Windows 开发机：subprocess `text=True` 必须显式 `encoding="utf-8"`，否则中文输出解码炸
-- `_bmad-output` 台账布局与 ID 守恒由契约测试钉死：`tests/test_deferred_id_registry.py`（活动计数诚实性，三站点 = open-items / epic-overview / _bmad-output README）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）——动 `open-items.md`/`epic-overview.md`/`retrospective`/周期 `deferred-work.md` 前先读测试头部注释，改台账路径须同步 `cli/display.py::_DEFERRED_LEDGER` 回退链
-
-## 扩展与测试
-
-- Provider 实现 `send`/`stream`/`get_metadata`；测试用 `StubProvider`，不调真实 API；provider 测试放 `tests/providers/`
-- 新 Tool 放 `tools/builtins/`：`@tool(read_only=...)`、路径经 `tools/path_safety` 校验、在 `builtins/__init__.py` 注册
-- Skill 包必须有带 frontmatter 的 `SKILL.md`；异步测试由 `pytest-asyncio` 自动驱动
-- 发版契约由 `tests/test_release_workflow_contract.py` 钉死：`__init__.__version__` == `pyproject.toml`（纯 semver）、`CHANGELOG.md` 保有 `## [Unreleased]` 节
-
-## 安全口径
-
-Canonical 在 `docs/framework.md` §4.18：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证；WS 绑非回环分两档——`external`（默认）强制 Bearer token 且缺 token 拒绝启动，配齐 `WS_TLS_*` 即 `wss`（「加密 + token」才是生产形态，客户端信任锚是 SPKI-SHA256 pin，重签叶证书不改 pin）；`lan`（显式 `WS_LAN_NO_AUTH=true` + 私有地址）无认证、无 TLS、同网段可驱使代理、每次启动 WARNING，且与 TLS 互斥；**非回环入口能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
-
-## Git
-
-- 提交信息用**中文** Conventional Commit（`feat(provider): 增加模型回退`）
-- 提交信息只写**修改点**（改了什么/为什么），不写开发过程叙事（评审轮次、triage 统计、plan 闭合状态等）——过程记录归 plan/台账
-- **每次 `git commit` 前必须呈报提交信息与文件清单，获得明确同意后才执行**
-- 提交前跑相关测试 + `ruff check` + `mypy`
+- 本地 Python 3.13 的 `pytest --cov` 有 pydantic-settings × coverage 兼容问题 ⇒ 本地验证用不带 `--cov` 的 `pytest`，覆盖率门交给 CI 与 `scripts/quality_gate.py`。
+- 必须在仓库根启动：`workspace_root` = 进程 cwd（从盘根启动会把整盘挂进容器沙箱）；Windows 用 `powershell scripts/start_heagent.ps1`，它把 cwd 钉在仓库根。

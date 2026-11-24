@@ -41,6 +41,7 @@
   - [8.2 Goal/Epic/Story 产物契约](#82-goalepicstory-产物契约)
   - [8.3 声明式敏捷流程收口](#83-声明式敏捷流程收口)
   - [8.4 工程纪律条款](#84-工程纪律条款)
+  - [8.5 台账与规划产物布局](#85-台账与规划产物布局)
 
 
 ## 一、项目定位
@@ -126,6 +127,8 @@ AgentLoop.run(prompt)
         cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
         events（运行期仅依赖 pub.exceptions；engine 单向借用 events.protocol.error_kind_for）
         network/（传输叶子：仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用，禁止伸手进运行栈）
+        skills/（技能库域包：只依赖 tools.path_safety 一类叶子能力，不依赖 engine/memory、不反向依赖 agent/）
+        web/（控制台静态投递面：HTML/CSS/JS 零 heagent 导入，契约测试钉死）
 ```
 
 **依赖规则：**
@@ -2053,12 +2056,17 @@ PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
 |------|------|
 | Python 版本 | 3.11+ |
 | 异步模型 | 全 async/await，CLI 用 asyncio.run() 桥接 |
-| 数据模型 | 统一 Pydantic BaseModel，禁止跨模块传 raw dict |
-| 命名 | PEP 8 — snake_case 文件，PascalCase 类 |
+| 数据模型 | 统一 Pydantic BaseModel，禁止跨模块传 raw dict（例外：`AgentState` / `SubAgentResult` 用 dataclass） |
+| 命名 | PEP 8 — snake_case 文件、PascalCase 类名（不加后缀），4 空格缩进 |
 | 日志 | `logging.getLogger(__name__)`，stdlib only |
 | 行宽 | 120（ruff.toml） |
 | 测试 | pytest + pytest-asyncio，`StubProvider` 模拟 |
 | Provider 接口 | Protocol（结构化子类型），不强制继承 |
+| 文件规模 | `src/heagent/**/*.py` 逐文件 ≤ 1000 行（判据 `tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling`，常量 `MAX_SOURCE_FILE_LINES`），超限即红并点名；接近上限先拆模块再加功能（先例：`cli/help_view.py` 自 `interactive.py` 拆出 `/help` 渲染面） |
+| 包边界契约 | 改包间依赖必须同步 `tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`；新增/删除 `cli/*.py` 要同步 `test_cli_package_layout_is_pinned` 白名单与 §4.1 子模块表；`cli/__init__.py` 零 import（`test_cli_package_shell_stays_thin`），子模块延迟导入必须指向实模块 |
+| 注释 | 只写当前不变量与契约；开发历程（story 号、评审过程、日期沿革）归 git log 与规划产物，存量历史注释动到哪处顺手净化哪处 |
+| Windows 兼容 | subprocess `text=True` 必须显式 `encoding="utf-8"`，否则中文输出解码失败 |
+| 发版契约 | 版本真源 = `src/heagent/__init__.py::__version__`，与 `pyproject.toml` 一致且纯 semver；`CHANGELOG.md` 保有 `## [Unreleased]` 与当前版本条目（判据 `tests/test_release_workflow_contract.py`） |
 
 ### 8.1 目标工作流质量收口
 
@@ -2074,7 +2082,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 > Epic/Story 列表存放在工作流自己的 `epics.md`。工作流能力面校验由
 > `goal/workflow_support.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
 
-模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/Goal-2-v6/sprint-status.yaml`（v6，已归档）维护（BMad 外部工具写入，src 内无路径校验；v7 的状态真源换成 `Goal-3/tickets/` 票树）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
+模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/Goal-2-v6/sprint-status.yaml`（v6，已归档）维护（BMad 外部工具写入，src 内无路径校验；v7 起状态真源换成 goal 树自带的 `docs/<goal-id>/tickets/` 票树，见 §8.5）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
 
 ### 8.3 声明式敏捷流程收口
 
@@ -2088,3 +2096,33 @@ Canonical 工程纪律（评审与实现共用判据；2026-11-06 自 dsh AGENTS
 2. **常量≠配置**：部署可变项必须是可校验 Config 字段；`DEFAULT_*` 常量不算可配置——这是「用户声明优于代码立场」的判定线。
 3. **空 catch 必须具名**：`except Exception:` 后空处理（或仅 pass）必须注释写明吞掉的是什么错误、为什么安全；匿名吞错违反显性失败准则。
 4. **不解释的对称破缺暗示漏提取**：并行值/对称结构出现无理由差异时先怀疑漏提取；有理由的不对称必须在差异处留注释（先例：workflow_runner 串行/批两路闩置位 AD-18 刻意不对称并留注）。
+
+### 8.5 台账与规划产物布局
+
+**当前规划区是 goal 树（`docs/<goal-id>/`），不是 `_bmad-output/`。** `/loop` 每轮在 goal 目录下产出 PRD
+（`prd-<slug>/`）、架构（`architecture-<slug>/`）、逐故事报告（`step-NN-*/report.md`）、`progress.md`
+与票树 `tickets/`；指针 `docs/current` 存当前 goal-id（`reset` 只删指针、不删目录）。票树接口只走
+`_bmad/method/scripts/tickets.py`，且每条命令都要带显式根：
+`tickets.py --project-root docs/<goal-id>/tickets mark <epic-dir> <epic>.<entry> done`。
+`mark` 是 Epic/Story 状态的**唯一合法写路径**（不手改 plan frontmatter）；`done` 只在审批放行后写。
+`/goal`（v6）的产物仍落 `_he-output/goals/`，与 goal 树互不读写。
+
+**`_bmad-output/` = 根级台账 + 历史归档**（规划/台账区，非代码事实源）：
+
+| 位置 | 内容 |
+| --- | --- |
+| `open-items.md` | **唯一活动台账**：「活动（未闭合）条目」表 + 按行动姿态分组的速读节 |
+| `epic-overview.md` | 当前状态总览 + epic 总目录 + 文档地图 |
+| `retrospective-all-cycles.md` | 历史唯一载体（§二编号位**有意空缺**，保 §三锚点，勿当缺陷修） |
+| `README.md` | 本目录导航 + 归档规则 |
+| `epics/` | 第一代周期产物（27 个周期目录，67-ID 契约钉死，勿动） |
+| `Goal-2-v6/` | 第二代：BMad v6 时代归档（只读） |
+| `Goal-3/` | 第三代：goal-3 票树归档（只读，状态已不活跃） |
+
+ADR 住 `docs/decisions/`。`_bmad/custom/config.user.toml` 的 `active_initiative` 是 gitignored
+用户配置（换机器 / 新 clone 需重写），不是文档事实源。
+
+**台账改写前的守卫**：`tests/test_deferred_id_registry.py`（活动计数在 `open-items.md` /
+`epic-overview.md` / `_bmad-output/README.md` 三站点逐处严格比对；速读节只允许引用活动项；闭环/退役
+一个条目要同步删速读节引用）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）。改台账路径须同步
+`cli/display.py::_DEFERRED_LEDGER` 回退链。

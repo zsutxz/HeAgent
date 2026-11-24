@@ -1,6 +1,7 @@
 # AGENTS.md
 
-本文件为 Claude Code / Codex 等编码代理提供统一仓库指引。
+本文件为 Claude Code / Codex 等编码代理提供统一仓库指引：只放**去哪读**与**不可外包的纪律**；
+项目事实（架构、命令、代码规范、发版、台账布局）一律外链，不在此复述。
 
 ## ⚠️ 安全声明
 
@@ -21,168 +22,67 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 <!-- bmad:context -->
 <!-- Verified 2026-11-03 against 31cf7cb. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
-## 文档布局
+## 文档指向
 
-**架构权威 = `docs/framework.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。docs/ 全目录索引见 `docs/README.md`。
+**架构权威 = `docs/framework.md`**（数据流 §二 / 模块 DAG 与依赖规则 §三 / 模块详解 §四 / 调用链 §七 /
+技术规范 §八 / 安全口径 §4.18 / 台账与规划产物布局 §8.5）；全目录索引见 `docs/README.md`。
 
-| 路径 | 用途 |
-|------|------|
-| `docs/design.md` | 功能设计与理念 |
-| `docs/iteration.md` | 迭代历程与迭代方法 |
-| `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
-| `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
-| `_bmad-output/epic-overview.md` | 当前状态总览 + epic 总目录（文档地图；2026-11-15 自 consolidated-overview.md 重组定名） |
-| `_bmad-output/open-items.md` | 已知缺口活动台账（「活动（未闭合）条目」节；闭合历史见 `retrospective-all-cycles.md` §三） |
+| 想知道什么 | 权威落点 |
+| --- | --- |
+| 安装、Provider 配置、CLI / HTTP / WS 用法、配置开关 | `README.md` |
+| 开发与门禁命令（pytest / ruff / mypy / bandit / `quality_gate.py` / `verify_baseline.py` / mkdocs） | `README.md`「开发」节 |
+| 门禁红了怎么分诊、耗时基线、marker 口径 | `docs/testing.md` |
+| 沙箱后端、四档分级与会话目录 | `docs/sandbox.md` |
+| 设计理念与非目标 | `docs/design.md` |
+| 迭代历程与迭代方法 | `docs/iteration.md` |
+| 缺口台账 | `_bmad-output/open-items.md`「活动（未闭合）条目」节 ＋ framework §五 |
 
-## 架构骨架
+## 硬约束（违反即架构错误；判据 = `tests/test_architecture_contracts.py`）
 
-HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**完整数据流、模块详解、调用链见 `docs/framework.md`。**
-
-### 模块依赖 DAG
-
-```
-公共层 pub/（零 heagent 依赖）
-配置面 config/（依赖 pub/）
-
-主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ · gui/ · goal/）
-        context ───┘
-
-旁支：  memory（对 engine 仅 TYPE_CHECKING）
-        skills（同档禁区；2026-10-10 自 memory/ 迁出）
-        events（运行期仅依赖 pub.exceptions）
-        cron（运行期依赖 engine——与 memory/skills 的 TYPE_CHECKING 档不同）
-        network/（仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用）
-投递面：web/（HTML/CSS/JS 静态资源，零 heagent 导入，契约测试钉死）
-```
-
-### 核心模块
-
-- `agent/` — AgentLoop 主循环 + middleware + 子 Agent
-- `providers/` — LLM provider + 智能路由 + 多层容错
-- `tools/` — @tool 注册 + SafetyGuard + path_safety + builtins/ + mcp/ 桥接 + 沙箱后端
-- `engine/` — 运行时治理（PolicyEngine + ToolExecutor + store/ledger/observability）
-- `pub/` — 公共层（异常/类型/日志/持久化/frontmatter/角色/工作区/项目）
-- `config/` — 配置面（Settings / 项目与用户级配置读写）
-- `context/` — 上下文压缩/会话持久化/token 估算
-- `memory/` — 自学习闭环（含语义压缩）
-- `skills/` — 技能库域包
-- `network/` — 入口传输层（HTTP + SSE + WebSocket）
-- `web/` — 控制台静态投递面
-- `cron/` — 定时任务域
-- `cli/` / `gui/` / `goal/` — 入口层
-
-## 硬约束
-
-- 依赖方向固定为 `pub → config → providers/tools/context → engine → agent → cli/gui/goal`，下层不得反向导入入口层
+- 依赖方向固定 `pub → config → providers/tools/context → engine → agent → cli/gui/goal`，下层不得反向导入入口层；旁支档位（memory/skills 对 engine 仅 TYPE_CHECKING、events、cron、network/、web/）见 framework §三
 - 新增 provider / tool **禁止**从 `agent/` 导入
-- `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
-- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）；WS 端点同样必须保持该依赖边界
-- `network/ws_server.py` **不得**导入 `network/http_server.py`（同层传输模块互不依赖；`HttpRunConflictError` 等共享契约住 `http_protocol.py`）——`tests/test_architecture_contracts.py` 有可执行断言
+- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）；`network/ws_server.py` 不得导入 `network/http_server.py`（同层传输模块互不依赖，共享契约住 `http_protocol.py`）
 - 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**
+- 改包间依赖必须同步 `FORBIDDEN_RUNTIME_IMPORTS` 并跑 `pytest tests/test_architecture_contracts.py -q`；新增/删除 `cli/*.py` 要同步 `test_cli_package_layout_is_pinned` 白名单
+- `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块延迟导入必须指向实模块
+- 单文件 ≤ 1000 行（framework §八「文件规模」行）
 
-## 常用命令
+## 代理必须记住的三条操作口径
 
-```bash
-# 开发环境安装
-pip install -e ".[dev]"
+- **在仓库根启动**：`workspace_root` = 进程 cwd（从盘根启动会把整盘挂进容器沙箱）；Windows 用 `powershell scripts/start_heagent.ps1`
+- **门禁红了第一步**：`python scripts/verify_baseline.py <用例> -q` 判「环境产物 vs 回归」，判读见 `docs/testing.md`
+- **测试约定**：`StubProvider` 模拟、不调真实 API；provider 测试放 `tests/providers/`；异步由 `pytest-asyncio` 自动驱动
 
-# 运行测试（跳过 integration/benchmark）
-pytest
+## 扩展点（详解见 framework §4.3 / §4.4）
 
-# 单个测试文件/用例
-pytest tests/test_agent_loop.py
-pytest tests/test_agent_loop.py::test_basic_run
-
-# 覆盖率（门限 87%）
-pytest --cov --cov-report=term-missing
-
-# 集成测试/性能基准
-pytest -m integration
-pytest -m benchmark
-
-# 静态检查（CI lint job 同参数，含 scripts/；bandit 只认 `# nosec`，不认 ruff 的 `# noqa: S###`）
-ruff check src tests scripts examples
-ruff format --check src tests scripts examples
-mypy src
-bandit -r src/ -ll
-
-# 本地全门（冒烟 + 回归/覆盖率 + ruff + format + mypy + bandit，fail-fast）
-python scripts/quality_gate.py
-
-# 门禁红了的**第一步**：在干净 HEAD 副本上复跑同一批用例（判「环境产物 vs 回归」）
-# 用法与判读规则见 `docs/testing.md`（VERDICT: environmental / REGRESSION / clean / inconclusive）
-python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
-
-# 自动修复格式
-ruff format src tests
-
-# 运行 HeAgent（python -m heagent 为等价入口）
-# ⚠ 必须在仓库根启动：workspace_root = 进程 cwd，从盘根启动会把整盘以 9p 挂进容器沙箱
-heagent "写一个快速排序"           # 单次执行
-heagent                            # 交互模式
-heagent init --project             # 初始化项目配置
-heagent gui                        # TUI（需 pip install -e ".[gui]"）
-heagent http-server                # HTTP 网页入口（127.0.0.1:9101）+ WS 入口（127.0.0.1:9201），需 pip install "heagent[http]"
-powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再启动（推荐，Windows）
-```
-
-异步测试由 `pytest-asyncio` 自动驱动；provider 测试放在 `tests/providers/`。
-
-WS/TLS 排障工具链（`scripts/`，细节见各脚本头注释）：TLS 签发/轮换走 `heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口；`scripts/gen_ws_cert.py` 保留为迁移期薄包装，文件头指向新命令；`setup_ws_external.py` 已随 Epic 72 退役删除）→ `ws_manual_probe.py` 真实客户端手测（配 `tls_ws_stub.py` 自证握手）→ `cleanup_orphan_containers.ps1` 清理孤儿沙箱容器。
-
-## 代码规范
-
-- **命名**：PEP 8——`snake_case.py`、`PascalCase` 类名，不加后缀；4 空格缩进，120 列行宽
-- **数据模型**：一律 Pydantic `BaseModel`（例外：`AgentState`/`SubAgentResult` 用 `dataclass`）
-- **异步**：全部异步，库代码无同步 I/O，CLI 通过 `asyncio.run()` 桥接
-- **日志**：`logging.getLogger(__name__)`，仅标准库
-- **注释**：随代码变更及时清理失效的旧注释；新注释精简，只写代码本身说不清的意图
-
-## 扩展与测试约束
-
-- Provider 实现 `send`、`stream`、`get_metadata`；测试使用 `StubProvider`，不要调用真实 API
-- Tool 放在 `tools/builtins/`，使用 `@tool(read_only=...)`，文件路径经 `tools/path_safety` 校验，并在 `builtins/__init__.py` 注册
-- Skill 包必须包含带 frontmatter 的 `SKILL.md`；工作流资源使用 `SkillPackage` 类型化读取
-- `tests/test_architecture_contracts.py` **必须同步维护**——改包间依赖或新增解析器时更新 `FORBIDDEN_RUNTIME_IMPORTS`；新增边界后运行 `pytest tests/test_architecture_contracts.py -q`
+- Provider 实现 `send` / `stream` / `get_metadata`
+- Tool 放 `tools/builtins/`：`@tool(read_only=...)`、路径经 `tools/path_safety` 校验、在 `builtins/__init__.py` 注册
+- Skill 包必须包含带 frontmatter 的 `SKILL.md`；工作流资源用 `SkillPackage` 类型化读取
 - **monkeypatch 缝是搬移红线**——搬代码前先 `grep` patch 字符串路径（如 `heagent.cli.console._run_prompt`）
-- `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）
-- 子模块延迟导入必须指向实模块，不能指回包壳
 
 ## Git 提交与 Pull Request
 
-- 提交信息使用**中文** Conventional Commit，如 `feat(provider): 增加模型回退`
-- 执行 `git commit` 前必须先向用户呈报提交信息与文件清单，获得明确同意后才执行
-- 提交前运行相关测试、`ruff check` 和 `mypy`
-- PR 应说明问题、方案、测试命令与兼容性影响；涉及 CLI/GUI 时附截图或录屏并关联 issue，保持变更聚焦
+- 提交信息用**中文** Conventional Commit，如 `feat(provider): 增加模型回退`
+- **每次 `git commit` 前必须呈报提交信息与文件清单，获得明确同意后才执行**
+- 提交前跑相关测试 + `ruff check` + `mypy`；PR 说明问题、方案、测试命令与兼容性影响
 
 ## 仓库卫生
 
-- `.heagent/`、`_bmad-output/`、日志和本地状态属于运行或规划产物；不要提交密钥、`.env` 或生成文件
+- `.heagent/`、`_bmad-output/`、日志与本地状态是运行/规划产物；不提交密钥、`.env` 或生成文件
 
 <!-- /bmad:context -->
 
-## 工程纪律指针
+## 块外手工区（refresh 不覆盖；纪律与运维指针放这里才能存活）
 
-工程纪律四条款（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）的 canonical 在 [`docs/framework.md`](docs/framework.md) §8.4；本文件只留指针不承载正文——纳管块内条目会随 /bmad-project-context refresh 被替换，纪律条款必须置于块外才能存活。
-
-## 文档站与发版契约（块外手工区，2026-11-12 /init 核验补入）
-
-- **文档站**：`mkdocs.yml` 建站，CI 跑 `mkdocs build --strict`（mkdocs 与 `mkdocstrings[python]` 是构建期工具、不在依赖树，按需 `pip install mkdocs "mkdocstrings[python]"`；`docs/api/` 的 API 参考页由 docstring 生成）；`--strict` = 未 ignore 的告警一律 fail，告警口径见 `mkdocs.yml` 注释。动 `docs/` 后本地先 strict 构建再提。
-- **发版契约**：版本真源唯一——`src/heagent/__init__.py` 的 `__version__` 必须与 `pyproject.toml` 一致且为纯 semver；`CHANGELOG.md` 必须保有 `## [Unreleased]` 节与当前版本条目（`## [x.y.z] - 日期` 格式）。以上由 `tests/test_release_workflow_contract.py` 钉死（另钉：release job 仅 tag/手动触发 + OIDC 发布、CI job 数量恒定）。发版 = 两处同步 bump + CHANGELOG 归节。
-
-## BMAD v7 产物体系与读范围（块外手工区，2026-11-15 migration-1 后接线）
-
-- **Active ticket store = `_bmad-output/Goal-3/tickets/`**（epic 70-73 活跃票；61-69 已归档进 `Goal-2-v6/tickets/`；`_bmad/custom/config.user.toml` 的 `active_initiative` = `Goal-3`，该文件 gitignored ⇒ 换机器/新 clone 需重写）。epic 全局编号 **61–73**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py。**日常规划/实现/评审读取范围钉在活跃票树内**：当前 epic 文件 + entry 的 plan；历史档（`Goal-2-v6/`、`epics/`）是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
-- **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 build 62.1）；独立 intent 走 bmad 立项流程进票树（新 epic 或既有 epic 的 entry）；v6 追踪源归档两件（`epics.md` + `sprint-status.yaml`）已上移 `Goal-2-v6/` 根（2026-11-20，只读）。
-- **根级台账职能**（v7 无对应物，保留）：`epic-overview.md`（状态总览）、`open-items.md`（未闭合条目——安全声明第 6 条与「已知缺口」节指向的锚点）、`retrospective-all-cycles.md`（历史唯一载体）、`README.md`（文档地图）。
-- **迁移记录**：`_bmad-output/migration-v6-v7.md`（v6→v7 migration-1，status: done，含 14 项 checklist 回填）。
+- **工程纪律四条款**（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）：canonical 在 [`docs/framework.md`](docs/framework.md) §8.4，本文件只留指针。
+- **文档站**：`mkdocs build --strict` 是 CI 文档门（构建期工具，按需 `pip install mkdocs "mkdocstrings[python]"`）；动 `docs/` 后本地先跑。
+- **发版契约**：`src/heagent/__init__.py::__version__` 与 `pyproject.toml` 一致且纯 semver，`CHANGELOG.md` 保有 `## [Unreleased]`，判据 `tests/test_release_workflow_contract.py`；发版 = 两处同步 bump + 归节。
+- **Active ticket store** = 当前 goal 树自带的 `docs/<goal-id>/tickets/`（指针 `docs/current`；`tickets.py --project-root docs/<goal-id>/tickets …`，`mark` 是唯一写路径）。历史票树 `_bmad-output/Goal-3/tickets/`（Epic 70–73）与 `Goal-2-v6/tickets/`（Epic 61–69）是只读归档；`_bmad/custom/config.user.toml` 的 `active_initiative` 是 gitignored 用户配置 ⇒ 换机器 / 新 clone 需重写。布局、读取范围与守卫测试见 framework §8.5。
+- **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 62.1）；独立 intent 走 bmad 立项流程进票树；v6 追踪源（`epics.md` + `sprint-status.yaml`）已上移 `Goal-2-v6/` 根（只读）。
+- **WS/TLS 排障工具链**：`heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口）→ `scripts/ws_manual_probe.py`（配 `tls_ws_stub.py` 自证握手）→ `scripts/cleanup_orphan_containers.ps1`；细节见各脚本头注释。
 
 ## 已知缺口
 
-完整清单见 `docs/framework.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
-
-核心立场：三层非边界 / OS 级沙箱兜底 / 本地与非回环（`lan` / `external` 两档）入口模式 / 端点可见性的口径见 [`docs/framework.md`](docs/framework.md) 的「安全口径（canonical）」（§4.18）；本段不重复论证。
-
-活动缺口：MCP stdio server 子进程**已进容器**（Epic 53 期二 53-5，2026-11-03；`SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起，不可用时显性降级 + 每次 WARNING）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。
+完整清单见 framework §五 与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见
+`_bmad-output/retrospective-all-cycles.md` §三）；边界立场见 framework §4.18。本段不复述条目正文。

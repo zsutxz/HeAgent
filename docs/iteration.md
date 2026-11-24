@@ -15,9 +15,9 @@
 > **路径口径**：下文引用的 `_bmad-output/epics/<周期>/` 是**当前**布局——2026-11-15 起
 > `archive/epics/` 已并入 `epics/`（归档周期与活跃周期同目录混排），故历史句子里也一律写当前路径。
 > 文件名同理：`docs/frame.md` 已改名 `docs/framework.md`（2026-11-20），历史句子一律写现行名。
-> 状态真源同样在 2026-11-15 换代：v6 的 `sprint-status.yaml` 归档在
-> `_bmad-output/Goal-2-v6/`（只读；2026-11-20 自 archive-v6/ 上移），v7 的活动票树在
-> `_bmad-output/Goal-3/tickets/`。
+ > 状态真源同样在 2026-11-15 换代：v6 的 `sprint-status.yaml` 归档在
+> `_bmad-output/Goal-2-v6/`（只读；2026-11-20 自 archive-v6/ 上移），v7 的活动票树随 goal 树落
+> `docs/<goal-id>/tickets/`（指针 `docs/current`；原住 `_bmad-output/Goal-3/tickets/`）。
 
 `_bmad-output/` 是各周期的原始产物（brief/prd/epics/stories），是本文历程章节的事实来源之一；当本文与 `_bmad-output/` 或代码冲突时，以代码为准。
 
@@ -83,7 +83,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 - **story key 须匹配 `epic-N-M` 模式**：`sprint-status` 技能校验 key 格式，不能用自定义前缀（如 `mcp-`）。
 - **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/epics/epic-11-18-MCP集成周期/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
 - **回顾字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
-- **单一权威（2026-07-23，v6 口径）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。**v7 起（2026-11-15）状态真源换成票树** `_bmad-output/Goal-3/tickets/`，该 yaml 归档于 `Goal-2-v6/`（只读历史；2026-11-20 上移目录根）。
+- **单一权威（2026-07-23，v6 口径）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。**v7 起（2026-11-15）状态真源换成票树**：现住 goal 树自带的 `docs/<goal-id>/tickets/`（指针 `docs/current`），原住 `_bmad-output/Goal-3/tickets/`，该 yaml 归档于 `Goal-2-v6/`（只读历史；2026-11-20 上移目录根）。
 
 ### 1.6 实现会话收尾清单（2026-10-26 落盘，闭环 Epic 53/54 retro 4 条 process item）
 
@@ -391,6 +391,6 @@ Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、c
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
 - 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
-- **sprint 状态（v6 历史权威）**：[`_bmad-output/Goal-2-v6/sprint-status.yaml`](../_bmad-output/Goal-2-v6/sprint-status.yaml)（已归档、只读；覆盖 v6 全部周期与 Epic。v7 起状态真源是 `_bmad-output/Goal-3/tickets/` 票树）
+- **sprint 状态（v6 历史权威）**：[`_bmad-output/Goal-2-v6/sprint-status.yaml`](../_bmad-output/Goal-2-v6/sprint-status.yaml)（已归档、只读；覆盖 v6 全部周期与 Epic。v7 起状态真源是 goal 树自带的 `docs/<goal-id>/tickets/` 票树，指针 `docs/current`）
 - 技术债登记：活动台账为根目录 `_bmad-output/open-items.md`（「活动（未闭合）条目」节；旧路径 `implementation-artifacts/deferred-work-archive.md` 已于 2026-11-15 并入）；已闭合项按归属 epic 归档到 `_bmad-output/epics/<周期>/deferred-work.md`（原 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除）
 - 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`（2026-11-15 起为**全周期**历史唯一载体，覆盖截至 Epic 57；Epic 58 起的回顾落在 `Goal-3/tickets/<epic>/` 票树）、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`

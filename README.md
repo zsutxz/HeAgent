@@ -255,10 +255,10 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9201
 （两者都要读）：8 步——市场调研 → 发散构思 → 需求分析 → 产品范围 → 架构设计 → 故事细化 → 逐故事实现 → 系统集成测试，
 Step 04 / Step 06 是审批门。
 
-- 运行状态：`Docs/<goal-id>/progress.md` ＋ 指针 `Docs/current`（每步一个全新 `task_delegate` 子会话，无 Python 状态机）。
-- 规划与 story 状态：票树住 goal 目录自带的 `Docs/<goal-id>/tickets/`（`tickets.py` 每条命令都必须带显式目录；`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
+- 运行状态：`docs/<goal-id>/progress.md` ＋ 指针 `docs/current`（内容是当前 goal-id：`reset` 只删指针、不删目录；每步一个全新 `task_delegate` 子会话，无 Python 状态机）。
+- 规划与 story 状态：票树住 goal 目录自带的 `docs/<goal-id>/tickets/`（`tickets.py --project-root docs/<goal-id>/tickets …`，`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
 
-历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
+历史规划与台账（`open-items.md` / `epic-overview.md` / `retrospective-all-cycles.md` ＋ 三代归档）位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置；布局与守卫测试见 [framework.md §8.5](docs/framework.md#85-台账与规划产物布局)。
 
 ## 配置与运行时数据
 
@@ -327,17 +327,31 @@ asyncio.run(main())
 ## 开发
 
 ```bash
-# 默认跳过 integration 与 benchmark
-pytest
+pip install -e ".[dev]"                # 开发安装（Python 3.11+；gui / http / mcp 另有 extras）
 
-# 外部依赖集成测试
-pytest -m integration
+pytest                                 # 默认跳过 integration 与 benchmark
+pytest tests/test_agent_loop.py::test_basic_run   # 单个用例
+pytest --cov --cov-report=term-missing # 覆盖率（门限 87%，CI 口径）
+pytest -m integration                  # 外部依赖集成测试
 
-# 静态检查
-ruff check src tests examples
-ruff format --check src tests examples
+# 静态检查（与 CI lint job 同参数）
+ruff check src tests scripts examples
+ruff format --check src tests scripts examples
 mypy src
+bandit -r src/ -ll
+
+python scripts/quality_gate.py         # 本地全门：契约快照 → 冒烟 → 回归+覆盖率 → lint → format → mypy → bandit（fail-fast）
+
+# 门禁红了的第一步：干净 HEAD 副本复跑同批用例，判「环境产物 vs 回归」
+python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
+
+mkdocs build --strict                  # CI 文档门；动 docs/ 后本地先跑（按需 pip install mkdocs "mkdocstrings[python]"）
 ```
+
+门禁红了怎么分诊（`VERDICT: environmental / REGRESSION / clean / inconclusive`、耗时基线、marker 口径）见 [testing.md](docs/testing.md)。
+
+- **启动位置**：`workspace_root` = 进程 cwd，**必须在仓库根启动**（从盘根启动会把整盘挂进容器沙箱）；Windows 推荐 `powershell scripts/start_heagent.ps1`，它把 cwd 钉在仓库根再启动。
+- **发版**：两处版本同步 bump（`src/heagent/__init__.py::__version__` 与 `pyproject.toml`）＋ `CHANGELOG.md` 归节，契约由 `tests/test_release_workflow_contract.py` 钉死；其余机制见 [framework.md §八](docs/framework.md#八技术规范)。
 
 ### 开发容器（devcontainer）
 
@@ -360,6 +374,9 @@ python scripts/quality_gate.py
 | 目标 | 文档 |
 | --- | --- |
 | 当前架构、数据流、工具与已知缺口 | [架构参考](docs/framework.md) |
+| 门禁红了怎么分诊、耗时基线、marker 口径 | [测试与门禁判读](docs/testing.md) |
+| 沙箱后端、四档分级与会话目录 | [沙箱机制](docs/sandbox.md) |
+| 文档职责、权威顺序与阅读路径 | [文档索引](docs/README.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
 | `/goal` 工作流、产物与维护规则 | [`framework.md` §4.13](docs/framework.md#413-goal-驱动工作流-goal) |
 | `/loop` 工作流（v7 主力） | [`.heagent/skills/loop/workflow.md`](.heagent/skills/loop/workflow.md)（契约）与 [同包 `SKILL.md`](.heagent/skills/loop/SKILL.md)（执行总则） |

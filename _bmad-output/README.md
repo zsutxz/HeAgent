@@ -1,6 +1,6 @@
 # `_bmad-output/` 导航
 
-本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/` 与 [`docs/framework.md`](../docs/framework.md) 为准，Epic/Story 状态查 [`Goal-3/tickets/`](Goal-3/tickets/) 活动票树（[`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml) 已归档，不再是状态权威）。
+本目录保存 HeAgent 使用 BMad Method 产生的规划、实现、评审和回顾产物。它记录开发过程，不取代当前代码事实；代码与规划冲突时，以 `src/` 与 [`docs/framework.md`](../docs/framework.md) 为准，**当前活动票树不在本目录**：Epic/Story 状态查 goal 树自带的 `docs/<goal-id>/tickets/`（指针 `docs/current`，布局见 [`docs/framework.md`](../docs/framework.md) §8.5）；本目录的 `Goal-2-v6/` 与 `Goal-3/` 是只读归档（[`sprint-status.yaml`](Goal-2-v6/sprint-status.yaml) 已归档，不再是状态权威）。
 
 ## 先看什么
 
@@ -23,7 +23,7 @@ _bmad-output/
 ├── migration-v6-v7.md                v6→v7 迁移记录（2026-11-15）
 ├── epics/                            第一代：最早周期产物（27 个周期目录，Epic 01–61 + S1–S4，活跃与已归档混排）
 ├── Goal-2-v6/                        第二代：BMad v6 时代归档（规划四件套 + 信封 + sprint-status.yaml + 票树 Epic 61–69 含 retrospective；只读）
-└── Goal-3/                           第三代：goal-3 活跃票树（Epic 70–73 + 根 tickets.toml）
+└── Goal-3/                           第三代：goal-3 票树归档（Epic 70–73 + 根 tickets.toml；只读）
 ```
 （ADR 决策记录在 `docs/decisions/`，不属本目录。）
 
