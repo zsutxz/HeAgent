@@ -7,7 +7,8 @@
 **触发与自动性。** 触发条件 = 该 epic 全部 entry 都达到 `built` / `in-review` / `done`，只认
 `tickets.py status <goal 目录>`——**不看「本批是否含最后一条」**（跨会话续跑、上一轮只差收口时，下一轮
 一开工就补跑）。满足即**自动开跑：不呈报、不等确认、不是审批门**；这套流程幂等，开工先看
-`tickets/<E编号>-<slug>/` 下已有哪些 `-review-rN.md` 与 `-retrospective.md`，已完成的轮次不重跑。
+`tickets/<E编号>-<slug>/` 下是否已有 `-review.md`（**单文档三镜头**）与 `-retrospective.md`，
+文档里已写过的镜头不重跑。
 
 **三审前先换一次上下文。** epic 全部 entry 达标后，先按「完成即自动提交」提交这批 entry，再按
 「上下文交接与续跑」写交接块，然后把三审交给**新会话**开跑（默认注册一次性 cron；用户自己接手时是
@@ -16,7 +17,9 @@
 （`R1` → 修 → `R2` → 修 → `R3` → 修 → 回顾 → 提交），中途不再换会话、不呈报、不等确认。
 
 每个 epic 收口**必须做三次审查**，一次一轮、串行推进（上一轮的修复落盘后才开下一轮）：不是三次
-同题重复，而是三个不同视角各查一遍。三份报告 + 回顾里的记录齐了，epic 才算收口；缺一份即未收口。
+同题重复，而是三个不同视角各查一遍。**三镜头写在同一份报告里**（`<E编号>-<slug>-review.md`，每镜头
+自带 `## 镜头 N · …` 小节与自己的计数/结论），加上回顾里的记录，epic 才算收口；缺任一镜头即未收口。
+（用户 2026-11-24 定：此前拆 `-review-r1/r2/r3.md` 三份的形态作废，历史 epic 的三份保持原样不动。）
 
 - **`R1` 规格与实现对账**（执行角色 `bmad-code-review`）：本 epic 全部改动 vs epic Requirements /
   `Done when` / 各 plan 的 `<frozen-after-approval>` 与 `## Verification`。查「实现是否真的交付了规格」
@@ -41,7 +44,8 @@
 - 调用：`skill_load code_review` → 按它在**本 goal 的 v7 面**执行——评审对象 = 本 epic 全部 entry 的
   plan（含 `## Verification`）+ epic 文件 + 合并 diff，**不采信**实现/测试报告与自验证结论，亲自读
   diff、亲自跑命令核对数字；不得把范围缩到单条 entry；
-- 产物：报告落 `<E编号>-<slug>-review-r3.md`（不是技能原文的 `review-report.md`），frontmatter 记
+- 产物：R3 的发现写进**同一份** `<E编号>-<slug>-review.md` 的「镜头三」小节（不是技能原文的
+  `review-report.md`），frontmatter 记
   `review_loop_iteration`；延期项落 goal 的 `brief.md`「延期项」段（不是 `deferred-work.md`）；
 - **不改** `epics.md` / epic Requirements / plan 的冻结段（v7 下 epic Requirements 同样冻结；`bad_spec`
   发现走 `mark <goal 目录> <ref> blocked` + 回 Step 04/06 重切，不在评审里改规格）；
@@ -50,9 +54,10 @@
   code_review 技能不可用）` + 记 `brief.md`「延期项」，**不**伪造结论、**不**拿 `bmad-code-review`
   顶替 R3（那是 R1 的镜头）；`/loop auto` 下登记完继续收口，不停等人。
 
-**产物与落点。** 三份报告落 epic 文件夹：`tickets/<E编号>-<slug>/<E编号>-<slug>-review-r1.md`、
-`…-review-r2.md`、`…-review-r3.md`；每份含 `## 范围`（改动的文件面与判据来源、本轮用的技能名）、`## 发现`
-（分档表：严重度 / 位置 / 现象 / 处置）、`## 结论`（通过 / 有条件的通过 / 未执行（gap））。
+**产物与落点。** **一份**报告落 epic 文件夹：`tickets/<E编号>-<slug>/<E编号>-<slug>-review.md`，
+结构固定：`## 范围`（改动面 / 判据来源 / 本轮技能名 / 实跑命令表）→ `## 镜头一 · 规格对账` →
+`## 镜头二 · 不变量与守卫反脆弱`（含注入反证表）→ `## 镜头三 · 三镜头对抗（契约 / 并发 / 文档）` →
+`## 落改清单` → `## 结论`（每镜头各给计数与通过 / 有条件的通过，末尾给总体结论）。
 `<E编号>-<slug>-retrospective.md` 必须带 `## 三审记录` 段，逐轮一行写明轮次、结论、发现计数与
 落改去向；`progress.md` 决策日志追加一行（三轮结论 + Critical/High 的落改或 `blocked` 处置）。
 
@@ -71,10 +76,10 @@
 交接块里的「本轮结论」才对得上 HEAD。
 
 - **触发点**：一批 entry 全部置 `built` 之后（串行时即单条）；epic 收口的提交时点见「epic 收口三审」的
-  「与收口、提交的顺序」，三份报告或回顾缺一份即不提交，按显性失败停并报告缺口。
+  「与收口、提交的顺序」，`-review.md`（三镜头）或回顾缺一份即不提交，按显性失败停并报告缺口。
 - **提交前必过的判据**（缺一项就**不提交**，把缺口写进交接块）：plan `status` 已是 `built`；plan 的
   `## Verification` 有本轮实测命令与结果；`progress.md` 记了结论（失败轮次同样记）；epic 末条另有
-  `<E编号>-<slug>-review-r1.md`、`-review-r2.md`、`-review-r3.md` 与带 `## 三审记录` 的
+  `<E编号>-<slug>-review.md`（三个镜头小节齐备）与带 `## 三审记录` 的
   `<E编号>-<slug>-retrospective.md`；动过 Android 代码时 `:app:testDebugUnitTest` 与 `:app:lintDebug` 通过。
 - **提交信息**：中文 Conventional Commit；entry 用 `<type>(<e编号>-s<mm>): <标题>`（scope 小写，如
   `feat(e13-s01): …`），epic 收口用 `<type>(<e编号>): <标题>，<E编号> 收口`；一次提交只装一条 entry 及其配合产物，
