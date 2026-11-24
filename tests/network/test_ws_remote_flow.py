@@ -175,9 +175,9 @@ class _RunServiceStub:
 
 
 class _FakeProjectConsole:
-    """``ConsoleHandler`` 项目面替身：列项目 / 解析读径 / 建 run（建的是真实 ``_RunRecord``）。
+    """``ConsoleHandler`` 项目面替身：列项目 / 提交前置探测 / 建 run（建的是真实 ``_RunRecord``）。
 
-    形状对齐 ``cli.http_console.HttpProjectConsole``：``get_project_config`` 是提交前的纯读解析，
+    形状对齐 ``cli.http_console.HttpProjectConsole``：``check_project`` 是提交前的轻量探测，
     ``start_project_run`` 才建 run —— 与适配器 ``ensure_available`` → ``start_project_run`` 两步
     一一对应，因此「提交 1 次」在这条链上恒等于「记录 1 条」。
     """
@@ -192,11 +192,10 @@ class _FakeProjectConsole:
         self.calls.append(("list_projects", None))
         return ProjectListResponse(projects=[_entry(_PROJECT_A, "项目 A"), _entry(_PROJECT_B, "项目 B")])
 
-    async def get_project_config(self, project_id: str) -> object:
-        self.calls.append(("get_project_config", project_id))
+    async def check_project(self, project_id: str) -> None:
+        self.calls.append(("check_project", project_id))
         if project_id not in (_PROJECT_A, _PROJECT_B):
             raise ConsoleOperationError(HttpErrorCode.UNKNOWN_PROJECT, "unknown project")
-        return object()
 
     async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:
         self.calls.append(("start_project_run", project_id))

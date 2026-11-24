@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -14,6 +16,8 @@ from heagent.engine.tasks import TaskProjection, TaskRegistry, TaskStatus, confi
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 NOW = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
 
@@ -106,3 +110,29 @@ def test_configure_task_projection_is_idempotent(tmp_path: Path) -> None:
         assert (root / f"{task_id}.json").is_file()
     finally:
         configure_task_projection(None)  # 收尾：解绑，避免污染其它用例的默认注册表
+
+
+def test_truncation_keeps_the_newest_writes_and_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """超界截断按 mtime 取最新 256 个并记 WARNING：在途条目不会被年长文件静默挤出快照（在途不隐藏）。
+
+    曾经的字典序截断会让 task_id 排序靠后的**在途**任务从 snapshot 消失——按 mtime 取最新后，
+    持续被写的在途任务永远在最新档，被丢的只会是早已停写的旧条目。
+    """
+    root = tmp_path / "tasks"
+    producer = _registry(root)
+    ids = [producer.start("context_compression") for _ in range(TaskProjection._MAX_PROJECTION_FILES + 1)]
+    base = NOW.timestamp()
+    for index, task_id in enumerate(ids):
+        stamp = base - (len(ids) - index)  # 写入顺序 = mtime 新旧：ids[0] 最旧
+        os.utime(root / f"{task_id}.json", (stamp, stamp))
+
+    caplog.set_level(logging.WARNING, logger="heagent.engine.tasks")
+    seen = _registry(root).snapshot(limit=TaskProjection._MAX_PROJECTION_FILES)
+    seen_ids = {progress.task_id for progress in seen}
+
+    assert len(seen) == TaskProjection._MAX_PROJECTION_FILES
+    assert ids[0] not in seen_ids, "最旧写入被截断"
+    assert ids[1] in seen_ids, "次旧仍在：截断只丢最旧档，不按字典序丢"
+    warnings = [record.getMessage() for record in caplog.records if "Task projection" in record.getMessage()]
+    assert len(warnings) == 1, warnings
+    assert "257" in warnings[0] and "256" in warnings[0]

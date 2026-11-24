@@ -246,9 +246,11 @@ def _warn_remote_without_sandbox(config: WsServerConfig, sandbox_backend: str | 
 
     判据取**启动期实际生效**的后端（``--sandbox`` / ``SANDBOX_BACKEND`` 只是请求值：``auto`` 或
     daemon 不可用时引擎会降级），由入口层经 ``sandbox_backend`` 注入；取不到时回落到配置值。
+
+    只读 listener 不注册提交端点 ⇒ 「对端能提交 run」从源头不成立，告警同样不出（公告不撒谎）。
     """
     anchor = _WITHOUT_SANDBOX_ANCHORS.get(config.mode)
-    if anchor is None:
+    if anchor is None or config.readonly:
         return None
     backend = (sandbox_backend or "").strip() or "unknown"
     if backend == _DOCKER_BACKEND:

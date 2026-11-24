@@ -566,6 +566,17 @@ class ConsoleHandler(Protocol):
         """
         ...
 
+    # ── 提交前置探测 ──
+
+    async def check_project(self, project_id: str) -> None:
+        """提交前置探测：项目已登记且目录在盘 ⇒ 原样返回；否则抛 ``ConsoleOperationError``。
+
+        判据与 ``start_project_run`` / ``get_project_config`` 单源（存在 + 目录可用），但**刻意**
+        不求解配置、不构建运行时：WS 提交径每次提交前都要走一次，成本必须停在
+        「1 次注册表读 + 1 次 ``is_dir``」档位（全量配置求解 ~14ms/次不能落在提交热路径上）。
+        """
+        ...
+
     # ── 配置可见性 ──
 
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse:

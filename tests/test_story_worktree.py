@@ -230,3 +230,41 @@ async def test_goal_dir_outside_the_repository_fails_loudly(repo: Path, tmp_path
     worktree = await create_worktree(repo, "g1", "s1")
     with pytest.raises(WorktreeError, match="outside the repository"):
         await promote_goal_products(repo, worktree, tmp_path / "elsewhere" / "g1")
+
+
+async def test_uncommitted_tracked_edits_must_not_land_before_the_story_pick(repo: Path) -> None:
+    """回归钉（2026-11-24 代码审查发现①）：``--modified`` 档产物必须**先 pick 后搬**。
+
+    执行序在 ``cli/goal/execution.py``（先 cherry-pick、再 ``promote_goal_products``）。反向时序——
+    未提交改动先落主工作区——会让 pick 触同路径被 git 拒绝（local changes would be overwritten），
+    整步 FAILED 且 worktree 连带产物一起删。此处把两种时序都钉在 worktree 层：坏顺序必炸、好顺序
+    两步都过且主工作区收敛到「提交态 + 未提交 delta」。
+    """
+    (repo / GOAL_REL).mkdir(parents=True)
+    tracked = repo / GOAL_REL / "report.md"
+    tracked.write_text("v1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "track report")
+    worktree = await create_worktree(repo, "g1", "s1")
+
+    # Story：提交 v2，再改出未提交 v3 —— 同一路径同时进 pick 增量与 ``--modified`` 档。
+    report = worktree / GOAL_REL / "report.md"
+    report.write_text("v2\n", encoding="utf-8")
+    _git(worktree, "add", ".")
+    _git(worktree, "commit", "-q", "-m", "feat: v2")
+    story_sha = await head_commit(worktree)
+    report.write_text("v3\n", encoding="utf-8")
+
+    # 坏时序（曾经的实现）：产物先搬 ⇒ pick 必被拒；搬来的脏文件留在主工作区。
+    await promote_goal_products(repo, worktree, GOAL_REL)
+    with pytest.raises(WorktreeError):
+        await promote_story_commit(repo, "g1-s1", commit=story_sha)
+    assert tracked.read_text(encoding="utf-8") == "v3\n"
+    _git(repo, "checkout", "--", GOAL_REL.as_posix())
+
+    # 好时序（现行实现）：先 pick 后搬，两步都成功。
+    await promote_story_commit(repo, "g1-s1", commit=story_sha)
+    assert tracked.read_text(encoding="utf-8") == "v2\n"
+    copied = await promote_goal_products(repo, worktree, GOAL_REL)
+    assert copied == ["_he-output/goals/g1/report.md"]
+    assert tracked.read_text(encoding="utf-8") == "v3\n"

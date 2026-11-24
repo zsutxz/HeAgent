@@ -24,8 +24,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import re
-from pathlib import Path
 from typing import Any
 
 import click
@@ -43,10 +41,10 @@ from heagent.cli.http_config import (
     build_ws_servers,
 )
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http_project import _project_channel, _project_console, _project_env_declares
 from heagent.cli.http_status import _effective_sandbox_backend, bind_status_source, build_status_source
 from heagent.cli.run_history import run_history_source
 from heagent.cli.wiring import _build_provider, load_startup_settings
-from heagent.cli.ws_project_adapter import ProjectChannelAdapter
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings
 from heagent.engine.tasks import default_task_registry
 from heagent.network.exposure import exposure_warning
@@ -73,11 +71,13 @@ def _ws_url(server: WsServer) -> str:
 def _host_execution_note(config: WsServerConfig, sandbox_backend: str | None) -> str:
     """非容器后端 + 接受远程提交的档位时，追加「远端 run 跑在宿主」这半句；其余情况为空串。
 
+    只读 listener 不注册提交端点 ⇒ 没有对端能提交 run，「跑在宿主」从源头不成立，同样不出这半句
+    （公告不撒谎：说了就是宣称有人能往宿主提交）。
     单点实现：访问口径文案（``_ws_access_note``）与启动告警（``_announce_ws_listeners``）必须同口径，
     两条公告一个讲一个不讲会让「跑在哪」这条关键事实随启动路径而变。
     """
     backend = (sandbox_backend or "").strip()
-    if not backend or backend == "docker" or config.mode not in ("external", "lan"):
+    if not backend or backend == "docker" or config.mode not in ("external", "lan") or config.readonly:
         return ""
     return f"; sandbox={backend}: remote runs execute on the HOST"
 
@@ -333,20 +333,6 @@ class EmbeddedHttpService:
         await self.close()
 
 
-def _project_env_declares(env_key: str) -> bool:
-    """项目 ``.env`` 是否声明了该键（用于「写错位置」的显式告警，不作为取值路径）。
-
-    只做行级文本匹配：值本身**不读**（读了也不能用——凭证只认用户级 ``setting.md``）。
-    """
-    path = Path(".env")
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    pattern = re.compile(rf"^\s*{re.escape(env_key)}\s*=", re.IGNORECASE | re.MULTILINE)
-    return pattern.search(text) is not None
-
-
 def _status_source_for(
     *,
     settings: Settings,
@@ -375,34 +361,6 @@ def _status_source_for(
         workspace_root=str(workspace.root),
         enabled=enabled,
     )
-
-
-def _project_console(
-    *,
-    settings: Settings,
-    workspace: WorkspacePaths,
-    run_service: HttpRunService | None,
-    handler_factory: Any,
-    dialog_backend: str = "none",
-) -> HttpProjectConsole:
-    """网页控制台实例的唯一构造点（HTTP 面与 WS 项目通道共用同一份）。
-
-    写闸门、注册表、项目运行时缓存都挂在实例上，因此两个面必须拿到同一个对象——构造散成两处
-    就会出现「HTTP 侧可写、WS 侧按旧的启动配置跑」这类不可见的双份状态。
-    """
-    return HttpProjectConsole(
-        workspace.root,
-        projects_file=settings.http_console_projects_file,
-        runs=run_service,
-        handler_factory=handler_factory,
-        write_enabled=settings.http_console_write_enabled,
-        dialog_backend=dialog_backend,
-    )
-
-
-def _project_channel(console: HttpProjectConsole) -> ProjectChannelAdapter:
-    """WS 项目通道服务：注册表健康探针取控制台自己那份注册表（同一路径、同一缓存）。"""
-    return ProjectChannelAdapter(console, lambda: console.registry.health().code)
 
 
 def _http_listener_for(

@@ -662,6 +662,16 @@ class HttpProjectConsole:
         await asyncio.to_thread(self._touch, project_id)
         return ProjectRunResponse(run_id=record.run_id, session_id=session_id, status=record.status)
 
+    # ── 提交前置探测 ──
+
+    async def check_project(self, project_id: str) -> None:
+        """提交前置探测（WS 项目通道每次提交前调用）：项目在表且目录在盘，否则 ``ConsoleOperationError``。
+
+        判据与 ``_runtime_for`` 单源（``_require_available_entry``），但刻意**不**建运行时、**不**
+        求解配置——``get_project_config`` 的全量求解（~14ms/次）不能落在 WS 提交热路径上。
+        """
+        self._require_available_entry(project_id)
+
     # ── 配置可见性 ──
 
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse:
@@ -791,11 +801,16 @@ class HttpProjectConsole:
             raise ConsoleOperationError(HttpErrorCode.UNKNOWN_PROJECT, f"no project {project_id!r}")
         return entry
 
-    def _runtime_for(self, project_id: str) -> _ProjectRuntime:
-        """解析（并缓存）项目运行时；未登记 → ``unknown_project``，目录失效 → ``project_unavailable``。"""
+    def _require_available_entry(self, project_id: str) -> ProjectEntry:
+        """``unknown_project`` / ``project_unavailable`` 判据单源：存在 + 目录可用，不含运行时构建。"""
         entry = self._project_entry(project_id)
         if not entry.available:
             raise ConsoleOperationError(HttpErrorCode.PROJECT_UNAVAILABLE, f"project {project_id!r} is unavailable")
+        return entry
+
+    def _runtime_for(self, project_id: str) -> _ProjectRuntime:
+        """解析（并缓存）项目运行时；未登记 → ``unknown_project``，目录失效 → ``project_unavailable``。"""
+        entry = self._require_available_entry(project_id)
         runtime = self._runtimes.get(project_id)
         if runtime is None:
             root = Path(entry.path)

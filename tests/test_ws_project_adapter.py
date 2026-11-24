@@ -59,7 +59,7 @@ class _FakeConsole:
     def __init__(self) -> None:
         self.entries: list[ProjectEntryResponse] = []
         self.run_error: ConsoleOperationError | ProjectRegistryError | None = None
-        self.config_error: ConsoleOperationError | ProjectRegistryError | None = None
+        self.probe_error: ConsoleOperationError | ProjectRegistryError | None = None
         self.calls: list[tuple[str, object]] = []
 
     async def list_projects(self) -> ProjectListResponse:
@@ -72,11 +72,10 @@ class _FakeConsole:
             raise self.run_error
         return ProjectRunResponse(run_id="run-0001", session_id="sess-0001", status=RunStatus.RUNNING)
 
-    async def get_project_config(self, project_id: str) -> object:
-        self.calls.append(("get_project_config", project_id))
-        if self.config_error is not None:
-            raise self.config_error
-        return object()
+    async def check_project(self, project_id: str) -> None:
+        self.calls.append(("check_project", project_id))
+        if self.probe_error is not None:
+            raise self.probe_error
 
 
 def _adapter(console: _FakeConsole, state: str = "ok") -> ProjectChannelAdapter:
@@ -202,12 +201,12 @@ async def test_unmapped_code_is_not_folded_into_a_generic_one() -> None:
 # ── 前置校验 ──
 
 
-async def test_ensure_available_returns_the_id_after_a_read_only_resolve() -> None:
+async def test_ensure_available_returns_the_id_after_the_lightweight_probe() -> None:
     console = _FakeConsole()
 
     assert await _adapter(console).ensure_available(_PROJECT_ID) == _PROJECT_ID
-    # 只有解析读径被调用：不建 run、不占名额。
-    assert [name for name, _ in console.calls] == ["get_project_config"]
+    # 只有轻量探测读径被调用：不求解配置、不建 run、不占名额。
+    assert [name for name, _ in console.calls] == ["check_project"]
 
 
 @pytest.mark.parametrize(
@@ -220,7 +219,7 @@ async def test_ensure_available_returns_the_id_after_a_read_only_resolve() -> No
 )
 async def test_ensure_available_translates_the_console_code(error: Exception, expected: str) -> None:
     console = _FakeConsole()
-    console.config_error = error  # type: ignore[assignment]
+    console.probe_error = error  # type: ignore[assignment]
 
     with pytest.raises(HttpRunConflictError) as raised:
         await _adapter(console).ensure_available(_PROJECT_ID)

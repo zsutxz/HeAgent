@@ -105,10 +105,10 @@ class _RunWebSocketServiceStub:
 class _FakeProjectConsole:
     """``ConsoleHandler`` 项目面替身：项目内 / 全局名额的**唯一**记账处，可注入前置校验失败。
 
-    形状对齐 ``cli.http_console.HttpProjectConsole`` 那条链：``get_project_config`` 是纯读解析
-    （提交前置校验走它，不占名额），``start_project_run`` 才建 run。
+    形状对齐 ``cli.http_console.HttpProjectConsole`` 那条链：``check_project`` 是提交前置探测
+    （轻量读径，不占名额），``start_project_run`` 才建 run。
 
-    ``precheck_busy=True`` 时 ``get_project_config`` 对「已有在途 run」的项目抛 ``project_busy``
+    ``precheck_busy=True`` 时 ``check_project`` 对「已有在途 run」的项目抛 ``project_busy``
     ——这是控制台 50-2 闸门的形状（生产来源是**移除项目**端点）；本文件用它把「被拒的提交没触达
     提交端口」钉成可观察行为。生产链上项目内占用由 ``HttpRunService.start_run`` 回 ``run_conflict``。
     """
@@ -127,14 +127,13 @@ class _FakeProjectConsole:
         self.calls.append(("list_projects", None))
         return ProjectListResponse(projects=[])
 
-    async def get_project_config(self, project_id: str) -> object:
-        self.calls.append(("get_project_config", project_id))
+    async def check_project(self, project_id: str) -> None:
+        self.calls.append(("check_project", project_id))
         error = self.precheck_errors.get(project_id)
         if error is not None:
             raise error
         if self._precheck_busy and project_id in self.inflight:
             raise ConsoleOperationError(HttpErrorCode.PROJECT_BUSY, "project has an in-flight run")
-        return object()
 
     async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:
         self.calls.append(("start_project_run", project_id))

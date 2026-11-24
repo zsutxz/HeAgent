@@ -248,9 +248,10 @@ async def _goal_execute_step(
     围栏仍生效。脚本执行器无 SubAgent 会话，不消费 execution。
 
     物理隔离（A41 / AD-20）：``execution`` 非空时该 Story 在**自己的 git worktree** 里执行
-    （会话的工作区根与写审计基线都钉在 worktree），完成后把 worktree 里的提交
+    （会话的工作区根与写审计基线都钉在 worktree），完成后**先**把 worktree 里的提交
     cherry-pick 回主工作区（用户 2026-11-21 裁定：批内按声明顺序串行 pick，pick 前先建
-    ``refs/heagent/stories/<story>`` 临时引用防 gc）。合并冲突 ⇒ ``cherry-pick --abort``
+    ``refs/heagent/stories/<story>`` 临时引用防 gc）、**再**搬产物——``--modified`` 档的未提交
+    改动先落主工作区会让 pick 触同路径即被 git 拒绝（local changes would be overwritten）。合并冲突 ⇒ ``cherry-pick --abort``
     已恢复干净工作区后 FAILED 显性报出，不静默丢产出；worktree 在 finally 里移除
     （移除失败只 WARNING，残留可由 ``git worktree prune`` 回收）。
     """
@@ -323,22 +324,25 @@ async def _goal_execute_step(
             workspace=worktree,
             context_dir=str(worktree),
         )
-        # `_he-output/` 不进 cherry-pick（gitignore 面）：worktree 移除前把本 Story 写出的产物搬回
-        # 主工作区，否则步骤报告随目录一起消失。搬不动即显性 FAILED——静默丢产物比失败更糟。
-        try:
-            await promote_goal_products(repo_root, worktree, goal_dir)
-        except (WorktreeError, OSError) as exc:
-            return WorkflowStepResult(
-                status=WorkflowStatus.FAILED,
-                reason=(
-                    f"story '{story.id}' products could not be moved back from its worktree: {exc}; "
-                    "the worktree is removed and the step report is still in the goal directory only"
-                ),
-            )
         if result.status is not WorkflowStatus.COMPLETED:
+            # 失败/等待步骤同样要搬产物（步骤报告是排障唯一现场，失败更要留）：不 pick（既有口径），
+            # 也就没有 pick 会挡 ``--modified`` 档的搬移。
+            try:
+                await promote_goal_products(repo_root, worktree, goal_dir)
+            except (WorktreeError, OSError) as exc:
+                return WorkflowStepResult(
+                    status=WorkflowStatus.FAILED,
+                    reason=(
+                        f"story '{story.id}' products could not be moved back from its worktree: {exc}; "
+                        "the worktree is removed and the step report is still in the goal directory only"
+                    ),
+                )
             return result
         story_head = await head_commit(worktree)
         if story_head != base_rev:
+            # pick 先行：主工作区此刻在 Story 未提交改动的路径上还干净。产物搬回会把 ``--modified``
+            # 档的未提交改动落进主工作区，先搬会让 cherry-pick 触同路径即被 git 拒绝（local changes
+            # would be overwritten）⇒ 整步 FAILED、主工作区留脏文件、worktree 连带产物一起删。
             try:
                 await promote_story_commit(repo_root, f"{goal_dir.name}-{story.id}", commit=story_head)
             except WorktreeError as exc:
@@ -350,6 +354,20 @@ async def _goal_execute_step(
                         "manually, then rerun the story"
                     ),
                 )
+        # `_he-output/` 不进 cherry-pick（gitignore 面）：worktree 移除前把本 Story 写出的产物搬回
+        # 主工作区，否则步骤报告随目录一起消失。必须在 pick **之后**搬（时序不变量，见上）；
+        # 搬不动即显性 FAILED——静默丢产物比失败更糟。pick 已带回 tracked 增量，此处 ``--modified``
+        # 档落下的未提交改动叠加在其上（同文件 = 提交态 + 未提交 delta，无信息丢失）。
+        try:
+            await promote_goal_products(repo_root, worktree, goal_dir)
+        except (WorktreeError, OSError) as exc:
+            return WorkflowStepResult(
+                status=WorkflowStatus.FAILED,
+                reason=(
+                    f"story '{story.id}' products could not be moved back from its worktree: {exc}; "
+                    "the worktree is removed and the step report is still in the goal directory only"
+                ),
+            )
         return result
     finally:
         await remove_worktree(repo_root, worktree)

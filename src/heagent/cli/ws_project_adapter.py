@@ -90,16 +90,16 @@ class ProjectChannelAdapter:
         return SubmittedRun(run_id=response.run_id, status=response.status)
 
     async def ensure_available(self, project_id: str) -> str:
-        """提交前置校验：借控制台的解析读径，成功时原样返回 ``project_id``。
+        """提交前置校验：借控制台的轻量探测读径，成功时原样返回 ``project_id``。
 
-        控制台的 ``get_project_config`` 是 ``ConsoleHandler`` 端口上唯一的**纯读解析**方法
-        （解析项目运行时后只读配置，不建 run、不占名额、不写注册表）⇒ ``unknown_project`` /
+        控制台的 ``check_project`` 是 ``ConsoleHandler`` 端口上专门的**提交前置探测**（只做
+        「在表 + 目录在盘」判定，不求解配置、不构建运行时）⇒ ``unknown_project`` /
         ``project_unavailable`` 的判据仍只有控制台一份，适配器不复制「id 在不在表里 / 目录还在
-        不在」这类判断。
+        不在」这类判断，同时全量配置求解也不落在提交热路径上。
         """
         await self._guard_registry(project_id)
         try:
-            await self._console.get_project_config(project_id)
+            await self._console.check_project(project_id)
         except (ConsoleOperationError, ProjectRegistryError) as exc:
             raise _conflict(exc) from exc
         return project_id

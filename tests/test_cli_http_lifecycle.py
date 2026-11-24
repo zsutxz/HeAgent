@@ -724,6 +724,30 @@ def test_access_note_appends_the_host_execution_clause_for_external_without_dock
     assert _ws_access_note(local, "passthrough") == "(run & CLI WebSocket entry; local only; no authentication)"
 
 
+def test_readonly_listener_neither_claims_host_execution_nor_warns() -> None:
+    """只读 listener 不注册提交端点 ⇒ 「远端 run 跑在宿主」半句与沙箱告警都不许出现（公告不撒谎）。
+
+    external/lan 档的告警推理链是「对端能提交 ⇒ 非 docker 会跑在宿主」；只读面上没有人能提交，
+    这条链从源头不成立——照抄告警会让运维对着一个根本无法提交 run 的 listener 恐慌加沙箱。
+    """
+    from heagent.cli.http import _host_execution_note, _ws_access_note
+    from heagent.cli.http_config import _warn_remote_without_sandbox
+    from heagent.network.ws_host import WsServerConfig
+
+    readonly = WsServerConfig(host="192.168.2.226", port=9201, auth_token="tok", readonly=True)
+    assert _host_execution_note(readonly, "passthrough") == ""
+    assert _ws_access_note(readonly, "passthrough") == "(external mode; Bearer token required; PLAINTEXT; read-only)"
+    assert _warn_remote_without_sandbox(readonly, "passthrough") is None
+    assert _warn_remote_without_sandbox(readonly, "docker") is None
+
+    # 对照：同档位可写 listener 两条照出（既有判据逐字不变）。
+    writable = WsServerConfig(host="192.168.2.226", port=9201, auth_token="tok")
+    anchor, body = _warn_remote_without_sandbox(writable, "passthrough")  # type: ignore[misc]
+    assert anchor == "external_without_sandbox"
+    assert "can submit runs" in body
+    assert "remote runs execute on the HOST" in _ws_access_note(writable, "passthrough")
+
+
 class _FakeWsListener:
     """`_serve_web` 的最小 listener：只提供它真正用到的四样东西（起停 + 地址 + 配置）。"""
 

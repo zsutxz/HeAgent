@@ -97,13 +97,23 @@ class TaskProgress(BaseModel):
         return self.status in TERMINAL_STATUSES
 
 
+def _projection_mtime(path: Path) -> float:
+    """截断排序键：文件 mtime。读不出（已被并发删除）⇒ ``0.0`` 落最旧档，先被截断。"""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 class TaskProjection:
     """任务进度的**落盘投影**：让另一个进程（独立 ``http-server`` / cron 子进程）看到本进程的后台任务。
 
     一条任务一个文件 ``<root>/<task_id>.json``（原子写；``task_id`` 是 uuid ⇒ 无同 id 写冲突）。
     投影是**观测面**：任何 I/O 失败只记 WARNING，绝不影响生产者；读取侧对损坏文件同样静默跳过。
 
-    扫描有界：``load_all`` 最多读 ``_MAX_PROJECTION_FILES`` 个文件（目录被外部塞满时不至于拖死查询）。
+    扫描有界：``load_all`` 最多读 ``_MAX_PROJECTION_FILES`` 个文件，超界按 mtime **取最新写入**的
+    （在途任务持续被写 ⇒ 永远在最新档；被截断的只会是早已停写的旧条目——「在途不隐藏」），并记一条
+    WARNING（目录被外部塞满时不至于拖死查询，也不静默丢条目）。
     """
 
     _MAX_PROJECTION_FILES = 256
@@ -130,11 +140,23 @@ class TaskProjection:
             (self._root / f"{task_id}.json").unlink()
 
     def load_all(self, *, now: datetime) -> list[TaskProgress]:
-        """读出全部仍有效的投影条目（过期终态跳过；损坏文件静默跳过）。"""
+        """读出全部仍有效的投影条目（过期终态跳过；损坏文件静默跳过）。
+
+        超界截断按 mtime 倒序取前 ``_MAX_PROJECTION_FILES`` 个：在途任务持续被写、mtime 恒新 ⇒
+        不会被字典序或年长文件挤掉；同时记 WARNING，绝不静默丢条目。
+        """
         try:
-            paths = sorted(self._root.glob("*.json"))[: self._MAX_PROJECTION_FILES]
+            paths = list(self._root.glob("*.json"))
         except OSError:
             return []
+        if len(paths) > self._MAX_PROJECTION_FILES:
+            paths.sort(key=_projection_mtime, reverse=True)
+            logger.warning(
+                "Task projection directory has %d files; keeping the %d newest and dropping the rest",
+                len(paths),
+                self._MAX_PROJECTION_FILES,
+            )
+            paths = paths[: self._MAX_PROJECTION_FILES]
         entries: list[TaskProgress] = []
         for path in paths:
             progress = self._read(path)
