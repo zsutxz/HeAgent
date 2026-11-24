@@ -1,4 +1,4 @@
-"""File search tools scoped to the current workspace."""
+"""限定在当前工作区内的文件搜索工具。"""
 
 from __future__ import annotations
 

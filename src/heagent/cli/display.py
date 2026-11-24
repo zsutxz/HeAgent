@@ -1,4 +1,4 @@
-"""Terminal rendering helpers shared by CLI and GUI integrations."""
+"""CLI 与 GUI 集成共用的终端渲染辅助。"""
 
 from __future__ import annotations
 
@@ -326,12 +326,11 @@ _DEFERRED_ROOT_LEGACY = "deferred-work.md"
 
 
 def _deferred_ledgers(root: Path) -> list[Path]:
-    """Return every deferred-work ledger under ``root``, canonical path first.
+    """返回 ``root`` 下所有 deferred-work 台账，规范路径优先。
 
-    bmad-build *writes* these ledgers but nothing read them back, so deferrals piled up
-    unseen (three different locations by 2026-09-12).  This resolver is the missing reader:
-    the canonical (root open-items) path, four legacy spellings, then the initiative-scoped
-    and goal-local Epic ledgers.
+    bmad-build 只**写**这些台账，却没有任何读者读回，于是未完成项堆积无人看见
+    （到 2026-09-12 已散落三处）。本解析器就是缺失的那个读者：先是规范（根 open-items）
+    路径、四种旧写法，然后是 initiative 作用域与 goal 内的 Epic 台账。
     """
     candidates = [
         root / "_bmad-output" / _DEFERRED_LEDGER,
@@ -346,12 +345,12 @@ def _deferred_ledgers(root: Path) -> list[Path]:
 
 
 def _deferred_entries(text: str) -> list[str]:
-    """Return one ``source_spec — summary`` line per entry in a ledger."""
+    """为台账里的每条条目返回一行 ``source_spec — summary``。"""
     entries: list[str] = []
     for block in re.split(r"^- source_spec:", text, flags=re.MULTILINE)[1:]:
         lines = block.splitlines()
         raw = lines[0].strip() if lines else ""
-        # Entries may carry prose after the code span; keep the path only.
+        # 条目可能在代码段之后带散文说明；这里只保留路径。
         spec = raw.split("`")[1] if raw.startswith("`") and "`" in raw[1:] else raw.strip("`")
         summary = next(
             (line.strip()[len("summary:") :].strip() for line in lines[1:] if line.strip().startswith("summary:")),
@@ -362,7 +361,7 @@ def _deferred_entries(text: str) -> list[str]:
 
 
 def show_deferred_work(root: Path, *, tail: int = 10) -> None:
-    """Print every deferred-work ledger with its entry count and latest entries."""
+    """打印每份 deferred-work 台账及其条目数与最近条目。"""
     ledgers = _deferred_ledgers(root)
     if not ledgers:
         click.echo(f"[deferred] no ledger found (expected _bmad-output/{_DEFERRED_LEDGER})", err=True)
@@ -400,27 +399,27 @@ def show_tool_activity(loop: AgentLoop, *, limit: int = 20) -> None:
 
 
 def _announce(message: str) -> None:
-    """Write one progress banner to stderr unless the operator silenced announcements.
+    """向 stderr 写一条进度横幅，除非运维已静音公告。
 
-    Nested agents share the terminal with the interactive input line, so banners can be
-    submitted as a prompt by accident; ``ANNOUNCE_PROGRESS=false`` silences them.
+    嵌套 agent 与交互输入行共用终端，横幅可能被误当成 prompt 提交；
+    ``ANNOUNCE_PROGRESS=false`` 可静音它们。
     """
     if get_settings().announce_progress:
         click.echo(message, err=True)
 
 
 def _announce_start(name: str, purpose: str, *, run_id: str = "") -> None:
-    """Print a start banner when a phase/skill/agent begins.
+    """阶段/技能/agent 开始时打印一条启动横幅。
 
-    ``run_id`` is folded into the label so parallel children of the same step stay
-    distinguishable on screen and line up with the run ids in the log file.
+    ``run_id`` 折进标签里，好让同一步骤的并行子任务在屏幕上可区分，
+    并与日志文件里的 run id 对得上。
     """
     label = f"{name}#{run_id[:8]}" if run_id else name
     _announce(f"{_icon('▶ ', '> ')}启动 [{label}] — {purpose}")
 
 
 def _announce_end(name: str, loop: AgentLoop, *, iterations: int | None = None, ok: bool = True) -> None:
-    """Print a completion summary plus the token/status line after an agent finishes."""
+    """agent 结束后打印完成摘要以及 token/状态行。"""
     mark = _icon("✔ ", "") if ok else _icon("✘ ", "")
     suffix = f"（{iterations} 轮）" if iterations else ""
     _announce(f"{mark}[{name}] {'完成' if ok else '失败'}{suffix}")

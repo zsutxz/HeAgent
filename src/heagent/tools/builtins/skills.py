@@ -1,4 +1,4 @@
-"""Builtin tools for skill management."""
+"""技能管理相关的内置工具。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ T = TypeVar("T")
 
 @dataclass(slots=True)
 class SkillToolRuntime:
-    """Runtime dependencies for skill tools."""
+    """技能工具的运行时依赖。"""
 
     store: SkillStore | None
     # 运行配置快照值（Phase 1）：由 loop 在 run 作用域绑定时传入；None = 无 run 绑定
@@ -40,14 +40,14 @@ def configure_skill_tools(
     manual_load_budget: int | None = None,
     curator_stale_days: int | None = None,
 ) -> None:
-    """Set the fallback skill store used outside an agent run."""
+    """设置 agent 运行之外使用的兜底技能存储。"""
     _skill_runtime.configure(
         SkillToolRuntime(store=store, manual_load_budget=manual_load_budget, curator_stale_days=curator_stale_days)
     )
 
 
 def reset_skill_tools() -> None:
-    """Clear the fallback skill store."""
+    """清空兜底技能存储。"""
     _skill_runtime.reset()
 
 
@@ -58,7 +58,7 @@ def bind_skill_tools(
     manual_load_budget: int | None = None,
     curator_stale_days: int | None = None,
 ) -> Iterator[None]:
-    """Bind a skill store (and the run's config snapshot values) for the current run context."""
+    """为当前 run 上下文绑定技能存储（以及本次 run 的配置快照值）。"""
     with _skill_runtime.bind(
         SkillToolRuntime(store=store, manual_load_budget=manual_load_budget, curator_stale_days=curator_stale_days)
     ):
@@ -87,15 +87,13 @@ def _curator_stale_default() -> int:
 
 
 def _split_pipe(value: str) -> list[str] | None:
-    """Split a ``|``-separated tool argument (the shared parameter syntax of these tools).
+    """拆分 ``|`` 分隔的工具参数（这几个工具共用的参数语法）。
 
-    - empty string → ``None``: the caller did not supply the field (create uses the
-      default; update keeps the existing value)
-    - non-empty → whitespace-stripped items; **may be an empty list** (e.g. ``"|"``),
-      which under update semantics means "clear this field"
+    - 空字符串 → ``None``：调用方没有提供该字段（create 用默认值，update 保留现有值）
+    - 非空 → 逐项去掉首尾空白；**可能得到空列表**（例如 ``"|"``），在 update 语义下表示
+      「清空该字段」
 
-    ``|`` is a tool-layer contract shared by steps/tags/triggers/negative_triggers, so
-    those argument values cannot contain it.
+    ``|`` 是 steps/tags/triggers/negative_triggers 共用的工具层契约，因此这些参数值里不能含它。
     """
     if not value:
         return None

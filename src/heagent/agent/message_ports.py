@@ -24,9 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------------
-# steering / follow-up 消息队列（参考 Pi 双层循环设计）
-# ----------------------------------------------------------------------
+# ── steering / follow-up 消息队列（参考 Pi 双层循环设计） ──
 
 
 async def _poll(callback: Callable[[], Awaitable[list[Message]]] | None, label: str) -> list[Message]:
@@ -76,9 +74,7 @@ async def inject_follow_up(loop: AgentLoop, state: AgentState) -> bool:
     return True
 
 
-# ----------------------------------------------------------------------
-# 暂停 / 恢复（协作式：在下一轮 LLM 调用前的边界生效）
-# ----------------------------------------------------------------------
+# ── 暂停 / 恢复（协作式：在下一轮 LLM 调用前的边界生效） ──
 
 
 def pause(loop: AgentLoop) -> None:

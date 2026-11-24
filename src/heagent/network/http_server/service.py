@@ -103,7 +103,7 @@ class HttpRunService:
         # 关停预算在本服务的方法面上仍取 shutdown_timeout（调用方无参调用，既有签名不变）。
         self._ws_registry = WsRegistry(log_prefix="http", stream_label="run_id")
 
-    # ---- 查询 ----
+    # ── 查询 ──
 
     @property
     def active_runs(self) -> int:
@@ -149,7 +149,7 @@ class HttpRunService:
             messages=list(self._messages),
         )
 
-    # ---- 生命周期 ----
+    # ── 生命周期 ──
 
     def reopen(self) -> None:
         """重新武装运行入口（``close()`` 的反操作）：清除「正在关闭」标记。
@@ -351,7 +351,7 @@ class HttpRunService:
                 safe_log(logger, logging.WARNING, "http event=run_shutdown_timeout pending=%d", len(pending))
         self._run_tasks.clear()
 
-    # ---- 运行执行 ----
+    # ── 运行执行 ──
 
     def _deadline_tick(self) -> float | None:
         """看门狗的巡检间隔；三个时限全关时返回 ``None``（不启动看门狗）。

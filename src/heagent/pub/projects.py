@@ -1,4 +1,4 @@
-"""Persistent registry for existing local project workspaces."""
+"""既有本地项目工作区的持久化注册表。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ _CONTENT_CORRUPT = "content_corrupt"
 
 
 class ProjectRegistryError(ValueError):
-    """Stable project registry failure; the transport maps ``code`` to HTTP."""
+    """稳定的项目注册表失败；传输层把 ``code`` 映射成 HTTP。"""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -44,7 +44,7 @@ class _RegistryCorrupt(Exception):
 
 
 class ProjectEntry(BaseModel):
-    """Bounded public project metadata. Availability is computed when listing."""
+    """有界的公开项目元数据。可用性在列举时计算。"""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -103,7 +103,7 @@ def _corrupt_detail(error: _RegistryCorrupt) -> str:
 
 
 def normalize_project_path(path: str | Path) -> str:
-    """Expand, resolve, and remove redundant trailing separators from a path."""
+    """展开并解析路径，去掉多余的尾部路径分隔符。"""
     raw = str(path)
     if not raw or len(raw) > MAX_PROJECT_PATH_CHARS:
         raise ProjectRegistryError("invalid_project_path", "project path is invalid")
@@ -118,13 +118,13 @@ def normalize_project_path(path: str | Path) -> str:
 
 
 def project_id_for(path: str | Path) -> str:
-    """Create a stable ID from the platform-normalized canonical path."""
+    """由平台归一化后的规范路径生成稳定 ID。"""
     normalized = normalize_project_path(path)
     return "p" + hashlib.sha256(os.path.normcase(normalized).encode("utf-8")).hexdigest()[:8]
 
 
 class ProjectRegistry:
-    """Atomic, cross-process registry. Project directories are never mutated."""
+    """原子且跨进程的注册表。项目目录永不被改动。"""
 
     def __init__(self, path: str | Path, *, default_path: str | Path) -> None:
         self._path = Path(path)
@@ -275,7 +275,7 @@ class ProjectRegistry:
     def _mutate_entry(
         self, project_id: str, action: str, mutate: Callable[[_StoredProject], _StoredProject]
     ) -> ProjectEntry:
-        """Registry entry mutation scaffold: decode → locate by id → mutate → persist atomically → project."""
+        """注册表条目改动的骨架：解码 → 按 id 定位 → 改动 → 原子落盘 → 投影。"""
 
         def rewrite(entries: builtins_list[_StoredProject]) -> tuple[builtins_list[_StoredProject], _StoredProject]:
             for index, entry in enumerate(entries):

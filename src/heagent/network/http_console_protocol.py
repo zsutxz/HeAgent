@@ -253,7 +253,7 @@ class ProjectRunResponse(BaseModel):
 
 
 class ConsoleOperationError(Exception):
-    """Expected handler failure with a stable client-visible code."""
+    """预期内的 handler 失败，带稳定的客户端可见错误码。"""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)

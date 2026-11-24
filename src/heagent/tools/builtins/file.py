@@ -218,14 +218,14 @@ async def file_read(
         lines = text.splitlines()
         total = len(lines)
 
-        # offset: 1-based, clamp to [1, total]
+        # offset：从 1 开始，钳到 [1, total]
         start = (offset - 1) if offset is not None else 0
         if start < 0:
             start = 0
         if start >= total:
             return f"Error: offset {offset} exceeds file length ({total} lines)"
 
-        # limit: number of lines
+        # limit：行数
         end = start + limit if limit is not None and limit >= 0 else total
         if end > total:
             end = total
@@ -233,7 +233,7 @@ async def file_read(
         selected = lines[start:end]
         result = "\n".join(selected)
 
-        # Append tail note when truncation occurred
+        # 发生截断时追加尾部提示
         if start > 0 or end < total or file_truncated:
             notes: list[str] = []
             if start > 0:

@@ -105,6 +105,7 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 python scripts/contract_snapshot.py --check          # 五份基线：公共导出面 / 传输路由 / 异常类型 / 传输错误码 / 框架错误码
 pytest tests/test_contract_baselines.py tests/test_architecture_contracts.py -q
 pytest tests/test_docs_links.py tests/test_deferred_id_registry.py -q   # 文档链接/锚点与台账计数诚实性
+pytest tests/test_comment_conventions.py -q          # 注释/docstring 口径（框架 §8.4 第 5 条）
 ```
 
 判据：全绿才继续；快照红了先看 diff 判断「有意变更（重生基线）」还是「意外漂移（改代码）」。

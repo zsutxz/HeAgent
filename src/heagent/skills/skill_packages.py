@@ -1,4 +1,4 @@
-"""Validated, on-demand access to declarative skill packages."""
+"""对声明式技能包的按需、带校验的访问。"""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def _filter_hash_map(mapping: dict[object, object]) -> dict[str, str]:
 
 
 class SkillPackageError(ValueError):
-    """Base error for an invalid or unusable skill package resource."""
+    """技能包资源非法或不可用时的基类错误。"""
 
     def __init__(self, skill_id: str, resource: str, reason: str) -> None:
         self.skill_id = skill_id
@@ -62,19 +62,19 @@ class SkillPackageError(ValueError):
 
 
 class SkillPackageEntryError(SkillPackageError):
-    """Raised when a package entry point is missing or unreadable."""
+    """包的入口点缺失或不可读时抛出。"""
 
 
 class SkillPackageResourceError(SkillPackageError):
-    """Raised when a package resource is invalid, missing, or outside its root."""
+    """包资源非法、缺失或落在包根之外时抛出。"""
 
 
 class SkillCatalogError(ValueError):
-    """Base error raised while indexing skill packages."""
+    """索引技能包时抛出的基类错误。"""
 
 
 class SkillResolutionError(SkillCatalogError):
-    """Raised when an explicit skill id cannot be resolved unambiguously."""
+    """显式技能 id 无法无歧义解析时抛出。"""
 
     def __init__(self, skill_id: str, reason: str, candidates: Iterable[SkillCatalogEntry] = ()) -> None:
         self.skill_id = skill_id
@@ -86,7 +86,7 @@ class SkillResolutionError(SkillCatalogError):
 
 
 class SkillPackageMetadata(BaseModel):
-    """Stable metadata associated with a package entry point."""
+    """与包入口点关联的稳定元数据。"""
 
     model_config = ConfigDict(extra="allow")
 
@@ -104,14 +104,14 @@ class SkillPackageMetadata(BaseModel):
 
 
 class SkillPackageEntry(BaseModel):
-    """Entry point text and its parsed metadata."""
+    """入口点正文及其解析后的元数据。"""
 
     text: str
     metadata: SkillPackageMetadata
 
 
 class SkillPackage(BaseModel):
-    """A package boundary with lazy, root-fenced resource reads."""
+    """技能包边界：资源读取惰性求值，且被围栏限定在包根内。"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
@@ -135,7 +135,7 @@ class SkillPackage(BaseModel):
 
     @property
     def metadata(self) -> SkillPackageMetadata:
-        """Load and parse entry metadata on first access."""
+        """首次访问时才加载并解析入口元数据。"""
         if self._metadata is None:
             object.__setattr__(self, "_metadata", self.read_entry().metadata)
         return cast("SkillPackageMetadata", self._metadata)
@@ -173,7 +173,7 @@ class SkillPackage(BaseModel):
         return SkillPackageEntry(text=text, metadata=metadata)
 
     def read_resource(self, resource: str) -> str:
-        """Read exactly one root-relative resource, without scanning its package."""
+        """只读取一个包根相对资源，不扫描整个包。"""
         return self._read_text(resource)
 
     def _read_text(self, resource: str, *, entry: bool = False) -> str:
@@ -472,7 +472,7 @@ class SkillPackage(BaseModel):
 
 
 class SkillCatalogEntry(BaseModel):
-    """An indexed package and its stable identifiers."""
+    """一个已索引的包及其稳定标识符。"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
@@ -495,7 +495,7 @@ class SkillCatalogConflict(BaseModel):
 
 
 class SkillCatalog:
-    """Discover packages from explicitly supplied source directories."""
+    """从显式给出的源目录中发现技能包。"""
 
     def __init__(self, source_dirs: Iterable[str | Path] = ()) -> None:
         self.source_dirs = tuple(Path(path).expanduser() for path in source_dirs)
@@ -536,12 +536,12 @@ class SkillCatalog:
             )
             for package_root in candidates:
                 found.append(self._index_package(package_root))
-        # Identical canonical packages from the same root are one package, not a conflict.
+        # 同一根下的相同 canonical 包是同一个包，不算冲突。
         unique: dict[tuple[str, str, tuple[str, ...]], SkillCatalogEntry] = {}
         for entry in found:
             key = (entry.canonical_id, entry.package_root, tuple(entry.aliases))
             unique.setdefault(key, entry)
-        # Cross-root dedup: first source_dir wins (global-first), the rest are shadowed.
+        # 跨根去重：先出现的 source_dir 胜出（全局优先），其余被遮蔽。
         effective: dict[str, SkillCatalogEntry] = {}
         conflicts: list[SkillCatalogConflict] = []
         for entry in unique.values():
@@ -624,7 +624,7 @@ class SkillCatalog:
 
 
 class SkillResolver:
-    """Resolve canonical ids and compatibility aliases deterministically."""
+    """确定性地解析 canonical id 与兼容别名。"""
 
     def __init__(self, catalog: SkillCatalog | Iterable[SkillCatalogEntry]) -> None:
         self.catalog = catalog
@@ -639,7 +639,7 @@ class SkillResolver:
             canonical_requested = SkillCatalog._canonical_id(requested)
         except ValueError:
             canonical_requested = ""
-        # Canonical ids are explicit and always outrank alias matches.
+        # canonical id 是显式的，永远压过别名匹配。
         canonical = [e for e in entries if canonical_requested and e.canonical_id == canonical_requested]
         matches = canonical or [e for e in entries if requested == e.source_id or requested in e.aliases]
         if not matches:

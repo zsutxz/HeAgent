@@ -346,12 +346,12 @@ _REPLACE_BACKOFF = 0.02
 
 
 def _is_windows_sharing_violation(exc: PermissionError) -> bool:
-    """Return whether *exc* is a retryable Windows sharing/access conflict."""
+    """返回 *exc* 是否属于可重试的 Windows 共享/访问冲突。"""
     return sys.platform == "win32" and getattr(exc, "winerror", None) in {5, 32}
 
 
 def _replace_with_retry(tmp: Path, path: Path) -> None:
-    """Replace a same-directory temporary file, retrying transient Windows sharing conflicts."""
+    """替换同目录下的临时文件，遇到瞬时的 Windows 共享冲突则重试。"""
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
             os.replace(tmp, path)
@@ -363,7 +363,7 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
 
 
 def _write_temp_text(path: Path, text: str) -> Path:
-    """Write text to a unique temporary sibling so concurrent writers cannot alias it."""
+    """把文本写入唯一的临时兄弟文件，避免并发写入者互相顶替。"""
     fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True)
     tmp = Path(raw_tmp)
     try:
@@ -376,7 +376,7 @@ def _write_temp_text(path: Path, text: str) -> Path:
 
 
 def _write_temp_bytes(path: Path, data: bytes) -> Path:
-    """Write bytes to a unique temporary sibling so concurrent writers cannot alias it."""
+    """把字节写入唯一的临时兄弟文件，避免并发写入者互相顶替。"""
     fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp = Path(raw_tmp)
     try:
@@ -482,7 +482,7 @@ def atomic_write_text(
 
 
 def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lock_timeout: float = 5.0) -> R:
-    """Read, update, and replace a text file while holding one cross-process lock."""
+    """在持有一把跨进程锁的前提下读取、更新并替换文本文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
     lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)

@@ -375,7 +375,7 @@ async def _run_chat(
     no_http: bool = False,
     no_ws: bool = False,
 ) -> None:
-    """Run interactive chat mode."""
+    """运行交互式对话模式。"""
     _setup_readline()
     settings = get_settings()
     engine, system = _prepare_engine(
@@ -468,9 +468,7 @@ async def _run_chat(
                 await scheduler.stop()
 
 
-# =============================================================================
-# Slash command routing (CLI interactive mode)
-# =============================================================================
+# ── 斜杠命令路由（CLI 交互模式）──
 
 
 def _pause_loop(loop: AgentLoop, line_state: _LineState) -> None:
@@ -813,7 +811,7 @@ def _render_command_prompt(prompt: str, args: str) -> str:
 
 
 async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
-    """Route slash commands via registry; returns True if handled, False to pass through."""
+    """经注册表路由斜杠命令；已处理返回 True，需透传返回 False。"""
     parts = user_input.split()
     cmd = parts[0].lower() if parts else ""
     if not cmd.startswith("/"):
@@ -824,7 +822,7 @@ async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
 
 
 async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) -> bool:
-    """Dispatch one interactive slash command while preserving cancellation semantics."""
+    """分发一条交互式斜杠命令，同时保留取消语义。"""
     try:
         return await _handle_slash(user_input, registry)
     except asyncio.CancelledError:
@@ -838,7 +836,7 @@ async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) 
 
 
 async def _handle_provider_cmd(parts: list[str], provider: BaseProvider) -> None:
-    """Handle /provider slash command for runtime LLM provider switching."""
+    """处理 /provider 斜杠命令，在运行时切换 LLM provider。"""
     if not isinstance(provider, SwitchableProvider):
         click.echo("[provider] Only one provider configured; switching not available.", err=True)
         return
@@ -910,14 +908,14 @@ async def _handle_model_cmd(provider: BaseProvider, args: str = "") -> None:
 
 
 def _format_prompt_args(args: list[dict[str, Any]]) -> str:
-    """Format MCP Prompt arguments list for display."""
+    """把 MCP Prompt 参数列表格式化成展示用文本。"""
     if not args:
         return "(no args)"
     return " ".join(f"{a['name']}=..." if a.get("required") else f"{a['name']}?" for a in args)
 
 
 async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
-    """Handle /mcp-prompt slash command in chat mode."""
+    """在对话模式下处理 /mcp-prompt 斜杠命令。"""
     if mcp_manager is None or not hasattr(mcp_manager, "list_prompts"):
         click.echo("[mcp] No MCP server connected.", err=True)
         return
@@ -968,7 +966,7 @@ async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
 
 
 def _guard_mcp_content(text: str) -> str:
-    """Apply heuristic injection guard to MCP prompt output (non-bridge path, CLI only)."""
+    """对 MCP prompt 输出施加启发式注入防护（非桥接路径，仅 CLI）。"""
     from heagent.tools.mcp.mapping import guard_content  # noqa: PLC0415
 
     return guard_content(text)

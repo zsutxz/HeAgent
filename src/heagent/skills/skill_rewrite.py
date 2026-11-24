@@ -47,7 +47,7 @@ def render_skill_md(
     triggers: list[str] | None,
     negative_triggers: list[str] | None,
 ) -> str:
-    """Render the canonical on-disk representation for one skill."""
+    """渲染单个技能在盘上的规范表示。"""
     fm_lines = [
         "---",
         *metadata_lines(

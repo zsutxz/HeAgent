@@ -1,4 +1,4 @@
-"""Deterministic one-step runner for declarative Markdown workflows."""
+"""声明式 Markdown 工作流的确定性单步 runner。"""
 
 from __future__ import annotations
 
@@ -102,14 +102,13 @@ CheckpointCallback = Callable[[WorkflowRunnerState], Awaitable[None] | None]
 
 
 class WorkflowRunner:
-    """Run exactly one workflow step and never synthesize completion.
+    """只运行一个 workflow 步骤，且绝不合成「完成」状态。
 
-    Step declarations are authoritative. A non-completed callback result leaves
-    the active step unchanged, allowing callers to resume after checkpoints.
+    步骤声明是权威。回调返回非完成结果时活动步保持不变，调用方因此可在 checkpoint
+    之后恢复。
 
-    A step may declare ``story_loop: <artifact>``; such a step expands into one
-    callback invocation per story (each an independently checkpointable
-    increment), advancing the step only after every story has completed.
+    一个步骤可以声明 ``story_loop: <artifact>``；这样的步骤会展开成「每个 story 调用
+    一次回调」（每次都是可独立 checkpoint 的增量），并且只有在全部 story 完成后才推进该步。
     """
 
     def __init__(
@@ -636,7 +635,7 @@ class WorkflowRunner:
         return self._active_step_resource()
 
     def pause(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
-        """User-requested pause through the single transition table (51-2 Review P7)."""
+        """用户请求的暂停，经唯一转换表落状态（51-2 Review P7）。"""
         self.state = _pause_state(self.state)
         _emit_step_event(
             emit,
@@ -730,11 +729,10 @@ class WorkflowRunner:
         return self._active_step_resource()
 
     async def persist_state(self) -> str | None:
-        """Persist a command-boundary state change without invoking a callback.
+        """持久化命令边界处的状态变化，不调用任何回调。
 
-        Pause and resume are CLI state changes, not workflow steps. Keeping this
-        operation on the Runner prevents callers from rebuilding checkpoint
-        payloads and accidentally losing completed-step history on recovery.
+        pause 与 resume 是 CLI 的状态变化、不是 workflow 步骤。把该操作留在 Runner 上，
+        调用方就不必自己重建 checkpoint 载荷，也不会在恢复时意外丢掉已完成步骤的历史。
         """
         return await self._persist(self._active_step_resource(), None)
 
@@ -862,16 +860,13 @@ class WorkflowRunner:
         return checkpoint.checkpoint_id
 
     def _checkpoint_id(self, step: WorkflowStepResource) -> str:
-        """Build the idempotency key for one logical checkpoint position.
+        """构造一个 logical checkpoint 位置所需的幂等键。
 
-        The id must be a total function of the position, because the store treats
-        a second write of the same id with different content as a conflict. For a
-        story-loop step the position includes the active story: the same
-        ``(step, story_index)`` slot legitimately holds two snapshots -- "the step
-        has not entered its story yet" (no active story, written while the previous
-        step advanced into this one) and "story S-1 is pending" (written when the
-        runner resumed into an interrupted story). Omitting the story made the
-        second write collide with the first and raise a bogus conflict.
+        id 必须是该位置的完全函数，因为 store 把「同一 id 第二次写入不同内容」视为冲突。
+        对 story 循环步骤而言，位置包含当前 story：同一个 ``(step, story_index)`` 槽位
+        合法地持有两个快照——「该步尚未进入它的 story」（没有活动 story，写于上一步推进
+        进入本步时）与「story S-1 待执行」（runner 恢复进被打断的 story 时写入）。省略
+        story 会让第二次写入与第一次撞车，抛出一个假冲突。
         """
         story_part = ""
         if self._is_story_step(step):
@@ -879,8 +874,8 @@ class WorkflowRunner:
             # ——恢复路径从不按重建 id 找快照（restore_runner 按内容位匹配、load_latest_unfinished
             # 按创建序扫描），旧格式文件天然容忍读，id 格式变更因此兼容。
             story_part = f"-story-{self.state.story_index}"
-            # Story ids are normalized upstream; sanitize defensively so a
-            # hand-built spec can never produce a path-unsafe checkpoint id.
+            # Story id 在上游已规范化；这里再做一次防御性清洗，
+            # 确保手工构造的 spec 也无法产出路径不安全的 checkpoint id。
             label = re.sub(r"[^0-9A-Za-z]+", "-", self.state.active_story or "").strip("-")
             if label:
                 story_part += f"-{label}"
@@ -904,7 +899,7 @@ class WorkflowRunner:
 
     @staticmethod
     def validate_output(step: WorkflowStepResource, output: Any) -> None:
-        """Validate a step output against its output and validation declarations."""
+        """按步骤的输出与 validation 声明校验步骤输出。"""
         WorkflowRunner._validate_output(step, output)
 
     @staticmethod

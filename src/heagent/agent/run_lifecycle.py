@@ -89,20 +89,17 @@ _DELEGATION_DETAIL_KEYS = ("kind", "role", "workflow_step", "workflow_story", "g
 
 
 def _delegation_details(run_context: RunContext) -> dict[str, Any]:
-    """Return a delegated run's identity for the ``run_started`` log line.
+    """为 ``run_started`` 日志行返回被委派 run 的身份信息。
 
-    Progress banners (``cli.display._announce_*``) are stderr-only, so the log file could
-    not answer "which agent/step ran when" after the fact.  These keys make a delegated run
-    reconstructible from ``logs/heagent-*.log``; a root run carries no such metadata and
-    therefore logs exactly as before.
+    进度横幅（``cli.display._announce_*``）只写 stderr，因此事后无法从日志文件回答
+    「哪个 agent/步骤在何时跑过」。这几个键让被委派的 run 可从 ``logs/heagent-*.log``
+    还原；顶层 run 不带这类元数据，日志与此前逐字一致。
     """
     metadata = run_context.metadata or {}
     return {key: metadata[key] for key in _DELEGATION_DETAIL_KEYS if metadata.get(key) not in (None, "")}
 
 
-# ----------------------------------------------------------------------
-# 初始化（run / run_stream 共享）
-# ----------------------------------------------------------------------
+# ── 初始化（run / run_stream 共享） ──
 
 
 async def init_or_resume(
@@ -212,9 +209,7 @@ async def init_new_run(
     return state, run_context, system_content, accumulated
 
 
-# ----------------------------------------------------------------------
-# 非流式主循环体
-# ----------------------------------------------------------------------
+# ── 非流式主循环体 ──
 
 
 async def execute_run(
@@ -239,9 +234,9 @@ async def execute_run(
     response: ProviderResponse | None = None
     try:
         with loop._runtime_scope(run_context):
-            # ---- 外层循环：follow-up 接续 ----
+            # ── 外层循环：follow-up 接续 ──
             while True:
-                # ---- 内层循环：steering + 工具执行 ----
+                # ── 内层循环：steering + 工具执行 ──
                 while True:
                     # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
                     await loop._wait_if_paused(run_context)
@@ -271,7 +266,7 @@ async def execute_run(
                         loop, state, run_context, init.prompt, system_content, usage=response.usage
                     )
 
-                # ---- follow-up 检查 ----
+                # ── follow-up 检查 ──
                 if not await loop._inject_follow_up(state):
                     break  # 无 follow-up，外层退出
                 # 有 follow-up → 继续外层循环，启动新一轮 LLM 调用
@@ -293,9 +288,7 @@ async def execute_run(
         await persist_and_cache(loop, session_id, state, accumulated, run_context)
 
 
-# ----------------------------------------------------------------------
-# 终结（run / run_stream 共享）
-# ----------------------------------------------------------------------
+# ── 终结（run / run_stream 共享） ──
 
 
 async def finish_run(
@@ -413,9 +406,7 @@ async def on_run_failed(
     )
 
 
-# ----------------------------------------------------------------------
-# run_store 持久化（best-effort：失败仅记日志，不阻断主循环）
-# ----------------------------------------------------------------------
+# ── run_store 持久化（best-effort：失败仅记日志，不阻断主循环） ──
 
 
 async def start_run_record(loop: AgentLoop, run_context: RunContext, *, prompt: str, system: str | None) -> None:

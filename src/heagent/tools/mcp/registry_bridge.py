@@ -68,7 +68,7 @@ class RegistryBridge:
         """注册 mcp__list_resources + mcp__read_resource 桥接工具（幂等；冲突回滚）。"""
         if self._bridge_registered:
             return
-        # --- mcp__list_resources ---
+        # ── mcp__list_resources ──
         if self._registry.get_schema(_BRIDGE_LIST_TOOL) is not None:
             # 命名冲突：server 名为 "mcp" 且其工具叫 "list_resources" 时，namespaced 名同为
             # mcp__list_resources（registry.register 重复注册会静默覆盖）。不覆盖 server 工具——
@@ -85,7 +85,7 @@ class RegistryBridge:
         )
         self._registry.register(list_schema, list_handler)
 
-        # --- mcp__read_resource ---
+        # ── mcp__read_resource ──
         if self._registry.get_schema(_BRIDGE_READ_TOOL) is not None:
             logger.warning("mcp__read_resource 命名冲突（registry 已有同名工具），跳过桥接注册")
             # 回滚已注册的 list_resources

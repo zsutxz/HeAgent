@@ -1,15 +1,13 @@
-"""Read-only preflight of a configured Goal workflow and its role packages.
+"""对已配置的 Goal 工作流及其角色包做只读预检。
 
-The preflight grades every observation instead of returning one flat string list:
-``FAIL`` blocks a run, ``WARN`` is reported without blocking, ``PASS`` records the
-checks that actually ran.  Grading matters because "no problems found" and "some
-checks never ran" must not render the same way.
+预检给每条观察结果分级，而不是返回一个扁平字符串列表：
+``FAIL`` 阻断运行，``WARN`` 只报告不阻断，``PASS`` 记录真正跑过的检查。
+分级之所以重要，是因为「没发现问题」与「有些检查根本没跑」不能渲染成同一形态。
 
-**Which checks run is declared, not hard-coded**: the workflow's ``doctor_checks``
-frontmatter key picks an ordered subset of :data:`_CHECKS`; absent means
-:data:`DEFAULT_DOCTOR_CHECKS`, so an existing package keeps its behaviour.  The
-registry is the engine's generic vocabulary — no entry may know about a specific
-workflow, step or role.
+**跑哪些检查是声明的，不是硬编码的**：工作流的 ``doctor_checks``
+frontmatter 键从 :data:`_CHECKS` 里挑出一个有序子集；缺省即
+:data:`DEFAULT_DOCTOR_CHECKS`，因此既有包保持原有行为。该注册表是引擎的
+通用词汇表——任何条目都不得知道具体的工作流、步骤或角色。
 """
 
 from __future__ import annotations
@@ -37,7 +35,7 @@ _TEMPLATE_PREFIX = "templates/"
 
 
 class DoctorSeverity(StrEnum):
-    """Grading of one preflight observation; ``WARN`` never counts as a pass."""
+    """对单条预检观察结果的分级；``WARN`` 永不计为通过。"""
 
     PASS = "pass"  # nosec B105 - 分级标签，非凭证 # noqa: S105
     WARN = "warn"
@@ -45,7 +43,7 @@ class DoctorSeverity(StrEnum):
 
 
 class DoctorFinding(BaseModel):
-    """One structured preflight observation."""
+    """一条结构化的预检观察结果。"""
 
     severity: DoctorSeverity
     code: str = Field(min_length=1)
@@ -53,12 +51,12 @@ class DoctorFinding(BaseModel):
     detail: str = ""
 
     def render(self) -> str:
-        """One human-readable line; the ``subject: detail`` shape is a stable contract."""
+        """单行人读文本；``subject: detail`` 的形态是稳定契约。"""
         return f"{self.subject}: {self.detail}" if self.subject else self.detail
 
 
 class GoalDoctorReport(BaseModel):
-    """Structured, read-only preflight result for one Goal workflow."""
+    """某个 Goal 工作流的结构化只读预检结果。"""
 
     workflow: str
     # 声明里实际跑过的检查（按声明顺序）；报告自身也记录它，避免「没跑」被读成「没问题」。
@@ -67,23 +65,23 @@ class GoalDoctorReport(BaseModel):
 
     @property
     def problems(self) -> list[DoctorFinding]:
-        """Findings a caller has to act on or report (everything but ``PASS``)."""
+        """调用方必须处理或上报的 finding（除 ``PASS`` 外的全部）。"""
         return [finding for finding in self.findings if finding.severity is not DoctorSeverity.PASS]
 
     @property
     def ok(self) -> bool:
-        """True when nothing failed; a ``WARN`` is surfaced but does not block a run."""
+        """无失败即 True；``WARN`` 会露出但不阻断运行。"""
         return all(finding.severity is not DoctorSeverity.FAIL for finding in self.findings)
 
     def render(self) -> str:
-        """Stable one-line summary (the historical ``/goal doctor`` text when nothing is wrong)."""
+        """稳定的一行摘要（无问题时即历史 ``/goal doctor`` 文案）。"""
         rendered = [finding.render() for finding in self.problems]
         return "; ".join(rendered) if rendered else "workflow packages OK"
 
 
 @dataclass(frozen=True)
 class _CheckContext:
-    """Everything one preflight check may look at (all read-only)."""
+    """单条预检检查可看到的一切（全部只读）。"""
 
     workflow: WorkflowResource
     package: SkillPackage
@@ -102,11 +100,10 @@ def diagnose_workflow(
     *,
     checkpoint_dir: Path | None = None,
 ) -> GoalDoctorReport:
-    """Run the declared preflight checks and return a structured report.
+    """运行已声明的预检检查，返回结构化报告。
 
-    Every read goes through :class:`SkillPackage`, so an unreachable entry, a resource
-    removed after loading, or a pinned-hash drift all surface as an explicit finding
-    instead of silently succeeding.
+    所有读取都经 :class:`SkillPackage`，因此不可达的条目、加载后被移除的资源、
+    固定哈希漂移，都会以显式 finding 浮出，而不是悄悄算作通过。
     """
     declared = list(workflow.doctor_checks) or list(DEFAULT_DOCTOR_CHECKS)
     context = _CheckContext(
@@ -123,7 +120,7 @@ def diagnose_workflow(
 
 
 def _check_package(context: _CheckContext) -> list[DoctorFinding]:
-    """The package entry and its ``workflow.md`` must both stay readable and hash-stable."""
+    """包条目与其 ``workflow.md`` 都必须保持可读且哈希稳定。"""
     package = context.package
     checks: tuple[tuple[str, Callable[[], object]], ...] = (
         ("workflow_entry_unreadable", package.read_entry),
@@ -164,7 +161,7 @@ def _declared_required(workflow: WorkflowResource) -> list[str]:
 
 
 def _check_required_resources(context: _CheckContext) -> list[DoctorFinding]:
-    """Re-read every declared required resource so post-load drift cannot pass unnoticed."""
+    """重读每条声明的必需资源，使加载后的漂移无法蒙混过关。"""
     findings: list[DoctorFinding] = []
     for name in context.required:
         subject = f"required resource {name}"
@@ -235,7 +232,7 @@ def _check_templates(context: _CheckContext) -> list[DoctorFinding]:
 
 
 def _check_roles(context: _CheckContext) -> list[DoctorFinding]:
-    """Every role a step declares must resolve to a readable package."""
+    """步骤声明的每个角色都必须能解析到一个可读的包。"""
     findings: list[DoctorFinding] = []
     roles = sorted({step.role.strip() for step in context.workflow.steps if step.role.strip()})
     for role in roles:
@@ -274,20 +271,18 @@ def _check_roles(context: _CheckContext) -> list[DoctorFinding]:
 
 
 def _check_checkpoint_dir(context: _CheckContext) -> list[DoctorFinding]:
-    """Probe the resolved checkpoint directory when the caller supplied one."""
+    """调用方提供了 checkpoint 目录时，探测解析后的该目录。"""
     if context.checkpoint_dir is None:
         return []
     return [_probe_checkpoint_dir(context.checkpoint_dir)]
 
 
 def _probe_checkpoint_dir(directory: Path) -> DoctorFinding:
-    """Prove the checkpoint directory is writable without persisting any artifact.
+    """在不落任何产物的前提下证明 checkpoint 目录可写。
 
-    ``atomic_write_text`` creates missing parents, so an absent directory is not a
-    problem by itself; the probe therefore targets the nearest existing ancestor
-    instead of creating directories during a read-only preflight.  The probe writes
-    and immediately drops one temporary file — no checkpoint, workflow state or goal
-    document is touched.
+    ``atomic_write_text`` 会创建缺失的父目录，因此目录不存在本身不算问题；
+    探针改为瞄准最近的存在祖先，而不是在只读预检里造目录。探针只写一个临时
+    文件并立即删除——不碰任何 checkpoint、工作流状态或 goal 文档。
     """
     subject = "checkpoint directory"
     if directory.exists() and not directory.is_dir():

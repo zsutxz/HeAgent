@@ -216,7 +216,7 @@ def estimate_cost(usage: TokenUsage, model: str, pricing: dict[str, dict[str, fl
 
 
 def estimate_text_tokens(text: str) -> int:
-    """Public wrapper for the shared heuristic token estimator."""
+    """共享启发式 token 估算器的对外包装。"""
     return _estimate_text_tokens(text)
 
 

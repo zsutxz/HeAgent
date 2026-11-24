@@ -1,13 +1,11 @@
-"""Unified, read-only status projection for one Goal.
+"""单个 Goal 的统一只读状态投影。
 
-The CLI, the GUI and the cron entry points render this model instead of each reading
-the runner state, the checkpoint JSON and the goal documents themselves: one
-projection means one answer to "what is this Goal doing, why, and what happens next".
+CLI、GUI 与 cron 入口都渲染这一模型，而不是各自去读 runner 状态、checkpoint JSON 与
+goal 文档：一份投影意味着「这个 Goal 在做什么、为什么、接下来会怎样」只有一个答案。
 
-**Which fields are shown is declared, not hard-coded**: the workflow's ``status_fields``
-frontmatter key picks an ordered subset of :data:`_FIELDS`; absent means
-:data:`DEFAULT_STATUS_FIELDS`, so an existing package keeps its rendering.  The progress
-line is a fixed baseline and never takes part in the declaration.
+**展示哪些字段是声明的，不是硬编码的**：workflow 的 ``status_fields`` frontmatter 键
+挑选 :data:`_FIELDS` 的一个有序子集；缺失即 :data:`DEFAULT_STATUS_FIELDS`，因此既有技能包
+的渲染保持不变。进度行是固定基线，永不参与声明。
 """
 
 from __future__ import annotations
@@ -27,12 +25,12 @@ if TYPE_CHECKING:
     from heagent.engine.workflow_resource import WorkflowResource
     from heagent.engine.workflow_runner import WorkflowRunnerState
 
-# Story statuses that mean "this story needs a human before the workflow continues".
+# 需要人工介入才能继续的 Story 状态。
 _FAILED_STORY_STATUSES = frozenset({"failed", "blocked"})
 
 
 class GoalStatusView(BaseModel):
-    """One Goal's current delivery state, projected from the runner and its checkpoints."""
+    """单个 Goal 的当前交付状态，由 runner 与其 checkpoint 投影而来。"""
 
     goal_id: str = ""
     workflow: str = ""
@@ -55,15 +53,14 @@ class GoalStatusView(BaseModel):
 
     @property
     def progress(self) -> str:
-        """``completed/total`` step progress."""
+        """``completed/total`` 的步骤进度。"""
         return f"{len(self.completed_steps)}/{self.total_steps}"
 
     def render(self) -> list[str]:
-        """Deterministic lines every entry point writes (the CLI routes them through ``_echo``).
+        """每个入口都写出的确定性行（CLI 经 ``_echo`` 路由它们）。
 
-        The first line is the fixed baseline every consumer can rely on; the rest follows
-        the declared (or default) field order, and a field with nothing to report adds no
-        line at all.
+        第一行是每个消费方都能依赖的固定基线；其余按声明（或默认）的字段序输出，而
+        没有内容可报的字段完全不新增行。
         """
         lines = [f"[goal] declarative progress: {self.progress} status={self.status.value} step={self.active_step}"]
         for name in self.fields or list(DEFAULT_STATUS_FIELDS):
@@ -79,12 +76,11 @@ def project_status_view(
     open_decisions: Sequence[str] = (),
     fields: Sequence[StatusField] = (),
 ) -> GoalStatusView:
-    """Project the runner state (the single source of truth) into the shared model.
+    """把 runner 状态（唯一真源）投影到共享模型。
 
-    Everything rendered here is a **persisted fact** (AD-15): the Epic comes from the runner
-    state, where the story loop records it, so a status read touches no document and cannot
-    show a hierarchy the checkpointed run never saw. ``open_decisions`` is the one injected
-    input — it is a property of the decision log, not of the runner state.
+    这里渲染的一切都是**已持久化的事实**（AD-15）：Epic 取自 runner 状态（story 循环在那里
+    记录它），因此读状态不碰任何文档，也不可能显示出一个从未被 checkpoint 的 run 见过的层级。
+    ``open_decisions`` 是唯一注入的输入——它是决策日志的属性，不是 runner 状态的属性。
     """
     step_name = workflow.steps[state.active_step].name if state.active_step < len(workflow.steps) else ""
     return GoalStatusView(
@@ -110,7 +106,7 @@ def project_status_view(
 
 
 def _recent_failures(state: WorkflowRunnerState) -> list[str]:
-    """Stories that need a human before the workflow can continue."""
+    """需要人工介入才能继续工作流的 story。"""
     return [
         f"{story} ({status})"
         for story, status in sorted(state.story_statuses.items())
@@ -119,7 +115,7 @@ def _recent_failures(state: WorkflowRunnerState) -> list[str]:
 
 
 def _recommended_commands(state: WorkflowRunnerState) -> list[str]:
-    """Deterministic next actions for the current status, never a free-text suggestion."""
+    """当前状态下确定性的下一步动作，绝不是自由文本建议。"""
     if state.status is WorkflowStatus.WAITING_USER and state.awaiting_approval:
         # 审批门挂起：只有显式人工决策能推进，resume 不在其列（不能隐式批准）。
         return ["/goal approve", "/goal reject <原因>", "/goal amend <补充>", "/goal decisions"]
@@ -137,7 +133,7 @@ def _recommended_commands(state: WorkflowRunnerState) -> list[str]:
 
 
 def _line(label: str, value: str) -> list[str]:
-    """One labelled line, or nothing when the field has no value (unknown stays unrendered)."""
+    """一条带标签的行；字段无值时什么都不输出（未知不渲染）。"""
     return [f"[goal] {label}: {value}"] if value else []
 
 

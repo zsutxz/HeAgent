@@ -65,6 +65,6 @@ async def llm_project_id(provider: BaseProvider, description: str) -> str:
 
 
 def _fallback() -> str:
-    """Announce and return the fallback id — the fallback must be observable."""
+    """播报并返回兜底 id——兜底必须可观察。"""
     click.echo(f"[goal] project naming via llm failed; using default id '{_FALLBACK_ID}'", err=True)
     return _FALLBACK_ID

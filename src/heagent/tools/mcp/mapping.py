@@ -138,8 +138,8 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
-# Project-local additions are intentionally process-cached: changing this file
-# while a process is running must not silently change the guard's behavior.
+# 项目内新增项刻意按进程缓存：进程运行期间改动该文件，
+# 不得静默改变守卫的行为。
 _USER_SIGNATURES_PATH = Path(".heagent") / "injection_signatures.json"
 # 全局级入口（A36，2026-11-18 起**真的加载**）：``<用户 home>/.heagent/injection_signatures.json``。
 # 语义 = 全局作底、项目级同名 pattern 覆盖（项目配置更具体）。两级都在进程内缓存一次。

@@ -1,4 +1,4 @@
-"""Load and statically constrain package-local GoalScript resources."""
+"""装载并静态约束包内 GoalScript 资源。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ SCRIPT_ENTRYPOINT = "build_workflow"
 
 
 class GoalScriptLoadError(ValueError):
-    """Raised when a script is missing or contains a forbidden capability."""
+    """脚本缺失或含被禁能力时抛出。"""
 
 
 _FORBIDDEN_NAMES = frozenset(
@@ -57,7 +57,7 @@ class GoalScriptResource:
 
 
 def load_script(package: SkillPackage, resource: str) -> GoalScriptResource:
-    """Read one ``scripts/`` resource through the package integrity channel."""
+    """经包完整性通道读取一个 ``scripts/`` 资源。"""
     try:
         source = package.read_script(resource)
     except SkillPackageResourceError as exc:

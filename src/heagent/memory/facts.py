@@ -160,5 +160,5 @@ class FactStore:
 
     @staticmethod
     def _parse_facts(raw: str) -> list[str]:
-        """Parse Markdown bullet facts from already-loaded text."""
+        """从已读入的文本中解析 Markdown 列表形式的记忆事实。"""
         return [line[2:] for line in raw.strip().splitlines() if line.startswith("- ")]

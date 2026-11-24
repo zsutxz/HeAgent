@@ -56,7 +56,7 @@ class DecisionAction(StrEnum):
 
 
 class DecisionError(ValueError):
-    """Raised when a decision cannot be recorded, located, or listed."""
+    """决策无法记录、定位或列出时抛出。"""
 
 
 def _utc_now_iso() -> str:
@@ -117,7 +117,7 @@ class DecisionStore:
 
     @property
     def root(self) -> Path:
-        """Directory this store reads and writes."""
+        """本存储读写所在目录。"""
         return self._root
 
     def _path(self, decision_id: str) -> Path:

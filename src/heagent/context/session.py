@@ -69,12 +69,11 @@ UNREADABLE_SESSION_TITLE = "不可读会话"
 
 
 def _complete_tool_transactions(messages: list[Message]) -> list[Message]:
-    """Return the longest prefix containing only complete tool-call transactions.
+    """返回只含完整工具调用事务的最长前缀。
 
-    Chat Completions requires every assistant ``tool_calls`` message to be followed
-    immediately by one TOOL message for each call. A cancelled run can otherwise be
-    persisted after the assistant message but before its tool results, which poisons
-    every later request that restores that session.
+    Chat Completions 要求每条 assistant ``tool_calls`` 消息之后紧跟每次调用各一条 TOOL 消息。
+    否则被取消的 run 可能落在 assistant 消息之后、其工具结果之前，从而污染之后每一次
+    恢复该会话的请求。
     """
     complete: list[Message] = []
     pending_ids: set[str] = set()

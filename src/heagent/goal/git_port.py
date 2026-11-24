@@ -60,7 +60,7 @@ _REVISION_PATTERN = re.compile(r"^[A-Za-z0-9_][\w./@+^~-]*$")
 
 
 class GitPortError(RuntimeError):
-    """Raised when a read-only Git query cannot run or the path is not a repository."""
+    """只读 Git 查询无法执行、或该路径不是仓库时抛出。"""
 
 
 class WorkspaceConflictState(BaseModel):
@@ -112,7 +112,7 @@ class ReadOnlyGitPort:
 
     @property
     def root(self) -> Path:
-        """Repository root this port queries."""
+        """本 port 查询的仓库根。"""
         return self._root
 
     async def head(self) -> str:

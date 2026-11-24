@@ -95,7 +95,7 @@ class StepValidationClauses(BaseModel):
 
     @property
     def declared(self) -> bool:
-        """True when any evidence clause is present on this step."""
+        """本步骤只要带任一证据子句即 True。"""
         return bool(self.sections or self.commands or self.artifacts or self.git_paths or self.gates)
 
 
@@ -126,7 +126,7 @@ class StepApproval(BaseModel):
 
 
 class WorkflowStepResource(BaseModel):
-    """One Markdown workflow step and its declarative execution contract."""
+    """一个 Markdown 工作流步骤及其声明式执行契约。"""
 
     index: int
     name: str
@@ -139,7 +139,7 @@ class WorkflowStepResource(BaseModel):
     role: str = ""
     story_loop: str = ""
     max_parallel_stories: int = Field(default=1, ge=1, le=5)
-    # Per-step iteration budget; 0 = inherit Settings.goal_max_iterations.
+    # 单步迭代预算；0 = 继承 Settings.goal_max_iterations。
     max_iterations: int = Field(default=0, ge=0)
     # ``executor_mode`` 选择该步的宿主执行器；缺省 subagent 保持既有语义。
     executor_mode: Literal["subagent", "script"] = "subagent"
@@ -171,7 +171,7 @@ STATUS_FIELDS: tuple[StatusField, ...] = ("step", "epic", "story", "reason", "fa
 
 
 class WorkflowResource(BaseModel):
-    """A workflow declaration with steps in execution order."""
+    """一份工作流声明，步骤按执行顺序排列。"""
 
     name: str
     instructions: str
@@ -183,9 +183,9 @@ class WorkflowResource(BaseModel):
     entrypoint: str = ""
     on_create: str = "persist_goal_identity"
     step_executor: str = "subagent"
-    # Empty means the workflow defers to GOAL_CHECKPOINT_MODE/settings.
+    # 空值表示流程沿用 GOAL_CHECKPOINT_MODE/settings。
     checkpoint_mode: CheckpointMode = ""
-    # Empty means the workflow defers to GOAL_OPEN_QUESTION_MODE/settings.
+    # 空值表示流程沿用 GOAL_OPEN_QUESTION_MODE/settings。
     open_question_mode: OpenQuestionMode = ""
     # /goal run 单次连续推进的步数上限（声明优先；缺失用默认值）。
     max_rounds: int = 10

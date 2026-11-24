@@ -339,7 +339,7 @@ class RoutingProvider:
         if force is not None:
             self.set_force(force)
 
-    # -- 公共 API --
+    # ── 公共 API ──
 
     @property
     def names(self) -> list[str]:
@@ -429,7 +429,7 @@ class RoutingProvider:
                 return provider
         return None
 
-    # -- BaseProvider 协议实现 --
+    # ── BaseProvider 协议实现 ──
 
     async def send(
         self,

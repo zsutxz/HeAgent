@@ -1,11 +1,10 @@
-"""Goal-level workflow state and checkpoint persistence.
+"""Goal 级工作流状态与 checkpoint 持久化。
 
-``GoalWorkflowState`` is the serializable orchestration metadata for one goal;
-``WorkflowCheckpointStore`` persists atomic, resumable checkpoints. The active
-declarative runner lives in ``workflow_runner.py``. The legacy phase machine
-(``WorkflowOrchestrator`` / ``TokenBudgetManager`` / ``RolloverCoordinator`` /
-``RecoveryEnvelope`` / ``WorkflowRoute``) was removed in 2026-09 — the same
-cleanup that retired the legacy GOAL.md Story flow in ``cli/goal.py``.
+``GoalWorkflowState`` 是单个 goal 的可序列化编排元数据；``WorkflowCheckpointStore``
+负责持久化原子、可恢复的 checkpoint。现行声明式 runner 住在 ``workflow_runner.py``。
+旧版阶段机（``WorkflowOrchestrator`` / ``TokenBudgetManager`` / ``RolloverCoordinator`` /
+``RecoveryEnvelope`` / ``WorkflowRoute``）已在 2026-09 移除——与 ``cli/goal.py`` 里退役
+旧版 GOAL.md Story 流程是同一次清理。
 """
 
 from __future__ import annotations
@@ -29,11 +28,17 @@ _WORKFLOW_EVENT_VALUES: frozenset[str] = frozenset(event.value for event in Work
 
 
 def _iso_now() -> str:
+    """当前**本地时间**的 ISO-8601 字符串（微秒精度、无时区后缀）。
+
+    与 ``engine.context.iso_now``（秒精度）、``goal.decisions._utc_now_iso``（UTC 微秒）刻意不同：
+    checkpoint 时间戳只服务同机内的写入顺序与新鲜度判断，换来「不带时区后缀、旧文件可直接比较」
+    的兼容面；跨机器或跨时区比对前必须先确认双方时区口径。
+    """
     return datetime.now().isoformat(timespec="microseconds")
 
 
 class WorkflowPhase(StrEnum):
-    """Phases of the goal workflow state."""
+    """goal 工作流状态的各个阶段。"""
 
     DISCOVERY = "discovery"
     PLANNING = "planning"
@@ -45,7 +50,7 @@ class WorkflowPhase(StrEnum):
 
 
 class WorkflowStatus(StrEnum):
-    """Runtime status of the current goal work unit."""
+    """当前 goal 工作单元的运行时状态。"""
 
     PENDING = "pending"
     RUNNING = "running"
@@ -56,7 +61,7 @@ class WorkflowStatus(StrEnum):
 
 
 class WorkflowCheckpoint(BaseModel):
-    """Atomic, resumable snapshot for one completed workflow unit."""
+    """单个已完成工作流单元的原子、可恢复快照。"""
 
     checkpoint_id: str = Field(min_length=1)
     goal_id: str = Field(min_length=1)
@@ -124,11 +129,11 @@ class WorkflowCheckpoint(BaseModel):
 
 
 class WorkflowCheckpointError(ValueError):
-    """Raised when checkpoint persistence cannot safely proceed."""
+    """checkpoint 无法安全持久化时抛出。"""
 
 
 class WorkflowCheckpointStore:
-    """File-backed checkpoint store with deterministic idempotency."""
+    """文件落盘的 checkpoint 存储，保证幂等性确定可复现。"""
 
     def __init__(self, base_dir: str = ".heagent/checkpoints", *, workflow_path: str | None = None) -> None:
         self._base = Path(base_dir)
@@ -137,11 +142,10 @@ class WorkflowCheckpointStore:
 
     @property
     def base_dir(self) -> Path:
-        """Directory this store reads and writes.
+        """本存储读写的目录。
 
-        Single resolution point: a preflight that probes a different directory than the
-        writer uses is worse than no preflight at all, so callers ask the store instead of
-        re-deriving the path.
+        唯一的路径解析点：预检探测的目录与写入方使用的目录不一致，比完全没有预检更糟，
+        所以调用方一律向本存储索取，而不是自己再推导一遍路径。
         """
         return self._base
 
@@ -200,7 +204,7 @@ class WorkflowCheckpointStore:
         return state
 
     async def list_checkpoints(self, *, goal_id: str | None = None) -> list[WorkflowCheckpoint]:
-        """Return valid checkpoints in deterministic creation/id order."""
+        """按确定的创建时刻/id 顺序返回有效 checkpoint。"""
         if not await asyncio.to_thread(self._base.exists):
             return []
         checkpoints: list[WorkflowCheckpoint] = []
@@ -213,7 +217,7 @@ class WorkflowCheckpointStore:
         return sorted(checkpoints, key=lambda item: (item.created_at, item.checkpoint_id))
 
     async def load_latest_unfinished(self, goal_id: str) -> WorkflowCheckpoint | None:
-        """Load the latest checkpoint that has not completed its workflow unit."""
+        """装载最近一份尚未走完其工作流单元的 checkpoint。"""
         checkpoints = await self.list_checkpoints(goal_id=goal_id)
         for checkpoint in reversed(checkpoints):
             if checkpoint.status is not WorkflowStatus.COMPLETED:
@@ -224,7 +228,7 @@ class WorkflowCheckpointStore:
     def _state_from_checkpoint(checkpoint: WorkflowCheckpoint) -> GoalWorkflowState:
         aggregate_status = checkpoint.status
         if aggregate_status is WorkflowStatus.COMPLETED and checkpoint.phase is not WorkflowPhase.DONE:
-            # A checkpoint completes one unit; only the done phase completes the goal.
+            # 一个 checkpoint 完成一个工作单元；只有 done 阶段才代表 goal 完成。
             aggregate_status = WorkflowStatus.RUNNING
         return GoalWorkflowState(
             goal_id=checkpoint.goal_id,
@@ -240,11 +244,10 @@ class WorkflowCheckpointStore:
 
     @staticmethod
     def _logical_dump(checkpoint: WorkflowCheckpoint) -> dict[str, Any]:
-        """Serialize checkpoint identity without the wall-clock persistence stamp.
+        """序列化 checkpoint 的身份，不含落盘时刻戳。
 
-        ``created_at`` legitimately differs between two writes of the same logical
-        snapshot (for example a pause/resume cycle re-issuing the same pending
-        checkpoint), so it must not participate in conflict detection.
+        ``created_at`` 在同一逻辑快照的两次写入之间本就允许不同（例如 pause/resume 周期
+        重新签发同一份待恢复 checkpoint），因此不得参与冲突判定。
         """
         return checkpoint.model_dump(mode="json", exclude={"created_at"})
 
@@ -255,11 +258,10 @@ class WorkflowCheckpointStore:
 
 
 class GoalWorkflowState(BaseModel):
-    """Serializable runtime metadata for one goal.
+    """单个 goal 的可序列化运行时元数据。
 
-    The workflow's own artifacts stay the source of truth (``brief.md`` for the request,
-    ``epics.md`` for the Epic/Story lists). This model stores only orchestration metadata
-    and therefore never mirrors or edits them.
+    工作流自身的产物仍是真源（请求看 ``brief.md``，Epic/Story 列表看 ``epics.md``）。
+    本模型只存编排元数据，因此永不镜像或改写它们。
     """
 
     model_config = ConfigDict(frozen=True, validate_assignment=True)

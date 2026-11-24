@@ -126,7 +126,7 @@ class KeyInterruptMonitor:
             self._stack = None
         self._active = False
 
-    # -- 内部 ---------------------------------------------------------
+    # ── 内部 ──
 
     def _drain_pending_keys(self) -> None:
         """丢弃监听启动前残留在输入缓冲的按键。

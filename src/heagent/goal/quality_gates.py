@@ -96,12 +96,12 @@ class VerificationReport(BaseModel):
 
     @property
     def failed(self) -> list[ClauseResult]:
-        """Clauses that did not pass, in declaration order."""
+        """未通过的子句，按声明顺序。"""
         return [item for item in self.results if not item.passed]
 
     @property
     def passed(self) -> bool:
-        """True only when nothing failed and the evaluation itself had no explicit errors."""
+        """仅当既无失败子句、求值本身也没有显性错误时为 True。"""
         return not self.errors and all(item.passed for item in self.results)
 
     def failure_summary_parts(self, limit: int = 5) -> list[str]:
@@ -117,7 +117,7 @@ class VerificationReport(BaseModel):
         return parts
 
     def render(self) -> list[str]:
-        """Deterministic lines every entry point writes (the CLI routes them through ``_echo``)."""
+        """各入口统一写出的确定性文本行（CLI 经 ``_echo`` 输出）。"""
         scope = f"step={self.step}" + (f" story={self.story_id}" if self.story_id else "")
         if self.results:
             summary = f"{len(self.results) - len(self.failed)}/{len(self.results)} passed"

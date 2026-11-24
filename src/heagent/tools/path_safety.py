@@ -39,23 +39,23 @@ _workspace_runtime = RuntimeSlot[Path]("heagent.pub.workspace_root")
 
 
 class WorkspacePathError(ValueError):
-    """Raised when a tool path escapes the current workspace root."""
+    """工具路径逃出当前工作区根时抛出。"""
 
 
 def set_workspace_root(path: Path | None) -> None:
-    """Override the workspace root (primarily for testing)."""
+    """覆盖工作区根（主要用于测试）。"""
     global _workspace_override
     _workspace_override = path.resolve() if path is not None else None
 
 
 def reset_workspace_root() -> None:
-    """Clear the workspace override, reverting to cwd."""
+    """清除工作区覆盖，回退到 cwd。"""
     global _workspace_override
     _workspace_override = None
 
 
 def workspace_root() -> Path:
-    """Return the resolved workspace root (override or cwd)."""
+    """返回解析后的工作区根（覆盖值或 cwd）。"""
     runtime_root = _workspace_runtime.get()
     if runtime_root is not None:
         return runtime_root
@@ -65,12 +65,12 @@ def workspace_root() -> Path:
 
 
 def resolve_under_root(path: str, root: Path) -> Path:
-    """Resolve ``path`` under ``root`` and fence it; raise ``WorkspacePathError`` if it escapes.
+    """在 ``root`` 下解析 ``path`` 并施加围栏；逃逸时抛 ``WorkspacePathError``。
 
-    Single fence algorithm shared by the policy pre-check (``engine.policy._validate_paths``)
-    and the handler guard (:func:`resolve_workspace_path`), eliminating two divergent copies.
-    Relative paths resolve against ``root``; ``strict=False`` permits not-yet-existing paths
-    (e.g. a file about to be written).
+    单一份围栏算法，由策略预检（``engine.policy._validate_paths``）与处理器守卫
+    （:func:`resolve_workspace_path`）共用，消除两份逐渐分叉的副本。
+    相对路径按 ``root`` 解析；``strict=False`` 允许尚不存在的路径
+    （例如即将写入的文件）。
     """
     raw = Path(path)
     candidate = raw if raw.is_absolute() else root / raw
@@ -84,7 +84,7 @@ def resolve_under_root(path: str, root: Path) -> Path:
 
 
 def resolve_workspace_path(path: str) -> Path:
-    """Resolve a path and ensure it stays inside the current workspace."""
+    """解析路径并确保其留在当前工作区内。"""
     return resolve_under_root(path, workspace_root())
 
 
@@ -254,8 +254,8 @@ def _open_resolved(resolved: Path, flags: int, *, nofollow: int | None) -> int:
     try:
         return os.open(resolved, flags)
     except OSError as exc:
-        # Some platforms expose O_NOFOLLOW but their filesystem does not
-        # implement it. Preserve the compatibility read in that case.
+        # 有些平台暴露了 O_NOFOLLOW，但文件系统并未实现它；
+        # 这种情况保留兼容性读取。
         if nofollow is not None and exc.errno in _NOFOLLOW_UNSUPPORTED:
             return os.open(resolved, flags & ~nofollow)
         raise
@@ -292,13 +292,13 @@ def read_text_with_digest_under_root(root: Path, relative: str | Path) -> tuple[
 
 
 def configure_workspace_root(path: Path | None) -> None:
-    """Set the process-wide fallback workspace root for tool execution."""
+    """设置进程级的工具执行兜底工作区根。"""
     _workspace_runtime.configure(path.resolve() if path is not None else None)
 
 
 @contextmanager
 def bind_workspace_root(path: Path | None) -> Iterator[None]:
-    """Bind the workspace root for the current runtime context."""
+    """为当前运行时上下文绑定工作区根。"""
     resolved = path.resolve() if path is not None else None
     with _workspace_runtime.bind(resolved):
         yield
@@ -310,7 +310,7 @@ def bind_workspace_root(path: Path | None) -> Iterator[None]:
 
 
 def build_write_denied_paths() -> set[str]:
-    """Return exact sensitive paths that must never be written (realpath, absolute)."""
+    """返回绝不允许写入的确切敏感路径（realpath、绝对路径）。"""
     home = Path.home()
     return {
         str(p.resolve())
@@ -331,7 +331,7 @@ def build_write_denied_paths() -> set[str]:
 
 
 def build_write_denied_prefixes() -> list[str]:
-    """Return sensitive directory prefixes that must never be written."""
+    """返回绝不允许写入的敏感目录前缀。"""
     home = Path.home()
     return [
         str((home / ".ssh").resolve()) + os.sep,
@@ -347,7 +347,7 @@ def build_write_denied_prefixes() -> list[str]:
 
 
 def build_read_denied_basenames() -> set[str]:
-    """Return secret-bearing project-local environment file basenames that must not be read."""
+    """返回不得读取的、含机密信息的项目本地环境文件名。"""
     return {
         ".env",
         ".env.local",
@@ -360,12 +360,11 @@ def build_read_denied_basenames() -> set[str]:
 
 
 def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[str]:
-    """Return HeAgent internal state directories that must not be read into context.
+    """返回不得读入上下文的 HeAgent 内部状态目录。
 
-    Explicit workspaces protect runtime directories from WorkspacePaths.  The skills
-    directory is intentionally excluded: skill packages are readable knowledge resources,
-    not opaque runtime state.
-    Without a workspace, preserve the legacy cwd/home roots and runtime directories.
+    显式工作区会借助 WorkspacePaths 保护运行时目录。skills 目录刻意排除在外：
+    技能包是可读的知识资源，不是不透明的运行时状态。
+    没有工作区时，保留旧的 cwd/home 根与运行时目录。
     """
     if workspace_root is not None:
         from heagent.pub.workspace import WorkspacePaths

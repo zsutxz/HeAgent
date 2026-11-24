@@ -70,9 +70,9 @@ async def stream_run(  # noqa: C901
     response: ProviderResponse | None = None
     try:
         with loop._runtime_scope(run_context):
-            # ---- 外层循环：follow-up 接续 ----
+            # ── 外层循环：follow-up 接续 ──
             while True:
-                # ---- 内层循环：steering + 工具执行 ----
+                # ── 内层循环：steering + 工具执行 ──
                 while True:
                     # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
                     await loop._wait_if_paused(run_context)
@@ -214,7 +214,7 @@ async def stream_run(  # noqa: C901
                         loop, state, run_context, init.prompt, system_content, usage=response.usage
                     )
 
-                # ---- follow-up 检查 ----
+                # ── follow-up 检查 ──
                 if not await loop._inject_follow_up(state):
                     break  # 无 follow-up，外层退出
                 # 有 follow-up → 继续外层循环

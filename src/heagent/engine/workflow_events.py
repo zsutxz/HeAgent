@@ -1,4 +1,4 @@
-"""Internal events that drive Goal workflow status changes."""
+"""驱动 Goal 工作流状态变更的内部事件。"""
 
 from enum import StrEnum
 

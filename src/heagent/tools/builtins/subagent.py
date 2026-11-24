@@ -29,12 +29,12 @@ if TYPE_CHECKING:
 
 
 class SubTaskOutcome(BaseModel):
-    """Structured outcome of one delegated sub-task (machine-parseable JSON).
+    """单个委派子任务的结构化结果（机器可解析的 JSON）。
 
-    ``task_delegate`` returns one of these serialized; ``task_parallel`` returns
-    ``{"status": ..., "outcomes": [...]}``. Pre-flight errors from either tool
-    return ``{"status": "error", "message": ...}`` so every tool response is a
-    JSON object carrying a ``status`` field.
+    ``task_delegate`` 返回其中一条的序列化结果；``task_parallel`` 返回
+    ``{"status": ..., "outcomes": [...]}``。两个工具的前置错误都返回
+    ``{"status": "error", "message": ...}``，因此每次工具响应都是一个带
+    ``status`` 字段的 JSON 对象。
     """
 
     status: Literal["ok", "failed"]
@@ -53,7 +53,7 @@ DelegateMany = Callable[[list[str], RoleSpec | None, str | None], Awaitable[list
 
 
 def _error_payload(message: str) -> str:
-    """Serialize a pre-flight error as a structured JSON string."""
+    """把前置错误序列化成结构化 JSON 字符串。"""
     return json.dumps({"status": "error", "message": message}, ensure_ascii=False)
 
 
@@ -120,7 +120,7 @@ def configure_subagent_tools(
 
 
 def reset_subagent_tools() -> None:
-    """Clear fallback sub-agent tool dependencies."""
+    """清空子 Agent 工具的兜底依赖。"""
     _subagent_runtime.reset()
 
 
@@ -151,12 +151,11 @@ def _runtime() -> SubagentToolRuntime | None:
 
 
 def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
-    """Return an error message when the delegation depth budget is exhausted.
+    """委派深度预算耗尽时返回错误消息。
 
-    ``depth`` is the current loop's nesting level (root=0, each SubAgent level
-    +1); ``max_depth`` is the configured ceiling. Reaching the ceiling makes
-    both delegation tools fail fast with a structured error instead of spawning
-    another sub-agent, which bounds self-delegation recursion.
+    ``depth`` 是当前循环的嵌套层级（根 = 0，每级 SubAgent +1）；``max_depth``
+    是配置的上限。触顶后两个委派工具都会立即以结构化错误失败、不再新起子
+    Agent，从而给自我委派的递归封顶。
     """
     if runtime.depth < runtime.max_depth:
         return None
@@ -168,9 +167,9 @@ def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
 
 
 def _resolve_role(runtime: SubagentToolRuntime, role: str) -> tuple[RoleSpec | None, str | None]:
-    """Resolve a role name to a spec via the runtime map, then the global registry.
+    """先查运行时映射、再查全局注册表，把角色名解析成 spec。
 
-    Returns ``(spec, error)``; an empty ``role`` yields ``(None, None)``.
+    返回 ``(spec, error)``；``role`` 为空时返回 ``(None, None)``。
     """
     if not role:
         return None, None
@@ -185,10 +184,10 @@ def _resolve_role(runtime: SubagentToolRuntime, role: str) -> tuple[RoleSpec | N
 
 
 def _record_step(runtime: SubagentToolRuntime, *, outcome: SubTaskOutcome) -> None:
-    """Append one delegation outcome to the supervisor run's metadata.
+    """把一条委派结果追加进 supervisor 运行的元数据。
 
-    Stored under ``completed_steps`` so it survives context window resets
-    (metadata persists; tool-result messages may be summarized away).
+    落在 ``completed_steps`` 下，因此能扛住上下文窗口重置
+    （元数据持久，工具结果消息可能被摘要掉）。
     """
     if runtime.run_context is None:
         return

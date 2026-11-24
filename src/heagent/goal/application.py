@@ -72,12 +72,12 @@ _CHECKPOINT_WORKSPACE_FILE = "checkpoint-workspace.txt"
 
 
 def external_checkpoint_dir(goal_id: str, workspace: Path) -> Path:
-    """Return the new-goal checkpoint directory for one workspace."""
+    """返回某个工作区的新 goal checkpoint 目录。"""
     return WorkspacePaths.from_root(workspace).checkpoints / goal_id
 
 
 def initialize_checkpoint_workspace(goal_dir: Path, workspace: Path) -> None:
-    """Record the checkpoint workspace once, only when creating a new goal."""
+    """只在新 goal 创建时记录一次 checkpoint 工作区。"""
     marker = goal_dir / _CHECKPOINT_WORKSPACE_FILE
     if marker.exists() or (goal_dir / "workflow.json").exists() or (goal_dir / "checkpoints").exists():
         raise ValueError("checkpoint workspace cannot be changed for an existing goal")
@@ -129,9 +129,8 @@ async def restore_runner(workflow: WorkflowResource, goal_dir: Path) -> Workflow
             return _runner_from_checkpoint(workflow, matching[-1], store)
         if checkpoints:
             raise WorkflowCheckpointError("workflow configuration does not match the persisted goal state")
-    # Each goal owns its checkpoint directory, so the latest checkpoint for this
-    # goal is the authoritative recovery point. Do not make recovery contingent
-    # on optional descriptive metadata such as ``active_skill``.
+    # 每个 goal 独占自己的 checkpoint 目录，因此该 goal 的最新 checkpoint 就是
+    # 权威恢复点。不要让它依赖 ``active_skill`` 这类可选描述性元数据。
     if checkpoints:
         return _runner_from_checkpoint(workflow, checkpoints[-1], store)
     return WorkflowRunner(
@@ -172,7 +171,7 @@ def _runner_from_checkpoint(
 
 @dataclass
 class GoalAdvanceContext:
-    """Prepared state for one declarative advance invocation."""
+    """一次声明式 advance 调用所准备的状态。"""
 
     runner: WorkflowRunner
     mode: str
@@ -488,8 +487,8 @@ async def _advance_unlocked(
         )
         bridge = _run_step_without_execution
 
-    # Input declarations describe the context supplied by this deterministic CLI
-    # boundary. Artifact names from completed steps remain available on resume.
+    # input 声明描述的是本确定性 CLI 边界提供的上下文；已完成步骤的产物名
+    # 在恢复时仍然可用。
     while True:
         try:
             user_responses = goal_user_responses(goal_dir)
@@ -512,7 +511,7 @@ async def _advance_unlocked(
 
 
 class PauseResumeStatus(StrEnum):
-    """Terminal word of one pause/resume request."""
+    """一次 pause/resume 请求的终态判定词。"""
 
     RESUMED = "resumed"
     PAUSED = "paused"

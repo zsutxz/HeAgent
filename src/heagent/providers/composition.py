@@ -293,7 +293,7 @@ def _build_key_rotated(
     *,
     cache_size: int = DEFAULT_MAX_SIZE,
 ) -> BaseProvider | None:
-    """Build one provider or a key-rotating provider pool."""
+    """构建单个 provider 或一个密钥轮换 provider 池。"""
     keys: list[str] = []
     if primary_key:
         keys.append(primary_key)

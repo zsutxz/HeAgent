@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 
 # goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli/goal 经
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
-# Durable user-facing Goal and workflow artifacts belong under the project output
-# root. ``.heagent`` remains reserved for runtime configuration and skill code.
+# 用户可见的 Goal 与 workflow 产物属于项目输出根；``.heagent`` 仍留给
+# 运行期配置与技能代码。
 GOALS_DIR = Path("_he-output/goals")
 # 需求文档名：新 goal 一律落 brief.md；前两代名字只作存量 goal 的读取回落，按新名在前探测
 # （见 goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
@@ -48,20 +48,19 @@ _GOAL_ID_RE = re.compile(r"^[a-z][a-z-]*$")
 
 
 def _fenced_block(text: str) -> str:
-    """Wrap *text* in a code fence longer than any backtick run it contains."""
+    """给 *text* 套一层代码围栏，围栏长度超过文中任何反引号串。"""
     fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", text)), default=0) + 1)
     body = text if text.endswith("\n") else text + "\n"
     return f"{fence}\n{body}{fence}"
 
 
 def goal_document_path(goal_dir: Path) -> Path:
-    """Resolve which requirement document this goal owns.
+    """解析本 goal 拥有的是哪一份需求文档。
 
-    New goals write ``brief.md``. A goal created before either rename still owns its
-    ``require.md`` (or the older ``GOAL.md``), so an existing file wins over the new
-    name, probed newest-name-first; that keeps reads *and* writes on the same document
-    instead of splitting the goal across two files. With no candidate on disk the new
-    name is returned as the write target.
+    新建 goal 写 ``brief.md``。在两次改名之前创建的 goal 仍归它原有的 ``require.md``
+    （或更早的 ``GOAL.md``），因此磁盘上已存在的文件优先于新名字，按「最新名字优先」
+    探测；这样读与写都落在同一份文档上，不会把同一个 goal 拆到两个文件。磁盘上没有
+    任何候选文件时，返回新名字作为写入目标。
     """
     document = goal_dir / _GOAL_DOCUMENT_NAME
     if document.is_file():
@@ -74,12 +73,12 @@ def goal_document_path(goal_dir: Path) -> Path:
 
 
 def _document_section(text: str, name: str) -> str:
-    """Return the body of the ``## <name>`` section of a goal document (case-insensitive)."""
+    """返回 goal 文档中 ``## <name>`` 段的正文（大小写不敏感）。"""
     return extract_h2_section(text, name)
 
 
 def _slug(text: str) -> str:
-    """Collapse non-alphanumeric runs to single hyphens and trim edge hyphens."""
+    """把非字母数字的连续片段折叠成单个连字符，并去掉两端的连字符。"""
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
@@ -118,14 +117,14 @@ def goal_document(description: str, goal_id: str, workflow_id: str = "", workflo
 
 
 def goal_id_is_valid(goal_id: str) -> bool:
-    """Accept new letter-only ids and legacy eight-character hex ids."""
+    """接受新的纯字母 id 与旧的八位十六进制 id。"""
     return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (
         len(goal_id) == _LEGACY_GOAL_ID_LENGTH and all(char in _GOAL_HEX for char in goal_id)
     )
 
 
 def _epic_directory_name(epic: str) -> str:
-    """Map an Epic reference from a story list (``E1``) to its directory (``epic-e1``)."""
+    """把 story 列表里的 Epic 引用（``E1``）映射到它的目录名（``epic-e1``）。"""
     slug = _slug(str(epic).casefold())
     return f"epic-{slug}" if slug else ""
 
@@ -156,7 +155,7 @@ def goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Pat
 
 
 def goal_description(goal_dir: Path) -> str:
-    """Load the marked original request from the goal's requirement document."""
+    """从 goal 的需求文档读取被标记的原始需求。"""
     text = goal_document_path(goal_dir).read_text(encoding="utf-8")
     section = _document_section(text, "原始需求（original request）")
     if section:
@@ -166,13 +165,13 @@ def goal_description(goal_dir: Path) -> str:
 
 
 def goal_user_responses(goal_dir: Path) -> str:
-    """Return the accumulated user answers recorded in the requirement document."""
+    """返回需求文档里累计记录的用户答复。"""
     text = goal_document_path(goal_dir).read_text(encoding="utf-8")
     return _document_section(text, "用户补充（user responses）")
 
 
 def goal_record_user_response(goal_dir: Path, response: str) -> None:
-    """Append one exact user answer to the single durable requirement document."""
+    """把一条用户答复原样追加到那份唯一且持久的需求文档。"""
     if not response.strip():
         return
 
@@ -189,7 +188,7 @@ def goal_record_user_response(goal_dir: Path, response: str) -> None:
 
 
 def goal_document_title(text: str) -> str:
-    """Read the requirement document's title without introducing a second metadata file."""
+    """读取需求文档的标题，不额外引入第二份元数据文件。"""
     split = split_frontmatter(text)
     if split is None:
         raise ValueError("declarative requirement document must start with frontmatter")

@@ -1,4 +1,4 @@
-"""HeAgent - A self-improving AI Agent core framework."""
+"""HeAgent —— 可自我改进的 AI Agent 核心框架。"""
 
 __version__ = "0.11.0"
 

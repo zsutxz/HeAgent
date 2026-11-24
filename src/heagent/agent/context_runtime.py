@@ -141,8 +141,8 @@ async def maybe_window_reset(
         return
     from heagent.context.tokens import count_tokens
 
-    # usage reflects pre-call input tokens; count_tokens reflects current msg list
-    # (including just-appended tool results); take max to avoid one-round lag.
+    # usage 是调用前的输入 token 数；count_tokens 反映当前消息列表
+    # （含刚追加的工具结果）；取两者较大值，避免统计滞后一轮。
     llm_tokens = usage.total_tokens if usage else 0
     # 校准读侧按模型查系数：写键 = note_actual_usage 的 response.model = loop.last_model。
     current_tokens = max(llm_tokens, count_tokens(state.messages, model=loop.last_model))

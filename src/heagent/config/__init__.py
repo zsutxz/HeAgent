@@ -95,31 +95,31 @@ class Settings(BaseSettings):
             file_secret_settings,
         )
 
-    # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
+    # ── 活跃 Provider（交互模式启动时默认使用哪个） ──
     active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / glm / ollama / openai / anthropic
 
-    # ---- API 密钥（可选，在 Provider 使用时校验） ----
+    # ── API 密钥（可选，在 Provider 使用时校验） ──
     deepseek_api_key: str | None = None  # DeepSeek API Key
     anthropic_api_key: str | None = None  # Anthropic API Key
     kimi_api_key: str | None = None  # Kimi (Moonshot AI) API Key
     glm_api_key: str | None = None  # GLM (智谱 AI) API Key
     openai_responses_api_key: str | None = None  # OpenAI Responses API Key（wire_api="responses" 中转站）
 
-    # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
+    # ── API 基础 URL（用于 OpenAI 兼容的第三方服务） ──
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
     anthropic_base_url: str | None = None  # Anthropic 代理地址
     kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
     glm_base_url: str | None = None  # GLM 默认 https://open.bigmodel.cn/api/paas/v4
     openai_responses_base_url: str | None = None  # Responses API 中转站（如 https://www.komapi.top/v1）
 
-    # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
+    # ── 各 Provider 默认模型（--model CLI 参数可覆盖） ──
     default_model: str = "gpt-4o"  # claude 条目的兜底模型
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
     openai_model: str = "gpt-5.6-terra"  # openai（Responses API）条目默认模型（env: OPENAI_MODEL）
 
-    # ---- 本地 Ollama（OpenAI 兼容 /v1；无真实 API Key） ----
+    # ── 本地 Ollama（OpenAI 兼容 /v1；无真实 API Key） ──
     # ollama_enabled 默认 False：本地端点属显式 opt-in——避免默认向 localhost 发请求，
     # 也避免「装了 Ollama 但没启动」时被当成可用 provider 混进回退池。
     # ollama_model 无合理默认值（Ollama 无「官方默认模型」概念），启用时必填，否则 fail-fast。
@@ -130,20 +130,20 @@ class Settings(BaseSettings):
     ollama_model: str | None = None  # 必填（启用时）：如 qwen3.5-9b-local:latest
     ollama_api_key: str | None = None  # Ollama 不校验 key，留空时用占位符 "ollama"
 
-    # ---- Anthropic 提示词缓存 ----
+    # ── Anthropic 提示词缓存 ──
     anthropic_prompt_caching: bool = True
 
-    # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
+    # ── 多密钥池（逗号分隔存储，运行时解析为列表） ──
     anthropic_api_keys: str = ""
 
-    # ---- 密钥存储与轮换（Story 67.5 / 67.4） ----
+    # ── 密钥存储与轮换（Story 67.5 / 67.4） ──
     # true = 先查系统 keyring（`keyring` 是可选依赖，缺失即告警一次后回退），未命中回退环境变量/
     # .env；默认 false 且不碰 keyring，取值与引入该开关前完全一致。解析收敛点 = config/keyring_store.py。
     keyring_enabled: bool = False
     # 密钥首次被观测到后使用超过该天数即在启动期 WARNING 提醒轮换；0 = 关闭提醒（不落盘不告警）。
     key_rotation_remind_days: int = Field(default=90, ge=0)
 
-    # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
+    # ── 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ──
     # JSON：键 = provider 条目名（出现即启用该池，须有凭据），值含 tiers/roles/default/keywords/base_url；
     # 无效 JSON / 未知条目 → 告警并忽略该条。完整规格见 .env.example 第 4 节。
     routing_pools: str = Field(default="")
@@ -151,13 +151,13 @@ class Settings(BaseSettings):
     # true = 上轮 pro 的思考痕迹仍在历史时继续走 pro；默认 false = 只按当前请求判定（单池可覆盖）。
     routing_reasoning_continuity: bool = Field(default=False)
 
-    # ---- Provider 元数据缓存 ----
+    # ── Provider 元数据缓存 ──
     # 聚合层（switchable / routing / key-rotation / chain）元数据缓存的 LRU 容量上限，**每层各一份**。
     # 默认值与 `providers/metadata_cache.DEFAULT_MAX_SIZE` 对齐（一致性由 tests 钉住）；配置面不得
     # 依赖 providers，故此处是字面量。DEBUG_MODE 下 run 收尾会打一行命中率。
     provider_metadata_cache_size: int = Field(default=64, ge=1)
 
-    # ---- 框架运行参数 ----
+    # ── 框架运行参数 ──
     max_iterations: int = Field(default=50, ge=1)
     goal_max_iterations: int = Field(default=20, ge=1)
     # 子 Agent 委派最大嵌套深度（0=禁止委派；超限 task_delegate / task_parallel 返回 status=error）。
@@ -183,24 +183,24 @@ class Settings(BaseSettings):
     # 单次输出 token 上限（各 provider 的 max_tokens）；None = 沿用 provider 默认。本地思考模型建议设。
     max_output_tokens: int | None = Field(default=None, ge=1)
 
-    # ---- 日志参数 ----
+    # ── 日志参数 ──
     log_dir: str = Field(default="logs")  # 日志文件目录，每次启动创建新文件
     log_level: str = Field(default="INFO")  # 控制台(stderr)日志级别: DEBUG / INFO / WARNING / ERROR
     log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
     # 日志行格式：text（默认，与历史输出逐字一致）/ json（单行 JSON，含 extra 上下文与 traceback）。
     log_format: Literal["text", "json"] = Field(default="text")
 
-    # ---- Token 计量 ----
+    # ── Token 计量 ──
     # auto（默认）= 有 tiktoken 用真实 tokenizer，否则 CJK 启发式 + 真实 usage 在线校准；
     # estimate = 强制启发式；tiktoken = 强制真实（缺失告警一次后回退）。计量偏差会放大为误压缩或白丢上下文。
     tokenizer: str = Field(default="auto")
 
-    # ---- 重试策略参数 ----
+    # ── 重试策略参数 ──
     retry_max_attempts: int = Field(default=3, ge=1)
     retry_base_delay: float = Field(default=1.0, ge=0.0)
     retry_max_delay: float = Field(default=30.0, ge=0.0)
 
-    # ---- 技能系统参数 ----
+    # ── 技能系统参数 ──
     skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     skill_max_auto_invoke: int = Field(default=3, ge=0)
     # None 保持旧行为；设置后按完整 Skill 估算 token 限制自动注入总量。
@@ -212,18 +212,18 @@ class Settings(BaseSettings):
     skill_match_cache_entries: int = Field(default=32, ge=1)
     skill_index_cache_entries: int = Field(default=4, ge=1)
 
-    # ---- 上下文文件参数 ----
+    # ── 上下文文件参数 ──
     context_files_enabled: bool = Field(default=True)
     # 字节总预算：超预算近端优先（越靠近 cwd 越具体），被丢弃/截断者显式标记回报。
     context_files_max_bytes: int = Field(default=32768, ge=1)
     # 是否纳入用户级 ~/.heagent/AGENTS.md；默认关——全局文件会静默影响每个项目。
     context_files_user_level: bool = Field(default=False)
 
-    # ---- 事件传输（JSONL / rollout）----
+    # ── 事件传输（JSONL / rollout） ──
     # 每 run 事件落盘 .heagent/runs/<run_id>/rollout.jsonl（可 replay 回放）；含工具原始输出，按需开启。
     events_rollout_enabled: bool = Field(default=False)
 
-    # ---- 记忆提醒参数 ----
+    # ── 记忆提醒参数 ──
     memory_nudge_enabled: bool = Field(default=True)
     # <memory> 注入字节预算（0=不限）：MEMORY.md 为 append-only 整份注入，无预算会无界增长。
     # 超预算从尾部倒装保留最新后缀（59-3 读序翻转）并在块尾显式标注省略数；文件本体不改，整理 MEMORY.md 即释放。
@@ -237,10 +237,10 @@ class Settings(BaseSettings):
     # 须显式 opt-in（对齐 dream_enabled 立场）；关闭时工具层显性报错（fail-closed），不静默成功。
     memory_compact_enabled: bool = Field(default=False)
 
-    # ---- 技能策展参数 ----
+    # ── 技能策展参数 ──
     skill_curator_stale_days: int = Field(default=30, ge=1)
 
-    # ---- Cron 调度参数 ----
+    # ── Cron 调度参数 ──
     cron_enabled: bool = Field(default=True)
     cron_tick_seconds: int = Field(default=60, ge=10)
     # cron 结果推送：两个**互相独立**的开关，默认都 False（不改变现行为）。
@@ -249,7 +249,7 @@ class Settings(BaseSettings):
     cron_push_enabled: bool = Field(default=False)
     cron_echo_to_terminal: bool = Field(default=False)
 
-    # ---- Dreaming（离线记忆巩固）参数 ----
+    # ── Dreaming（离线记忆巩固）参数 ──
     # 默认 False：无人监督后台跑 + 联网 + 改持久记忆，非安全边界（须 OS 级沙箱兜底），opt-in。
     dream_enabled: bool = Field(default=False)
     dream_cron: str = Field(default="0 3 * * *")  # cron 触发表达式（凌晨 3 点低峰）
@@ -257,11 +257,11 @@ class Settings(BaseSettings):
     dream_max_iterations: int = Field(default=20, ge=1)  # dreamer SubAgent 独立预算（不复用全局）
     dream_session_lookback: int = Field(default=5, ge=1)  # 预加载近期 session 个数
 
-    # ---- Ledger 自动清理参数 ----
+    # ── Ledger 自动清理参数 ──
     # ledger 幂等记录（.heagent/ledger/）超过此天数在 run 启动时自动删除；0=禁用清理。
     ledger_retention_days: int = Field(default=7, ge=0)
 
-    # ---- Run 快照自动清理参数 ----
+    # ── Run 快照自动清理参数 ──
     # .heagent/runs/ 的 run 快照超过此天数在 run 启动时自动删除；persist.py 刻意保留 .lock（规避
     # unlink 竞态），本项是 runs 侧唯一回收方。0=禁用。
     run_retention_days: int = Field(default=7, ge=0)
@@ -278,12 +278,12 @@ class Settings(BaseSettings):
     # 编辑快照（`.heagent/tmp/edit-snapshots/`，「误改后悔药」，每次编辑都可能新增）。
     edit_snapshot_retention_days: int = Field(default=7, ge=0)
 
-    # ---- MCP Client 参数 ----
+    # ── MCP Client 参数 ──
     mcp_enabled: bool = Field(default=True)
     mcp_config_path: str = Field(default=".mcp.json")
     safety_blocked_tools: list[str] = Field(default_factory=list)
 
-    # ---- 沙箱后端与权限档位 ----
+    # ── 沙箱后端与权限档位 ──
     # auto（默认）= 探测 firejail 可用则用，否则 passthrough（零隔离）；winjob / docker 须显式指定
     # （WinJob 无文件系统隔离，auto 不自动选）；docker = 每命令一次性容器（OS 级强隔离兜底）。
     # CLI --sandbox 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
@@ -325,28 +325,28 @@ class Settings(BaseSettings):
     # ⚠ 语义不对称：firejail 按 Linux 真实 UID 计数（波及同用户其他进程），winjob 才是 job 作用域，故默认关。
     sandbox_nproc_limit: int = Field(default=0, ge=0)
 
-    # ---- 审批参数 ----
+    # ── 审批参数 ──
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
     approval_tools: str = Field(default="")
 
-    # ---- 用户事件钩子 ----
+    # ── 用户事件钩子 ──
     # hooks 是用户自配置的本地命令（非安全边界），不可信仓库可投放该文件——故须显式开启。
     hooks_enabled: bool = Field(default=False)
 
-    # ---- Plan Mode ----
+    # ── Plan Mode ──
     # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
     plan_mode: bool = Field(default=False)
 
-    # ---- 调试模式 ----
+    # ── 调试模式 ──
     # True 时：日志级别强制 DEBUG（含既有中间变量插桩）+ CLI 错误出口追加完整 traceback。
     # 面向排障，不改任何安全面（审批 / 沙箱 / plan mode 各自由自己的开关）。
     debug_mode: bool = Field(default=False)
 
-    # ---- 成本估算 ----
+    # ── 成本估算 ──
     # 模型价格表 JSON：{"<model>": {"input": <$/M tok>, "output": <$/M tok>}}；空 = 不显示成本。
     model_pricing: str = Field(default="")
 
-    # ---- HTTP 网页入口 ----
+    # ── HTTP 网页入口 ──
     # 默认 CLI 在同一进程内自动启动 HTTP 服务并把本地地址打到 stderr；`heagent http-server` 单独拉起；
     # 显式 gui / init / replay 不附带启动。定位：实验性、无认证、无 TLS，默认只绑 loopback。
     # http_enabled 只是装配开关（持久关闭用），CLI 另有单次覆盖 --no-http / --no-ws（不改 Settings 单例）。
@@ -381,7 +381,7 @@ class Settings(BaseSettings):
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
-    # ---- WS 入口（与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
+    # ── WS 入口（与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ──
     # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token
     # 拒绝启动）——除非显式开 WS_LAN_NO_AUTH 走内网免认证模式（`lan`，只接受私有地址字面量）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
@@ -407,7 +407,7 @@ class Settings(BaseSettings):
     # （通配 / 公网 / 主机名一律拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义。
     # 默认 False：非回环绑定仍按对外模式强制 token（缺 token 拒绝启动）。
     ws_lan_no_auth: bool = False
-    # ---- 网页控制台的配置写入通道 ----
+    # ── 网页控制台的配置写入通道 ──
     # 默认关：关闭时配置面全只读，且网页无法通过任何请求打开它（不在白名单，写入通道改不到自己）。
     # 开启渠道 = 任何启动配置；开启时入口层打高亮告警：任何能连上的人都能改项目 .env。
     # 写通道本身不是安全边界（无认证、无 TLS）。
@@ -415,7 +415,7 @@ class Settings(BaseSettings):
     # 项目注册表落点覆盖（缺省 <服务启动工作区>/.heagent/console/projects.json；缺省不写用户 home）。
     http_console_projects_file: str | None = None
 
-    # ---- Web 检索（web_search 引擎面）----
+    # ── Web 检索（web_search 引擎面） ──
     # 引擎名查 web_search_engine 的 registry；换引擎 = 改此声明，src 零 diff。未知名 fail-loud。
     web_search_engine: str = Field(default="tavily", min_length=1)
     # 空 = 未配置：web_search 工具常在，调用时显性报错（注册面不因缺密钥收窄）。
@@ -593,10 +593,10 @@ class Settings(BaseSettings):
 
 
 class ResolvedRuntimeConfig(Settings):
-    """Immutable construction-time copy; parsed properties return detached values.
+    """构造期的不可变副本；解析类属性返回脱离副本的值。
 
-    JSON configuration remains immutable text, so routing/profile dictionaries
-    never alias the snapshot or another caller. Credentials are assembly-only.
+    JSON 配置始终保持为不可变文本，因此路由与 profile 字典永不与快照或
+    其他调用方共享同一对象。凭据只在装配期使用。
     """
 
     model_config = SettingsConfigDict(**{**Settings.model_config, "frozen": True})
@@ -626,7 +626,7 @@ class ResolvedRuntimeConfig(Settings):
 
 
 def resolve_runtime_config(settings: Settings | None = None, **overrides: object) -> ResolvedRuntimeConfig:
-    """Resolve explicit non-None overrides once, retaining explicit False."""
+    """一次性解析显式的非 None 覆盖值，并保留显式的 False。"""
     settings = settings if settings is not None else get_settings()
     if isinstance(settings, ResolvedRuntimeConfig) and not any(value is not None for value in overrides.values()):
         return settings

@@ -1,4 +1,4 @@
-"""Builtin tools for long-term memory and profile updates."""
+"""长期记忆与 profile 更新的内置工具。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class MemoryToolRuntime:
-    """Runtime dependencies for memory tools."""
+    """记忆工具的运行时依赖。"""
 
     facts: FactStore | None
     profile: ProfileStore | None
@@ -37,12 +37,12 @@ def configure_memory_tools(
     facts: FactStore | None = None,
     profile: ProfileStore | None = None,
 ) -> None:
-    """Set fallback stores used by memory tools outside an agent run."""
+    """设置 agent 运行之外记忆工具使用的兜底存储。"""
     _memory_runtime.configure(MemoryToolRuntime(facts=facts, profile=profile))
 
 
 def reset_memory_tools() -> None:
-    """Clear fallback memory tool bindings."""
+    """清空记忆工具的兜底绑定。"""
     _memory_runtime.reset()
 
 
@@ -52,7 +52,7 @@ def bind_memory_tools(
     facts: FactStore | None = None,
     profile: ProfileStore | None = None,
 ) -> Iterator[None]:
-    """Bind memory stores for the current run context."""
+    """为当前运行上下文绑定记忆存储。"""
     with _memory_runtime.bind(MemoryToolRuntime(facts=facts, profile=profile)):
         yield
 

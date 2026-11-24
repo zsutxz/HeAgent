@@ -117,7 +117,7 @@ class SkillStore:
     _render_skill_md = staticmethod(render_skill_md)
     _body_survives_rerender = staticmethod(body_survives_rerender)
 
-    # ---- 根与路径 ----
+    # ── 根与路径 ──
 
     @property
     def roots(self) -> tuple[Path, ...]:
@@ -142,7 +142,7 @@ class SkillStore:
         return None
 
     def read_resource(self, name: str, resource: str) -> str | None:
-        """Read one package-local resource through the SkillPackage integrity gate."""
+        """经 SkillPackage 完整性门读取一个包内资源。"""
         from heagent.skills.skill_packages import SkillPackage
 
         try:
@@ -187,7 +187,7 @@ class SkillStore:
             return SkillMeta()
         return self._read_meta_at(owner, name)
 
-    # ---- CRUD ----
+    # ── CRUD ──
 
     def save(
         self,
@@ -345,7 +345,7 @@ class SkillStore:
                 contents.append(raw)
         return contents
 
-    # ---- 解析与更新 ----
+    # ── 解析与更新 ──
 
     def parse(self, name: str) -> SkillContent | None:
         """将 SKILL.md ⊕ meta.yaml 解析为结构化字段。不存在返回 None。
@@ -493,7 +493,7 @@ class SkillStore:
                 _mutate_meta_file(meta_path, apply_meta)
         return str(md_path) if updated else None
 
-    # ---- 使用追踪与策展 ----
+    # ── 使用追踪与策展 ──
 
     def record_usage(self, name: str) -> None:
         """递增技能使用计数并更新最后使用时间（只写拥有根的 meta.yaml，SKILL.md 零写入）。"""
@@ -541,7 +541,7 @@ class SkillStore:
             shutil.move(str(src), str(archive_dir / name))
             return True
 
-    # ---- 匹配 ----
+    # ── 匹配 ──
 
     def match_skill_details(self, prompt: str, threshold: float) -> list[SkillMatch]:
         """Return explainable, backward-compatible skill matches.

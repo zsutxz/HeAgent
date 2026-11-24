@@ -24,7 +24,7 @@ _SUNDAY_ALIAS = 7
 
 
 def cron_matches(cron_expr: str, dt: datetime) -> bool:
-    """Evaluate a 5-field cron expression with range/step support (V2)."""
+    """求值支持范围 / 步进的 5 字段 cron 表达式（V2）。"""
     parts = cron_expr.strip().split()
     if len(parts) != _CRON_FIELD_COUNT:
         return False

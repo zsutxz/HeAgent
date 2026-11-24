@@ -1,4 +1,4 @@
-"""Anthropic Claude provider implementation."""
+"""Anthropic Claude provider 实现。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def __getattr__(name: str) -> Any:
 
 
 def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, object]]:
-    """Convert HeAgent messages into Anthropic's Messages API format."""
+    """把 HeAgent 消息转换成 Anthropic Messages API 的格式。"""
     result: list[dict[str, object]] = []
     pending_tool_results: list[dict[str, object]] = []
 
@@ -84,7 +84,7 @@ def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, object]]:
 
 
 def _extract_system(messages: list[Message]) -> str:
-    """Extract and merge all system messages into Anthropic's top-level system field."""
+    """抽取并合并所有 system 消息到 Anthropic 顶层的 system 字段。"""
     parts = [m.content for m in messages if m.role == Role.SYSTEM]
     return "\n".join(parts) if parts else ""
 
@@ -139,12 +139,12 @@ _ZERO_USAGE = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
 
 def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
-    """Convert HeAgent tools into Anthropic's tool schema format."""
+    """把 HeAgent 工具转换成 Anthropic 的工具 schema 格式。"""
     return [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
 
 
 def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
-    """Parse Anthropic tool_use blocks into HeAgent tool calls."""
+    """把 Anthropic 的 tool_use 块解析成 HeAgent 工具调用。"""
     result: list[ToolCall] = []
     for block in blocks:
         if getattr(block, "type", None) != "tool_use":
@@ -160,7 +160,7 @@ def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
 
 
 class AnthropicProvider:
-    """Anthropic Claude API provider."""
+    """Anthropic Claude API 的 provider 实现。"""
 
     # 注解是惰性字符串（模块级 ``from __future__ import annotations``），运行期不触发 SDK 导入。
     _client: AsyncAnthropic
@@ -204,7 +204,7 @@ class AnthropicProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
-        """Send a single Anthropic Messages API request."""
+        """发送一次 Anthropic Messages API 请求。"""
         kwargs = self._build_kwargs(messages, tools)
 
         try:
@@ -242,7 +242,7 @@ class AnthropicProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
-        """Stream an Anthropic Messages API request."""
+        """流式发送一次 Anthropic Messages API 请求。"""
         kwargs = self._build_kwargs(messages, tools)
 
         try:
@@ -284,7 +284,7 @@ class AnthropicProvider:
             raise_provider_error(e)
 
     def get_metadata(self) -> ProviderMetadata:
-        """Return provider capability metadata."""
+        """返回 provider 能力元数据。"""
         return ProviderMetadata(
             name="anthropic",
             model=self._model,

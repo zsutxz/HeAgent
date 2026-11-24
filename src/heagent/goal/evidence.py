@@ -64,7 +64,7 @@ _WINDOWS_DEVICE_NAMES = frozenset(
 
 
 class EvidenceError(ValueError):
-    """Raised when evidence cannot be recorded, located, or legitimately bound."""
+    """证据无法记录、定位或合法绑定时抛出。"""
 
 
 #: :meth:`EvidenceStore.list_records` 的过滤维度缺省值：显性「不过滤」。
@@ -256,7 +256,7 @@ class EvidenceStore:
 
     @property
     def root(self) -> Path:
-        """Directory this store reads and writes."""
+        """本存储读写的目录。"""
         return self._root
 
     def _path(self, evidence_id: str) -> Path:

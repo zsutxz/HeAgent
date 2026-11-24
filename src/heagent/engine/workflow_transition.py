@@ -1,11 +1,11 @@
-"""Single, explicit transition table for the Goal workflow runner."""
+"""Goal 工作流 runner 唯一且显式的状态转移表。"""
 
 from heagent.engine.checkpoint import WorkflowStatus
 from heagent.engine.workflow_events import WorkflowEvent
 
 
 class WorkflowTransitionError(ValueError):
-    """An event is illegal for the current workflow status."""
+    """当前工作流状态下非法的事件。"""
 
 
 _TRANSITIONS: dict[tuple[WorkflowStatus, WorkflowEvent], WorkflowStatus] = {
@@ -33,7 +33,7 @@ _TRANSITIONS: dict[tuple[WorkflowStatus, WorkflowEvent], WorkflowStatus] = {
 
 
 def transition(source: WorkflowStatus, event: WorkflowEvent) -> WorkflowStatus:
-    """Return the next status or fail loudly for an undefined transition."""
+    """返回下一个状态；转移未定义时显性失败。"""
     try:
         return _TRANSITIONS[(source, event)]
     except KeyError as exc:

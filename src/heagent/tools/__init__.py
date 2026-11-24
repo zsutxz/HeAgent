@@ -1,4 +1,4 @@
-"""HeAgent tools module."""
+"""HeAgent 工具模块。"""
 
 from heagent.tools.decorator import tool
 from heagent.tools.registry import ToolRegistry

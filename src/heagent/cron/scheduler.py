@@ -1,4 +1,4 @@
-"""Async background cron scheduler."""
+"""异步后台 cron 调度器。"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ class CronScheduler:
         self._running = False
 
     async def start(self) -> None:
-        """Start the background scheduler loop."""
+        """启动后台调度循环。"""
         if self._running:
             return
         self._running = True
@@ -139,7 +139,7 @@ class CronScheduler:
             await self._execute_job(job, now=now)
 
     async def _execute_job(self, job: CronJob, *, now: datetime) -> None:
-        """Execute one due job if the execution ledger grants the lease."""
+        """在执行台账授予租约时执行一个到期 job。"""
         if self._job_runner is None:
             logger.warning("CronScheduler has no job_runner injected; skipping job '%s'", job.id)
             return

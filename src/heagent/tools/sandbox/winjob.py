@@ -79,13 +79,12 @@ def _winjob_platform_available() -> bool:
 
 
 class WinJobBackend:
-    """Windows Job Objects sandbox backend (process-level isolation, Windows-only).
+    """Windows Job Objects 沙箱后端（进程级隔离，仅 Windows）。
 
-    Uses Windows Job Object API to wrap child processes. When the job handle
-    is closed or parent exits, OS auto-terminates all child processes via
-    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE``.
+    用 Windows Job Object API 包裹子进程：job 句柄关闭或父进程退出时，OS 会按
+    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`` 自动终止所有子进程。
 
-    Gracefully degrades to :class:`PassthroughRunner` when unavailable.
+    平台不可用时优雅降级到 :class:`PassthroughRunner`。
     """
 
     tier = SandboxTier.JOB
@@ -100,7 +99,7 @@ class WinJobBackend:
 
     @property
     def available(self) -> bool:
-        """Windows Job Objects available on current platform."""
+        """当前平台是否可用 Windows Job Objects。"""
         return _winjob_platform_available()
 
     def isolates_network(self) -> bool:
@@ -122,7 +121,7 @@ class WinJobBackend:
         ctypes_win: Any = ctypes
         kernel32 = ctypes_win.windll.kernel32
 
-        # ── Job Object constants ──
+        # ── Job Object 常量 ──
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 
         class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
@@ -148,7 +147,7 @@ class WinJobBackend:
                 ("PeakJobMemoryUsed", ctypes.c_size_t),
             ]
 
-        # ── Create Job Object ──
+        # ── 创建 Job Object ──
         hJob = kernel32.CreateJobObjectW(None, None)
         if not hJob:
             err = ctypes_win.get_last_error()
@@ -189,16 +188,16 @@ class WinJobBackend:
                 err = ctypes_win.get_last_error()
                 logger.error("SetInformationJobObject failed (err=%d)", err)
 
-            # ── Start child process ──
+            # ── 启动子进程 ──
             proc = await asyncio.to_thread(_winjob_spawn, command, get_sandbox_workspace())
 
-            # Assign to job object
+            # 加入 Job Object
             kernel32.AssignProcessToJobObject(
                 wintypes.HANDLE(hJob),
                 wintypes.HANDLE(int(proc._handle)),  # type: ignore[attr-defined]  # Windows 私有句柄属性
             )
 
-            # ── Wait for completion ──
+            # ── 等待结束 ──
             async def kill_and_reap(catch: type[BaseException], label: str) -> None:
                 # Phase 4 V2：有界回收——无界 wait 在孙进程持管道时可无限挂起（超时/取消两路对称）。
                 try:

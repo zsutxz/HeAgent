@@ -234,7 +234,7 @@ async def _goal_declarative_doctor(args: str = "") -> None:
 
 
 async def _goal_declarative_status(workflow: WorkflowResource) -> None:
-    """Render the single status projection; CLI, GUI and cron share this model."""
+    """渲染唯一的状态投影；CLI、GUI 与 cron 共用该模型。"""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         _echo("[goal] no active declarative goal", err=True)
@@ -590,11 +590,10 @@ _GOAL_SUBCOMMAND_NAMES = (
 
 
 def _goal_typo_subcommand(args: str) -> str | None:
-    """Map a single-token typo of a known subcommand to that subcommand.
+    """把已知子命令的单 token 笔误映射到该子命令。
 
-    ``/goal <anything else>`` starts a new goal, so a hand slip such as ``/goal resume\\``
-    silently burned a whole goal's first step.  Only single-token inputs close to a
-    known subcommand are treated as typos; multi-word descriptions pass through.
+    ``/goal <其它内容>`` 会新建 goal，所以像 ``/goal resume\\`` 这样的手滑会静默烧掉整个
+    goal 的第一步。只有与某个已知子命令相近的单 token 输入才按笔误处理；多词描述原样透传。
     """
     parts = args.split()
     if len(parts) != 1:
@@ -745,7 +744,7 @@ def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
 
 
 def _goal_auto_goal_id(prompt: str) -> str | None:
-    """Return the exact goal id from a scheduler-owned auto prompt, if any."""
+    """返回调度器自有的 auto prompt 里的精确 goal id；非该形态则为 ``None``。"""
     if not prompt.startswith(_GOAL_AUTO_PREFIX):
         return None
     goal_id = prompt[len(_GOAL_AUTO_PREFIX) :].strip()

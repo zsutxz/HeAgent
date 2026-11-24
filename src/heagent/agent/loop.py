@@ -240,9 +240,7 @@ class AgentLoop:
 
         self.max_iterations = max_iterations or self._runtime.max_iterations
 
-    # ------------------------------------------------------------------
-    # 公共入口：run（非流式）/ run_stream（流式）——委托 run_lifecycle / stream_runtime
-    # ------------------------------------------------------------------
+    # ── 公共入口：run（非流式）/ run_stream（流式）——委托 run_lifecycle / stream_runtime ──
 
     async def run(
         self,
@@ -291,9 +289,7 @@ class AgentLoop:
             async for event in agen:
                 yield event
 
-    # ------------------------------------------------------------------
-    # 恢复入口：resume / resume_stream（重建逻辑见 resume_runtime）
-    # ------------------------------------------------------------------
+    # ── 恢复入口：resume / resume_stream（重建逻辑见 resume_runtime） ──
 
     async def resume(self, run_id: str) -> str:
         """按 run_id 恢复一次未完成的运行，返回（续跑后的）最终回答。
@@ -324,9 +320,7 @@ class AgentLoop:
             async for event in agen:
                 yield event
 
-    # ------------------------------------------------------------------
-    # steering / follow-up / 暂停——委托 message_ports
-    # ------------------------------------------------------------------
+    # ── steering / follow-up / 暂停——委托 message_ports ──
 
     async def _inject_steering(self, state: AgentState) -> None:
         """把 steering 消息追加进上下文（每轮 LLM 调用前的边界）。实现见 ``message_ports``。"""
@@ -358,9 +352,7 @@ class AgentLoop:
         """暂停检查点：处于暂停态则挂起，直到 ``unpause()``；前后发 run_paused/run_resumed 事件。"""
         await wait_if_paused(self, run_context)
 
-    # ------------------------------------------------------------------
-    # 初始化 / 终结 / 检查点——委托 run_lifecycle
-    # ------------------------------------------------------------------
+    # ── 初始化 / 终结 / 检查点——委托 run_lifecycle ──
 
     async def _init_or_resume(
         self,
@@ -390,9 +382,7 @@ class AgentLoop:
         """
         await on_run_failed(self, run_context, prompt, system_content, state, exc, duration_ms=duration_ms)
 
-    # ------------------------------------------------------------------
-    # 迭代控制 / 上下文管理——委托 context_runtime
-    # ------------------------------------------------------------------
+    # ── 迭代控制 / 上下文管理——委托 context_runtime ──
 
     def _begin_iteration(self, state: AgentState, run_context: RunContext) -> None:
         """推进迭代计数、发布 iteration_started 事件，并强制迭代硬上限。"""
@@ -415,9 +405,7 @@ class AgentLoop:
         """把两份 token 用量计数逐字段相加，返回新的 ``TokenUsage``（不可变叠加）。"""
         return add_usage(a, b)
 
-    # ------------------------------------------------------------------
-    # 系统提示词 / Provider 调用 / 工具执行（façade 核心留守）
-    # ------------------------------------------------------------------
+    # ── 系统提示词 / Provider 调用 / 工具执行（façade 核心留守） ──
 
     def _build_system(
         self,
@@ -578,9 +566,7 @@ class AgentLoop:
         """解析并调用工具 handler（委托 :func:`invoke_handler`）。"""
         return await invoke_handler(self, call)
 
-    # ------------------------------------------------------------------
-    # 运行时上下文 / 事件（façade 核心留守）
-    # ------------------------------------------------------------------
+    # ── 运行时上下文 / 事件（façade 核心留守） ──
 
     def _ensure_run_context(self, *, session_id: str | None) -> RunContext:
         """为本次执行取得一个运行上下文。

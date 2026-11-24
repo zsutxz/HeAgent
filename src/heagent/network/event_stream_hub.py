@@ -158,7 +158,7 @@ class EventStreamHub(Generic[PayloadT]):
         self._ws = WsRegistry(log_prefix=log_prefix, stream_label=stream_label)
         self._closing = False
 
-    # ---- 查询 ----
+    # ── 查询 ──
 
     @property
     def closing(self) -> bool:
@@ -193,7 +193,7 @@ class EventStreamHub(Generic[PayloadT]):
         """
         return cursor_out_of_window(cursor, self.oldest_seq)
 
-    # ---- 写侧（子类调用；同步、不抛）----
+    # ── 写侧（子类调用；同步、不抛） ──
 
     @staticmethod
     def new_stream_id() -> str:
@@ -219,7 +219,7 @@ class EventStreamHub(Generic[PayloadT]):
             except asyncio.QueueFull:
                 self._drop_lagging_subscriber(queue)
 
-    # ---- 读侧（WS 端点调用）----
+    # ── 读侧（WS 端点调用） ──
 
     def open_subscription(self, cursor: int | None) -> StreamSubscription[PayloadT] | None:
         """限额检查 + 重放片段 + 登记订阅者，**在同一个同步调用**里完成。
@@ -253,7 +253,7 @@ class EventStreamHub(Generic[PayloadT]):
             queue.put_nowait(None)
         safe_log(logger, logging.WARNING, "%s event=subscriber_dropped reason=queue_full", self._log_prefix)
 
-    # ---- 关停 ----
+    # ── 关停 ──
 
     def register_ws(self, connection_id: str, stream_id: str, websocket: Any) -> None:
         """登记已通过限额的 WS 连接，供有界关停关闭（委托 :class:`WsRegistry`）。"""

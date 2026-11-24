@@ -87,9 +87,7 @@ _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
 _GOAL_WAITING = "waiting"
-# =============================================================================
-# /goal 命令族（目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
-# =============================================================================
+# ── /goal 命令族（目标驱动开发工作流——skill 正文直读 + 逐 story 会话）──
 
 # 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
 # 已拆至 goal/document.py（cli/wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
@@ -105,7 +103,7 @@ def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
 
 
 def _goal_checkpoint_prompt() -> bool:
-    """Ask for checkpoint approval only when stdin is an interactive TTY."""
+    """仅当 stdin 是交互式 TTY 时才请求 checkpoint 批准。"""
     if not sys.stdin.isatty():
         _echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
         return False
@@ -120,16 +118,15 @@ def _goal_checkpoint_prompt() -> bool:
 
 
 def _goal_workflow_package() -> SkillPackage | None:
-    """Resolve the configured workflow package; ``None`` when it is not installed."""
+    """解析配置好的流程包；未安装时返回 ``None``。"""
     return _resolve_skill_package(get_settings().goal_workflow_skill)
 
 
 def _goal_declarative_workflow() -> WorkflowResource | None:
-    """Load the configured declarative goal workflow, if its package is installed.
+    """读取配置好的声明式 goal 流程（前提是其包已安装）。
 
-    A missing package means the workflow is not configured here (the caller says so);
-    a package that exists but declares an unusable workflow is an explicit error rather
-    than a reason to silently run the incompatible legacy flow.
+    包缺失表示本机没有配置该流程（由调用方说明）；包存在但声明的流程不可用时属于显性
+    错误，而不是静默改跑不兼容的旧流程的理由。
     """
     package = _goal_workflow_package()
     if package is None:
@@ -178,7 +175,7 @@ def _goal_declarative_prompt(
 
 
 async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, GoalAdvanceContext | None]:
-    """Load and validate goal state before advancing; a non-None outcome means stop."""
+    """推进前读取并校验 goal 状态；返回值非 ``None`` 表示应停下。"""
     if (goal_dir := _active_goal_dir_or_hint()) is None:
         return _GOAL_FAILED, None
     try:
@@ -197,8 +194,8 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     if runner.done:
         _echo("[goal] declarative workflow is already complete", err=True)
         return _GOAL_DONE, None
-    # A pause/cancellation is persisted as a non-completed Runner state. Resume
-    # is explicit at the command boundary, then this call may continue the step.
+    # 暂停/取消会落成 Runner 的非完成态；恢复是命令边界的显式动作，
+    # 之后本调用可以继续推进该步骤。
     if runner.state.status is WorkflowStatus.WAITING_USER:
         if runner.state.awaiting_approval:
             # 审批门挂起：指向显式决策，resume 在此状态会被显性拒绝。

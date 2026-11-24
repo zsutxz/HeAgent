@@ -68,14 +68,14 @@ class CliEventHub(EventStreamHub[RunEventPayload]):
         )
         self._active_run_id: str | None = None
 
-    # ---- 查询 ----
+    # ── 查询 ──
 
     @property
     def active_run_id(self) -> str:
         """当前正在跑的轮次 id；没有运行时空串（ack 帧用）。"""
         return self._active_run_id or ""
 
-    # ---- 写侧（CLI 调用；同步、不抛）----
+    # ── 写侧（CLI 调用；同步、不抛） ──
 
     def begin_run(self) -> str:
         """开始一轮旁路流，返回该轮 id。上一轮未 ``end_run`` 时静默接续（终端是唯一写者）。"""

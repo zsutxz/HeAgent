@@ -1,6 +1,6 @@
-"""CLI entry for ``heagent gui`` subcommand.
+"""``heagent gui`` 子命令的 CLI 入口。
 
-Thin wrapper that builds the Provider/AgentLoop and hands off to the Textual app.
+薄包装：装配 Provider/AgentLoop 后交给 Textual 应用。
 """
 
 from __future__ import annotations

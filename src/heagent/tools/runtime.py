@@ -1,4 +1,4 @@
-"""Context-local runtime bindings for builtin tools."""
+"""内置工具的上下文局部运行时绑定。"""
 
 from __future__ import annotations
 
@@ -14,22 +14,22 @@ _UNSET = object()
 
 
 class RuntimeSlot(Generic[T]):
-    """Store one default binding plus one context-local override."""
+    """保存一个默认绑定与一个上下文局部覆盖。"""
 
     def __init__(self, name: str) -> None:
         self._default: T | None = None
         self._current: ContextVar[object | T | None] = ContextVar(name, default=_UNSET)
 
     def configure(self, value: T | None) -> None:
-        """Set the process-wide fallback binding."""
+        """设置进程级兜底绑定。"""
         self._default = value
 
     def reset(self) -> None:
-        """Clear the process-wide fallback binding."""
+        """清空进程级兜底绑定。"""
         self._default = None
 
     def get(self) -> T | None:
-        """Return the current override if set, otherwise the fallback binding."""
+        """返回当前覆盖（若已设置），否则返回兜底绑定。"""
         current = self._current.get()
         if current is _UNSET:
             return self._default
@@ -37,7 +37,7 @@ class RuntimeSlot(Generic[T]):
 
     @contextmanager
     def bind(self, value: T | None) -> Iterator[None]:
-        """Temporarily override the binding for the current context."""
+        """在当前上下文内临时覆盖绑定。"""
         token = self._current.set(value)
         try:
             yield

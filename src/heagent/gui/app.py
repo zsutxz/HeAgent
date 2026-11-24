@@ -96,7 +96,7 @@ class HeAgentApp(App[None]):
         return self._agent_loop
 
     async def on_mount(self) -> None:
-        """Push the main chat screen on startup; start the cron scheduler if configured."""
+        """启动时压入主聊天屏；若已配置则启动 cron 调度器。"""
         self.push_screen(ChatScreen(self._bridge, self._state))
         if self.cron_scheduler is not None:
             await self.cron_scheduler.start()

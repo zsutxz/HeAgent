@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class RuntimeConfigSource(BaseModel):
-    """Origin of a resolved field, without its potentially sensitive value."""
+    """某个已解析字段的来源，不携带可能敏感的取值。"""
 
     model_config = ConfigDict(frozen=True)
     field: str
@@ -21,7 +21,7 @@ class RuntimeConfigSource(BaseModel):
 
 
 class SandboxDecision(BaseModel):
-    """Requested backend and capabilities actually available to the runtime."""
+    """请求的后端，以及运行时实际可用的能力。"""
 
     model_config = ConfigDict(frozen=True)
     requested_backend: str

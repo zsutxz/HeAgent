@@ -46,7 +46,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class SkillWorkflowError(SkillPackageResourceError):
-    """Raised when a declarative workflow or its ordered steps are invalid."""
+    """声明式工作流或其有序步骤非法时抛出。"""
 
 
 # ``validation:`` 里可声明的证据子句（引擎词汇，与 ``section:`` 同处一个字符串、同一分隔符）。
@@ -215,12 +215,11 @@ def _step_approval(package: SkillPackage, origin: str, values: dict[str, Any]) -
 
 
 def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> WorkflowResource:  # noqa: C901
-    """Load ``workflow.md`` and all declared/discovered steps in order.
+    """按顺序装载 ``workflow.md`` 与全部已声明 / 已发现的步骤。
 
-    The workflow file is the only authority for an explicit ``steps`` list.
-    A workflow may keep its step contracts in the same file using ``## Step
-    NN: name`` sections; external ``step-NN-*.md`` resources remain
-    supported for compatibility with existing packages.
+    工作流文件是显式 ``steps`` 列表的唯一权威。工作流可以用同一文件里的
+    ``## Step NN: name`` 区块承载步骤契约；外部 ``step-NN-*.md`` 资源仍受支持，
+    以兼容既有技能包。
     """
     try:
         text = package.read_resource(resource)
@@ -379,8 +378,8 @@ def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
             continue
         hasher.update(b"\x00")
         hasher.update(package.read_resource(name).encode("utf-8"))
-    # Script resources are part of the executable workflow contract.  Include
-    # each declared script exactly once, after the step declarations.
+    # 脚本资源是可执行流程契约的一部分；每个已声明脚本恰好收录一次，
+    # 且排在各步骤声明之后。
     scripts = sorted({step.script_resource for step in workflow.steps if step.script_resource})
     for name in scripts:
         hasher.update(b"\x00scripts/")
@@ -391,11 +390,10 @@ def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
 
 
 def _read_optional_resource(package: SkillPackage, resource: str) -> str:
-    """Read one ``templates/`` resource, returning ``""`` when it is absent or unreadable.
+    """读取一个 ``templates/`` 资源，缺失或不可读时返回 ``""``。
 
-    Optional resources (step prompt / gate templates) must not make an otherwise
-    valid workflow fail to load: requiredness, when it applies, is the workflow
-    declaration's call (``required_resources``), enforced by ``_required_templates``.
+    可选资源（步骤 prompt / 门禁模板）不得让本来合法的工作流装载失败：必需性（若适用）
+    由工作流声明的 ``required_resources`` 裁定，并由 ``_required_templates`` 执行校验。
     """
     try:
         return package.read_template(resource).strip()
@@ -476,11 +474,10 @@ def _discover_workflow_steps(package: SkillPackage) -> list[str]:
 
 
 def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[WorkflowStepResource]:
-    """Parse step contracts embedded in ``workflow.md``.
+    """解析内嵌在 ``workflow.md`` 里的步骤契约。
 
-    Each section starts with ``## Step NN: name``. Metadata immediately
-    following the heading uses the same ``key: value`` syntax as a step
-    file; the remaining section is the step instruction text.
+    每个区块以 ``## Step NN: name`` 开头。标题之后紧跟的元数据与步骤文件使用相同的
+    ``key: value`` 语法；区块余下内容即步骤指令正文。
     """
     matches = list(re.finditer(r"(?m)^##\s+Step\s+(\d+)\s*:\s*([^\n]+)\s*$", body))
     if not matches:
@@ -556,12 +553,11 @@ def _step_sort_key(value: str) -> tuple[int, str]:
 def _declared_members(
     package: SkillPackage, values: dict[str, Any], resource: str, *, key: str, allowed: tuple[str, ...]
 ) -> list[str]:
-    """Read one declaration list of engine vocabulary names, validating every entry.
+    """读取一份引擎词汇名称的声明列表，并逐条校验。
 
-    A workflow only chooses *which* registered check / field runs; inventing a name is a
-    load error rather than a silently dropped entry, because a typo would otherwise turn a
-    requested preflight into no preflight at all. An absent key yields an empty list, which
-    callers read as "the engine default set" — existing packages keep their behaviour.
+    工作流只选择**哪一个**已注册的检查 / 字段运行；发明名字属装载错误而非静默丢弃该条目，
+    因为一个拼写错误会把「要求的预检」变成「完全没有预检」。键缺失时返回空列表，调用方
+    据此理解为「引擎默认集合」——既有技能包行为不变。
     """
     if key not in values:
         return []
@@ -661,7 +657,7 @@ def _script_resource(package: SkillPackage, values: dict[str, Any], resource: st
 
 
 def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str) -> int:
-    """Parse the bounded Step 07 concurrency setting without coercion."""
+    """解析受界的 Step 07 并发设置，不做强制类型转换。"""
     limit = _bounded_int(package, values, resource, key="max_parallel_stories", default=1, maximum=5)
     if limit > 1:
         # 声明门控并行：>1 只是授权门的第一个条件，实际并发由批派生的
@@ -678,7 +674,7 @@ def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str
 
 
 def _iteration_budget(package: SkillPackage, values: dict[str, Any], resource: str) -> int:
-    """Parse the optional per-step iteration budget (0 = inherit the global setting)."""
+    """解析可选的每步迭代预算（0 = 继承全局设置）。"""
     return _bounded_int(package, values, resource, key="max_iterations", default=0, maximum=1000)
 
 
@@ -739,7 +735,7 @@ def _normalize_story_id(raw: str) -> str:
 
 
 def _normalize_epic_id(raw: str) -> str:
-    """Normalize an Epic reference (``E1`` / ``e 1`` / ``epic 1``) to ``E1``."""
+    """把 Epic 引用（``E1`` / ``e 1`` / ``epic 1``）归一化为 ``E1``。"""
     digits = re.search(r"\d+", raw or "")
     return f"E{int(digits.group(0))}" if digits is not None else (raw or "").strip()
 
@@ -750,16 +746,15 @@ def _story_sort_key(spec: StorySpec) -> int:
 
 
 def _is_epic_reference(cell: str) -> bool:
-    """True when a table cell is a bare Epic reference (``E1`` / ``E-1`` / ``Epic 1``)."""
+    """表格单元格是裸 Epic 引用（``E1`` / ``E-1`` / ``Epic 1``）时返回 True。"""
     return bool(re.fullmatch(r"(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)\d+", cell.strip(), re.IGNORECASE))
 
 
 def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
-    """Parse one table row into ``(id, summary, epic_hint)``; ``None`` for a non-story row.
+    """把一行表格解析为 ``(id, summary, epic_hint)``；非 story 行返回 ``None``。
 
-    An overview table such as ``| S-1 | E1 | P0 | none | <title> |`` puts the Epic in
-    the second column and the human summary in the last one, so the raw second cell
-    must not be mistaken for the story title.
+    像 ``| S-1 | E1 | P0 | none | <title> |`` 这样的概览表把 Epic 放在第二列、人类摘要
+    放在最后一列，所以第二个原始单元格不能被误当成 story 标题。
     """
     match = _STORY_TABLE.match(stripped)
     if match is None:
@@ -774,7 +769,7 @@ def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
 
 
 def _story_metadata(lines: list[str], start: int, end: int) -> dict[str, Any]:
-    """Read declarations scoped to a story heading; other list shapes are unscoped."""
+    """读取作用于 story 标题区块的声明；其它列表形态不带作用域。"""
     metadata: dict[str, Any] = {}
     for line in lines[start + 1 : end]:
         if re.match(r"^#{1,6}\s", line.strip()):
@@ -797,27 +792,23 @@ def _story_metadata(lines: list[str], start: int, end: int) -> dict[str, Any]:
 
 
 def parse_story_list(text: str) -> list[StorySpec]:
-    """Extract an ordered story list from Markdown.
+    """从 Markdown 里抽取有序的 story 列表。
 
-    Recognizes three common shapes so a step may consume an Epic proposal,
-    a dedicated story checklist, or a story table:
+    识别三种常见形态，使一个步骤既能消费 Epic 提案、专用 story 清单，也能消费 story 表格：
 
-    * ``### S-1 Scene rendering`` (heading)
-    * ``- [ ] S-1 Scene rendering`` (list/checklist item)
-    * ``| S-1 | Scene rendering |`` (table row)
+    * ``### S-1 Scene rendering``（标题）
+    * ``- [ ] S-1 Scene rendering``（列表 / 清单项）
+    * ``| S-1 | Scene rendering |``（表格行）
 
-    Shapes are ranked for a repeated id: a story heading outranks a list item,
-    which outranks a table row. A document therefore still keeps every story it
-    declares (including table-only rows) while an overview table such as
-    ``| S-1 | E1 | P0 | none | <title> |`` can no longer overwrite the titles and
-    Epics owned by the story sections. Story ids normalize to ``S-<n>`` and are
-    deduplicated by id, then sorted by their numeric suffix. Non-story rows
-    (e.g. Epic ids such as ``E-1``) are ignored.
+    同一 id 重复出现时按形态排名：story 标题优于列表项，列表项优于表格行。因此文档依旧
+    保留它声明的每条 story（含只出现在表格里的行），而像
+    ``| S-1 | E1 | P0 | none | <title> |`` 这样的概览表不再能覆盖 story 区块所拥有的标题与
+    Epic。story id 归一化为 ``S-<n>``，按 id 去重，再按数字后缀排序。非 story 行
+    （如 ``E-1`` 这类 Epic id）忽略。
 
-    Epic grouping is optional: a story inherits the Epic declared by the nearest
-    preceding Epic heading (``## E1 ...`` / ``## Epic 1 ...``), and an explicit
-    ``- **父 Epic**: E1`` field inside the story block wins over that heading. A
-    source without grouping keeps the flat behaviour (``epic`` stays empty).
+    Epic 分组是可选的：story 继承最近一条位于其之前的 Epic 标题（``## E1 ...`` /
+    ``## Epic 1 ...``）所声明的 Epic，而 story 区块内显式的 ``- **父 Epic**: E1`` 字段
+    优先于该标题。没有分组信息的来源保持扁平行为（``epic`` 为空）。
     """
     if not isinstance(text, str) or not text.strip():
         return []
@@ -869,7 +860,7 @@ def parse_story_list(text: str) -> list[StorySpec]:
         epic = epic_hint or next((value for field_index, value in epic_fields if index < field_index < end), "")
         if not epic:
             epic = next((value for heading_index, value in reversed(epic_headings) if heading_index < index), "")
-        # Only a scoped heading owns metadata; a table or list cannot authorize parallelism.
+        # 只有带作用域的标题才拥有元数据；表格或列表不能授予并行权限。
         metadata = _story_metadata(lines, index, end) if ranks[story_id] == 0 else {}
         specs.append(StorySpec(id=story_id, summary=summary, epic=epic, **metadata))
     return sorted(specs, key=_story_sort_key)

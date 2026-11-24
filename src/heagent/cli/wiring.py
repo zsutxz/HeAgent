@@ -176,13 +176,11 @@ def _report_provider_config_error(message: str) -> None:
     )
 
 
-# ----------------------------------------------------------------------
-# loop 装配共享缝：入口层各 loop 构造点真正共用、且漂移风险高的
-# 两段——engine 配置快照读回收窄与 cron job runner——收敛到此处。
+# ── loop 装配共享缝：入口层各 loop 构造点真正共用、且漂移风险高的两段 ──
+# 具体是——engine 配置快照读回收窄与 cron job runner——收敛到此处。
 # 主 loop 本体仍由各入口显式构造：两入口在每个旋钮上都有真实产品差异
 # （session/上下文策略/soul/retry 中间件/context_dir），全量参数化会产出
 # 17 参 + 4 布尔旗的巨函，比两个显式构造点更难读。
-# ----------------------------------------------------------------------
 
 
 def ensure_runtime_config(engine: EngineContainer) -> ResolvedRuntimeConfig:

@@ -1,4 +1,4 @@
-"""Command-line entrypoint for HeAgent."""
+"""HeAgent 的命令行入口。"""
 
 from __future__ import annotations
 
@@ -111,9 +111,9 @@ def _prune_runtime_artifacts(settings: Settings) -> None:
 
 
 async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
-    """Prompt the user to select a provider at startup (interactive mode).
+    """启动时提示用户选择 provider（交互模式）。
 
-    ACTIVE_PROVIDER in .env determines the default (press Enter to accept).
+    .env 里的 ACTIVE_PROVIDER 决定默认项（回车即接受）。
     """
     if not sys.stdin.isatty():
         return
@@ -167,7 +167,7 @@ def _stdio_sandbox_spec(settings: Settings) -> StdioSandboxSpec | None:
 
 
 def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
-    """Return the MCP lifecycle context manager based on current settings."""
+    """按当前设置返回 MCP 生命周期上下文管理器。"""
     if not settings.mcp_enabled:
         logger.info("MCP disabled via settings")
         return contextlib.nullcontext()
@@ -195,9 +195,7 @@ def _run_with_embedded_http(awaitable_factory: Callable[[], Coroutine[Any, Any, 
         raise click.ClickException(message) from None
 
 
-# =============================================================================
-# Core CLI implementation (shared by run subcommand and default path)
-# =============================================================================
+# ── CLI 核心实现（run 子命令与默认路径共用）──
 
 
 def _run_cli_impl(
@@ -216,7 +214,7 @@ def _run_cli_impl(
     no_http: bool = False,
     no_ws: bool = False,
 ) -> None:
-    """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
+    """CLI 核心流程——日志、provider、MCP，分派到单次或对话模式。"""
     if resume_session:
         # id 直接决定会话文件路径，且是**用户输入**：先按存储侧同一判据校验并在命令层给可读错误。
         # 否则 `--resume NUL` 在 Windows 上写向空设备：不报错、不落盘、也不出现在会话列表（静默丢数据）。
@@ -254,10 +252,10 @@ def _run_cli_impl(
     # 加载配置文件驱动的自定义角色：.heagent/agents/*.md + ~/.heagent/agents/*.md
     load_agent_roles()
 
-    # --- Sandbox warning ---
+    # ── 沙箱告警 ──
     echo_sandbox_hint(sandbox or settings.sandbox_backend, settings, install_hint=True)
 
-    # --- Interactive provider selection at startup ---
+    # ── 启动期交互式 provider 选择 ──
     if isinstance(provider, SwitchableProvider):
         asyncio.run(_prompt_startup_provider(provider))
 
@@ -314,9 +312,7 @@ def _run_cli_impl(
         )
 
 
-# =============================================================================
-# Click command group (with DefaultGroup for backward-compatible "heagent msg")
-# =============================================================================
+# ── Click 命令组（DefaultGroup 让 "heagent msg" 保持向后兼容）──
 
 _RUN_OPTIONS = [
     click.argument("prompt", required=False),
@@ -387,18 +383,17 @@ _RUN_OPTIONS = [
 
 
 def _apply_options(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator: apply shared CLI options to a Click command."""
+    """装饰器：把共享 CLI 选项套到 Click 命令上。"""
     for opt in reversed(_RUN_OPTIONS):
         fn = opt(fn)
     return fn
 
 
 class DefaultGroup(click.Group):
-    """A Click Group that falls back to the ``default_command`` when an unknown
-    command name is provided (instead of raising ``NoSuchCommand``).
+    """未知命令名时回退到 ``default_command``（而非抛 ``NoSuchCommand``）的 Click Group。
 
-    This allows ``heagent "hello"`` to be treated as ``heagent run "hello"``
-    while explicit subcommands (``gui``, ``run``) take priority.
+    这让 ``heagent "hello"`` 被当作 ``heagent run "hello"`` 处理，
+    同时显式子命令（``gui``、``run``）依然优先。
     """
 
     _default_command: str | None = None
@@ -439,7 +434,7 @@ def main(ctx: click.Context) -> None:
       heagent gui                    # launch terminal UI
     """
     if ctx.invoked_subcommand is None:
-        # No subcommand -> interactive mode
+        # 无子命令 -> 进入交互模式
         ctx.invoke(run, prompt=None)
 
 
@@ -528,10 +523,10 @@ from heagent.cli.tls_cmd import tls_cmd  # noqa: E402
 main.add_command(tls_cmd)
 
 
-# Set run as the default command (heagent "hello" -> run "hello")
+# 把 run 设为默认命令（heagent "hello" -> run "hello"）
 main.set_default_command("run")
 
-# Register the lightweight GUI command wrapper; Textual itself remains lazy.
+# 注册轻量 GUI 命令包装；Textual 本体保持惰性导入。
 from heagent.gui.cli import gui_cmd  # noqa: E402
 
 main.add_command(gui_cmd)

@@ -271,7 +271,7 @@ class OpenAIProvider:
 
                 async for chunk in stream:
                     if not chunk.choices:
-                        # usage-bearing sentinel chunk sent by OpenAI at end of stream
+                        # OpenAI 在流末尾发出的带 usage 的哨兵 chunk
                         if chunk.usage:
                             final_usage = _build_usage(chunk.usage)
                         if chunk.model:

@@ -1,8 +1,7 @@
-"""Typed, capability-limited operations exposed to trusted GoalScript resources.
+"""暴露给受信 GoalScript 资源的类型化、能力受限操作。
 
-GoalScript is an orchestration language, not a second workflow engine.  The facade
-only records operation requests; callers decide how each request is admitted and
-executed through the existing Runner/governance path.
+GoalScript 是编排语言，不是第二套工作流引擎。这层门面只记录操作请求；
+每个请求如何被准入、如何经现有的 Runner/governance 路径执行，由调用方决定。
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ ScriptOperation = Literal[
 
 
 class ScriptRequest(BaseModel):
-    """One operation requested by a script."""
+    """脚本请求的一次操作。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -40,7 +39,7 @@ class ScriptRequest(BaseModel):
 
 
 class ScriptResponse(BaseModel):
-    """Typed result returned by the host for one operation."""
+    """宿主为一次操作返回的类型化结果。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,7 +49,7 @@ class ScriptResponse(BaseModel):
 
 
 class ScriptExecutionResult(BaseModel):
-    """The host-visible result of one script invocation."""
+    """一次脚本调用对宿主可见的结果。"""
 
     model_config = ConfigDict(extra="forbid")
 

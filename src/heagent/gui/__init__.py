@@ -20,7 +20,7 @@ def gui_main(
     sandbox_session_workspace: bool | None = None,
     sandbox_session_keep: bool | None = None,
 ) -> None:
-    """Launch the HeAgent Textual TUI."""
+    """启动 HeAgent 的 Textual 终端界面。"""
     from heagent.config import resolve_runtime_config
     from heagent.gui.app import HeAgentApp
     from heagent.gui.bridge import AgentBridge

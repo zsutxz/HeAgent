@@ -203,7 +203,7 @@ class ChatScreen(Screen[None]):
         return False
 
     def _goal_cmd(self, args: str) -> None:
-        """Run goal commands through the shared CLI goal implementation."""
+        """通过共享的 CLI goal 实现执行 goal 命令。"""
         log = self.query_one("#chat-log", RichLog)
 
         async def _run() -> None:

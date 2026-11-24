@@ -1,4 +1,4 @@
-"""Canonical paths derived from one explicit HeAgent workspace root."""
+"""由单一显式 HeAgent 工作区根派生的规范路径。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class WorkspacePaths(BaseModel):
-    """All durable runtime paths for a project, derived from ``root``."""
+    """一个项目的全部持久运行时路径，由 ``root`` 派生。"""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

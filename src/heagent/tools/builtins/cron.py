@@ -1,4 +1,4 @@
-"""Builtin tools for cron job management."""
+"""cron 任务管理的内置工具。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class CronToolRuntime:
-    """Runtime dependencies for cron tools."""
+    """cron 工具的运行时依赖。"""
 
     store: JobStore | None
 
@@ -27,18 +27,18 @@ _cron_runtime = RuntimeSlot[CronToolRuntime]("heagent_cron_tools")
 
 
 def configure_cron_tools(store: JobStore | None) -> None:
-    """Set the fallback job store used outside an agent run."""
+    """设置 agent run 之外使用的兜底 job store。"""
     _cron_runtime.configure(CronToolRuntime(store=store))
 
 
 def reset_cron_tools() -> None:
-    """Clear the fallback job store."""
+    """清除兜底 job store。"""
     _cron_runtime.reset()
 
 
 @contextmanager
 def bind_cron_tools(store: JobStore | None) -> Iterator[None]:
-    """Bind a job store for the current run context."""
+    """为当前 run context 绑定一个 job store。"""
     with _cron_runtime.bind(CronToolRuntime(store=store)):
         yield
 

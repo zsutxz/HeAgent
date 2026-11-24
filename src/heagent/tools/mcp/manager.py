@@ -303,7 +303,7 @@ class MCPClientManager:
         """
 
         async def handler(**kwargs: Any) -> str:
-            # session liveness check — if server disconnected, return semantic error
+            # 会话存活检查——服务器已断开则返回语义化错误
             if server_name and self._sessions.get(server_name) is not session:
                 raise ToolExecutionError(f"MCP server '{server_name}' disconnected")
             try:

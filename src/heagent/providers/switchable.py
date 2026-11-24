@@ -79,7 +79,7 @@ class SwitchableProvider:
         self._lock = asyncio.Lock()
         self._metadata_cache = metadata_cache if metadata_cache is not None else ProviderMetadataCache()
 
-    # -- 公共 API --
+    # ── 公共 API ──
 
     @property
     def active(self) -> str:
@@ -156,9 +156,7 @@ class SwitchableProvider:
             )
         return result
 
-    # ------------------------------------------------------------------
-    # 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时/404 model 不可用触发
-    # ------------------------------------------------------------------
+    # ── 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时/404 model 不可用触发 ──
 
     def _ordered_names(self) -> list[str]:
         """返回 provider 名称列表：活跃优先，其余保持注册顺序。"""
@@ -172,7 +170,7 @@ class SwitchableProvider:
             to_name,
         )
 
-    # -- BaseProvider 协议实现 --
+    # ── BaseProvider 协议实现 ──
 
     async def send(
         self,

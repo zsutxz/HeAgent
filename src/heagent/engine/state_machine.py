@@ -46,11 +46,11 @@ def _bounded_reason(text: str) -> str:
 
 
 class WorkflowGateError(ValueError):
-    """Raised when a step cannot satisfy its declared contract."""
+    """步骤无法满足其声明契约时抛出。"""
 
 
 class WorkflowRunnerState(BaseModel):
-    """Serializable progress for a declarative workflow."""
+    """声明式工作流的可序列化进度。"""
 
     active_step: int = Field(default=0, ge=0)
     status: WorkflowStatus = WorkflowStatus.PENDING
@@ -96,7 +96,7 @@ class WorkflowRunnerState(BaseModel):
 
 
 class WorkflowStepResult(BaseModel):
-    """Callback result returned after executing one step."""
+    """执行单个步骤后返回的回调结果。"""
 
     status: WorkflowStatus = WorkflowStatus.COMPLETED
     output: Any = None
@@ -110,7 +110,7 @@ class WorkflowStepResult(BaseModel):
 
 
 class WorkflowRunResult(BaseModel):
-    """Validated public result of one runner invocation."""
+    """一次 runner 调用的已校验公开结果。"""
 
     status: WorkflowStatus
     step_index: int | None = None
@@ -135,7 +135,7 @@ def _checkpoint_declared(step: WorkflowStepResource) -> bool:
 
 
 def _references(declaration: str) -> list[str]:
-    """Parse the workflow's explicit comma/newline-delimited artifact references."""
+    """解析工作流显式声明的、逗号或换行分隔的产物引用。"""
     return [item.strip() for item in re.split(r"[,\n]", declaration) if item.strip()]
 
 

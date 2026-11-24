@@ -239,7 +239,7 @@ class TaskRegistry:
             return
         self._projection = projection
 
-    # ---- 写入（生产者） ----
+    # ── 写入（生产者） ──
 
     def start(self, kind: str, *, task_id: str | None = None, message: str | None = None) -> str:
         """注册一个 ``pending`` 任务并返回其 id（未给 id 时生成 uuid4 hex）。
@@ -300,7 +300,7 @@ class TaskRegistry:
             return current
         return self._write(current, status=TaskStatus.FAILED, message=message)
 
-    # ---- 读取（查询方） ----
+    # ── 读取（查询方） ──
 
     def get(self, task_id: str) -> TaskProgress | None:
         """按 id 读一条（先淘汰过期终态，因此保留期外/未知都返回 ``None``）。
@@ -368,7 +368,7 @@ class TaskRegistry:
         """开一个 :class:`TaskScope` 句柄（生产者侧的主要用法）。"""
         return TaskScope(self, kind, task_id=task_id, message=message)
 
-    # ---- 内部 ----
+    # ── 内部 ──
 
     def _project(self, progress: TaskProgress) -> None:
         """把一次状态变更投影到磁盘（未绑定投影时 no-op）。"""

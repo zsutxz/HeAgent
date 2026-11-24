@@ -114,7 +114,7 @@ class JobStore:
             created=_iso_now(),
         )
 
-    # ---- 内部方法 ----
+    # ── 内部方法 ──
 
     def _load_all(self) -> list[CronJob]:
         """从 JSON 文件加载所有任务。

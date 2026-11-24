@@ -1,4 +1,4 @@
-"""Import declared BMad skill packages into the local HeAgent skill directory."""
+"""把清单声明的 BMad 技能包导入本地 HeAgent 技能目录。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from heagent.tools.path_safety import WorkspacePathError, open_text_under_root, 
 
 
 class SkillImportError(ValueError):
-    """Raised when a manifest cannot be imported without ambiguity or loss."""
+    """清单无法在无歧义、无丢失的前提下导入时抛出。"""
 
     def __init__(self, skill_id: str, reason: str) -> None:
         self.skill_id = skill_id
@@ -27,7 +27,7 @@ class SkillImportError(ValueError):
 
 
 class SkillManifestEntry(BaseModel):
-    """One row from the BMad skill manifest."""
+    """BMad 技能清单中的一行。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -66,7 +66,7 @@ class SkillManifestLock(BaseModel):
 
 
 class SkillImporter:
-    """Materialize manifest entries into canonical package directories."""
+    """把清单条目落地为规范包目录。"""
 
     _REQUIRED_COLUMNS = frozenset({"canonicalId", "path"})
 
@@ -79,8 +79,8 @@ class SkillImporter:
     ) -> None:
         self.manifest_path = Path(manifest_path).expanduser().resolve(strict=False)
         self.destination_root = Path(destination_root).expanduser().resolve(strict=False)
-        # The repository's manifest lives at <root>/_bmad/_config/; tests and
-        # callers may pass an explicit root for manifests in another layout.
+        # 仓库自带的清单在 <root>/_bmad/_config/；测试与调用方可以
+        # 显式传根路径，以支持其他布局的清单。
         manifest_dir = self.manifest_path.parent
         inferred_root = (
             manifest_dir.parent.parent

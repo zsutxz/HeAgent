@@ -132,7 +132,7 @@ def _parse_role_md(path: Path) -> RoleSpec | None:
     return RoleSpec(name=name, system=system, allowed_tools=tools, max_iterations=max_iterations, metadata=metadata)
 
 
-# --- 内置角色系统提示词（中文；仅声明各角色职责与可用工具，运行时不改）---
+# ── 内置角色系统提示词（中文；仅声明各角色职责与可用工具，运行时不改） ──
 
 _PLANNER_SYSTEM = """\
 你是【计划角色 Planner】。职责：分析任务、拆解为可执行步骤、规划实现路径。只读不写、不执行副作用操作。

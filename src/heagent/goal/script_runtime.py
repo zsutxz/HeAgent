@@ -1,4 +1,4 @@
-"""Bounded host execution for trusted, package-local GoalScript resources."""
+"""对可信的包内 GoalScript 资源做有界宿主执行。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class GoalScriptRuntimeError(RuntimeError):
-    """Raised when a script exceeds a host limit or returns an invalid result."""
+    """脚本超出宿主限制或返回非法结果时抛出。"""
 
 
 ScriptRequestHandler = Callable[[Any], ScriptResponse | Awaitable[ScriptResponse]]
@@ -136,7 +136,7 @@ _SAFE_BUILTINS = {
 
 
 def _script_depth(script: GoalScriptResource) -> int:
-    """Return maximum nested control depth used by a script."""
+    """返回脚本使用的最大嵌套控制深度。"""
 
     def visit(node: ast.AST, depth: int) -> int:
         child_depth = (

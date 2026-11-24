@@ -1,1 +1,1 @@
-"""GUI screens package."""
+"""GUI 屏幕包。"""

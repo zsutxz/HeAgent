@@ -137,7 +137,7 @@ class HookManager:
             hooks.append(hook)
         return cls(hooks, timeout=timeout)
 
-    # ---- 事件执行入口 ----
+    # ── 事件执行入口 ──
 
     async def run_pre_tool(self, call: ToolCall, run_context: RunContext | None = None) -> HookResult:
         """PreToolUse：执行匹配的 hooks；block hook 退出码非 0 则返回阻断结果。"""
@@ -178,7 +178,7 @@ class HookManager:
         for hook in self._matching(event, ""):
             await self._run(hook, tool_name="", run_context=run_context)
 
-    # ---- 内部 ----
+    # ── 内部 ──
 
     def _matching(self, event: str, tool_name: str) -> list[HookConfig]:
         """返回匹配某事件（及可选工具名）的 hooks，按配置顺序。"""
@@ -192,7 +192,7 @@ class HookManager:
         return matched
 
     async def _terminate_process_tree(self, proc: asyncio.subprocess.Process) -> None:
-        """Terminate a hook process tree."""
+        """终止 hook 进程树。"""
         with suppress(ProcessLookupError, PermissionError):
             if sys.platform == "win32":
                 killer = await asyncio.create_subprocess_exec(
@@ -209,7 +209,7 @@ class HookManager:
                 os.killpg(proc.pid, signal.SIGKILL)
 
     async def _terminate_and_reap(self, proc: asyncio.subprocess.Process) -> None:
-        """Terminate a hook process tree and close its pipe transports."""
+        """终止 hook 进程树并关闭其管道传输。"""
         await self._terminate_process_tree(proc)
         await reap_subprocess(proc)
 

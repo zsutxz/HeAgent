@@ -52,7 +52,7 @@ class SkillContent(BaseModel):
 
 
 class SkillMatch(BaseModel):
-    """Explainable result from the skill matcher."""
+    """技能匹配器给出的可解释结果。"""
 
     name: str
     score: float

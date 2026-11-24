@@ -156,9 +156,7 @@ class DreamScheduler:
         # 订阅 EventBus：run_completed 时更新 idle 基准。
         self._engine.events.subscribe(self)
 
-    # ------------------------------------------------------------------
-    # EventObserver 协议（idle 计时基准更新）
-    # ------------------------------------------------------------------
+    # ── EventObserver 协议（idle 计时基准更新） ──
 
     def handle(self, event: EngineEvent) -> None:
         """订阅 ``run_completed`` 事件以更新 idle 计时基准。
@@ -171,9 +169,7 @@ class DreamScheduler:
         if event.event_type == "run_completed":
             self._last_active_ts = time.monotonic()
 
-    # ------------------------------------------------------------------
-    # 公开属性（测试可观察性）
-    # ------------------------------------------------------------------
+    # ── 公开属性（测试可观察性） ──
 
     @property
     def dreaming(self) -> bool:
@@ -185,9 +181,7 @@ class DreamScheduler:
         """idle 计时基准（monotonic 时间戳）。"""
         return self._last_active_ts
 
-    # ------------------------------------------------------------------
-    # 生命周期：start / stop
-    # ------------------------------------------------------------------
+    # ── 生命周期：start / stop ──
 
     async def start(self) -> None:
         """启动后台 tick 循环（幂等：已运行则直接返回）。"""
@@ -228,9 +222,7 @@ class DreamScheduler:
             task.add_done_callback(_retrieve_task_exception)
             self._task = None
 
-    # ------------------------------------------------------------------
-    # tick 循环（双触发共用）
-    # ------------------------------------------------------------------
+    # ── tick 循环（双触发共用） ──
 
     async def _tick_loop(self) -> None:
         """后台 tick 循环：每 ``_tick_seconds`` 秒检查一次触发条件。"""
@@ -262,9 +254,7 @@ class DreamScheduler:
         trigger = "cron" if cron_match else "idle"
         await self._run_dream(trigger)
 
-    # ------------------------------------------------------------------
-    # dream 执行（委托 dream_runner；互斥由调用方保证）
-    # ------------------------------------------------------------------
+    # ── dream 执行（委托 dream_runner；互斥由调用方保证） ──
 
     async def _run_dream(self, trigger: str) -> None:
         """经注入的 ``dream_runner`` 跑一次巩固，发布 dream_start/dream_end 事件。
@@ -316,9 +306,7 @@ class DreamScheduler:
         """发布 dream_end：统一携带 ``trigger``，其余字段（success/iterations/…）按结局补充。"""
         self._engine.events.publish("dream_end", details={"trigger": trigger, **extra})
 
-    # ------------------------------------------------------------------
-    # dream prompt 构建（近期 session 预注入；dreamer 不持 file_read）
-    # ------------------------------------------------------------------
+    # ── dream prompt 构建（近期 session 预注入；dreamer 不持 file_read） ──
 
     def _build_dream_prompt(self) -> str:
         """构建巩固指令 + 预加载近期 session 摘要的初始 prompt。
@@ -379,9 +367,7 @@ class DreamScheduler:
                 chunks.append("\n".join(lines))
         return "\n\n".join(chunks)
 
-    # ------------------------------------------------------------------
-    # 配置校验（fail-fast）
-    # ------------------------------------------------------------------
+    # ── 配置校验（fail-fast） ──
 
     @staticmethod
     def _validate_cron_expr(expr: str) -> None:

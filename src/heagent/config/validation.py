@@ -186,7 +186,7 @@ def _has_provider_credential(settings: Settings) -> bool:
     return any((getattr(settings, name) or "").strip() for name in _CREDENTIAL_FIELDS)
 
 
-# ---------------------------------------------------------------- 判据实现
+# ── 判据实现 ──
 # 每条判据只读 Settings 字段，返回「问题首行」；消息必须点名具体键名，否则用户无从下手。
 
 

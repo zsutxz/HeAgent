@@ -521,24 +521,24 @@ class StatusResponse(BaseModel):
     run_status: RunStatusCounts = Field(default_factory=RunStatusCounts)
     ws_connections: WsConnectionCounts = Field(default_factory=WsConnectionCounts)
     background_tasks: int = Field(default=0, ge=0)
-    # ---- 部署面（71.2）：只报名字与布尔，不含密钥值、base_url 与绝对路径 ----
+    # ── 部署面（71.2）：只报名字与布尔，不含密钥值、base_url 与绝对路径 ──
     listeners: list[ListenerInfo] = Field(default_factory=list, max_length=4)
     sandbox_backend: str = Field(default="", max_length=32)
     config_write_enabled: bool = False
     active_provider: str = Field(default="", max_length=64)
     routing_pools: list[RoutingPoolInfo] = Field(default_factory=list, max_length=16)
-    # ---- 依赖态（71.3）：启动时刻 / 作业定义 / 资产计数 ----
+    # ── 依赖态（71.3）：启动时刻 / 作业定义 / 资产计数 ──
     started_at: datetime | None = None
     uptime_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     cron_jobs: list[CronJobInfo] = Field(default_factory=list, max_length=32)
     skill_count: int = Field(default=0, ge=0)
     memory_facts: int = Field(default=0, ge=0)
-    # ---- 资源（71.4）：不可得即 null（绝不填 0 冒充），并标注采样通路 ----
+    # ── 资源（71.4）：不可得即 null（绝不填 0 冒充），并标注采样通路 ──
     rss_bytes: int | None = Field(default=None, ge=0)
     threads: int | None = Field(default=None, ge=0)
     cpu_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     resource_source: str = Field(default="unavailable", max_length=32)
-    # ---- 请求计数与延迟（71.5）：有界窗口内的观测值 ----
+    # ── 请求计数与延迟（71.5）：有界窗口内的观测值 ──
     requests: RequestMetricsSummary = Field(default_factory=RequestMetricsSummary)
 
 

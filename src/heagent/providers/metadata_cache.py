@@ -69,7 +69,7 @@ class ProviderMetadataCache:
         self._hits = 0
         self._misses = 0
 
-    # -- 观测面 --
+    # ── 观测面 ──
 
     @property
     def max_size(self) -> int:
@@ -96,7 +96,7 @@ class ProviderMetadataCache:
         """当前缓存的条目数。"""
         return len(self._entries)
 
-    # -- 读写 --
+    # ── 读写 ──
 
     def get(self, provider: object, compute: Callable[[], ProviderMetadata]) -> ProviderMetadata:
         """取 ``provider`` 的元数据；未命中时调用 ``compute()`` 并存入缓存。

@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_soul(soul_path: str | None = None) -> SoulStore | None:
-    """Build the SOUL store from an optional custom path."""
+    """按可选的自定义路径构造 SOUL 存储。"""
     if soul_path:
         return SoulStore(global_path=soul_path, project_path=soul_path)
     return SoulStore()

@@ -1,1 +1,1 @@
-"""GUI widgets package."""
+"""GUI 控件包。"""

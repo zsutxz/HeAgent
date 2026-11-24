@@ -99,15 +99,15 @@ class SkillMatchCache:
 
 
 def skill_tokens(text: str) -> set[str]:
-    """Dependency-free mixed-language tokens with CJK bigrams/trigrams."""
+    """无外部依赖的中英混排分词，CJK 取二元/三元组。"""
     chunks = re.findall(r"[a-zA-Z0-9_]+|[㐀-鿿぀-ヿ가-힯]+", text.casefold())
     tokens: set[str] = set()
     for chunk in chunks:
         if not re.fullmatch(r"[㐀-鿿぀-ヿ가-힯]+", chunk):
             tokens.add(chunk)
             continue
-        # Whole CJK runs depend on whitespace boundaries and make coverage unfair:
-        # use only two/three-character evidence, excluding low-signal single characters.
+        # 整段中文依赖空白边界，会让覆盖率不公平：
+        # 只用两/三字的证据，排除低信息量的单字。
         for size in (2, 3):
             tokens.update(chunk[i : i + size] for i in range(len(chunk) - size + 1))
     return tokens
@@ -220,7 +220,7 @@ def build_skill_index(store: SkillStore, *, fingerprint: str | None = None) -> S
         if parsed is None:
             continue
         if not parsed.model_invocable:
-            # meta.yaml model_invocable: false skills are excluded from auto-injection matching.
+            # meta.yaml 中 model_invocable: false 的技能不参与自动注入匹配。
             continue
         entries.append(
             SkillIndexEntry(
@@ -266,7 +266,7 @@ def _match_index(
             continue
         overlap = len(prompt_tokens & entry.pattern_tokens)
         ratio = overlap / len(entry.pattern_tokens) if entry.pattern_tokens else 0.0
-        # Explicit triggers are high-confidence; ordinary matching retains the old threshold semantics.
+        # 显式触发器是高置信信号；普通匹配沿用旧的阈值语义。
         score = 1.0 if trigger_hit else ratio
         if score >= threshold:
             matches.append(

@@ -52,7 +52,7 @@ _TEMPLATE_FIELD_RE = re.compile(r"\{(\w+)\}")
 
 
 def render_template(template: str, fields: Mapping[str, str]) -> str:
-    """Render ``{name}`` placeholders in one pass; unknown placeholders stay verbatim."""
+    """单遍渲染 ``{name}`` 占位符；未知占位符原样保留。"""
     return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 
 
@@ -64,7 +64,7 @@ def load_validated_workflow(package: SkillPackage) -> WorkflowResource:
 
 
 def validate_goal_workflow(workflow: WorkflowResource) -> None:
-    """Restrict workflow declarations to deterministic CLI capabilities."""
+    """把流程声明限定在确定性的 CLI 能力范围内。"""
     if workflow.entrypoint not in {"", "goal"}:
         raise ValueError(f"unsupported goal workflow entrypoint: {workflow.entrypoint}")
     if workflow.on_create != "persist_goal_identity":
@@ -79,7 +79,7 @@ def validate_goal_workflow(workflow: WorkflowResource) -> None:
 
 
 def checkpoint_mode(workflow: WorkflowResource, fallback: str) -> str:
-    """Resolve checkpoint policy: workflow declaration, then the injected settings value."""
+    """解析 checkpoint 策略：先看流程声明，再看注入的配置值。"""
     declared = workflow.checkpoint_mode.strip().casefold()
     if declared:
         return declared
@@ -87,7 +87,7 @@ def checkpoint_mode(workflow: WorkflowResource, fallback: str) -> str:
 
 
 def open_question_mode(workflow: WorkflowResource, fallback: str) -> str:
-    """Resolve open-question policy: workflow declaration, then the injected settings value."""
+    """解析 open question 策略：先看流程声明，再看注入的配置值。"""
     declared = workflow.open_question_mode.strip().casefold()
     if declared:
         return declared
@@ -95,13 +95,12 @@ def open_question_mode(workflow: WorkflowResource, fallback: str) -> str:
 
 
 def resolve_skill_package(skill_id: str) -> SkillPackage | None:
-    """Resolve one package from the skill library by canonical id or alias.
+    """按 canonical id 或别名从技能库解析出一个包。
 
-    The catalog owns the id/alias rules (``he-*`` canonical, ``bmad-*`` alias, plus each
-    package's own ``aliases`` metadata), so the workflow package and the per-step role
-    packages are addressed by id instead of by hand-built paths or a private alias table.
-    ``None`` means "not installed here"; callers decide whether that is a missing
-    configuration (workflow) or a hard failure (a role a step declared).
+    id/别名规则归 catalog 所有（``he-*`` 为 canonical、``bmad-*`` 为别名，再加上每个
+    包自己的 ``aliases`` 元数据），因此流程包与各步骤的角色包都按 id 寻址，不靠手工拼
+    路径或私有的别名表。``None`` 表示「本机未安装」；这属于配置缺失（流程包）还是硬失败
+    （步骤声明的某个角色），由调用方判定。
     """
     try:
         # Path(".")：本地根保持 cwd 相对（scan 时才解析）；非入口层不得直取进程工作目录（cwd 兜底契约）。
@@ -190,13 +189,11 @@ def resolve_bound_workflow(goal_dir: Path, default_workflow_id: str) -> Workflow
 
 
 def gate_requirements(workflow: WorkflowResource, validation_rules: str) -> str:
-    """Render the step's post-hoc gate contract so the executor sees it beforehand.
+    """渲染该步骤的事后门禁契约，让执行者事先就能看到。
 
-    ``validation: section: <title>`` is enforced by ``WorkflowRunner`` only *after* the
-    step returns.  Without this block a long step can finish all its work and still be
-    blocked on a heading it was never told to emit.  The wording lives in the workflow
-    package (the file the frontmatter ``gate_template`` key names), so it changes without
-    touching code.
+    ``validation: section: <title>`` 由 ``WorkflowRunner`` 只在步骤返回**之后**校验。
+    没有这段说明，一个长步骤可能把活全干完，却卡在一个从未被告知要输出的标题上。
+    文案住在流程包里（即 frontmatter 的 ``gate_template`` 键所指文件），因此改它不必动代码。
     """
     rules = (validation_rules or "").strip()
     sections = required_sections(rules)
@@ -231,7 +228,7 @@ def gate_requirements(workflow: WorkflowResource, validation_rules: str) -> str:
 
 
 def open_question_policy(workflow: WorkflowResource, fallback_mode: str) -> str:
-    """Resolve the open-question policy wording: workflow declaration, then built-in default."""
+    """解析 open question 策略文案：先看流程声明，再用内置默认值。"""
     if open_question_mode(workflow, fallback_mode) == "default":
         return workflow.open_question_default or _DEFAULT_OPEN_QUESTION_DEFAULT
     return workflow.open_question_block or _DEFAULT_OPEN_QUESTION_BLOCK
@@ -243,13 +240,12 @@ def _is_input_body(value: Any) -> bool:
 
 
 def dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[str, Any]]:
-    """Render each distinct input body once, under its most meaningful key.
+    """每个不同的输入正文只渲染一次，且挂在它最有意义的键下。
 
-    A completed step stores its artifact under both the declared output names and the
-    artifact file name, so rendering every key duplicated whole artifacts in the step
-    prompt (the step-07 prompt measured ~130k tokens with roughly half of it repeated
-    text).  Among keys sharing one body, the one this step declares in ``input:`` wins;
-    otherwise the first occurrence wins.  Nothing unique is dropped.
+    已完成的步骤会同时用声明的输出名与产物文件名两个键存放同一份产物，所以逐键渲染会
+    让整份产物在步骤提示词里重复出现（step-07 的提示词实测约 130k tokens，其中约一半
+    是重复文本）。共享同一正文的多个键中，本步骤在 ``input:`` 里声明过的那个胜出；否则
+    取第一次出现的键。任何不重复的内容都不会被丢弃。
     """
     wanted = {item.strip() for item in re.split(r"[,\n]", declared) if item.strip()}
     chosen: dict[str, str] = {}
@@ -291,7 +287,7 @@ def declarative_prompt(
     *,
     open_question_fallback: str,
 ) -> str:
-    """Assemble one step's executor prompt; ``open_question_fallback`` is injected by the entry."""
+    """组装单个步骤的执行者提示词；``open_question_fallback`` 由入口注入。"""
     role = role_instructions(workflow, step_name)
     gate = gate_requirements(workflow, validation_rules)
     gate_block = f"{gate}\n\n" if gate else ""
@@ -334,7 +330,7 @@ def declarative_prompt(
 
 
 def load_stories(goal_dir: Path, step: Any) -> list[Any]:
-    """Load and parse the story list referenced by a story-loop step."""
+    """读取并解析 story 循环步骤引用的 story 列表。"""
     # 围栏走 path_safety 单算法（逃逸 = WorkspacePathError，ValueError 子类，调用方已捕获）。
     path = resolve_under_root(step.story_loop.strip(), goal_dir)
     return parse_story_list(path.read_text(encoding="utf-8"))

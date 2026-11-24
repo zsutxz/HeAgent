@@ -92,7 +92,7 @@ class TlsCertificateInfo(BaseModel):
     san: tuple[str, ...] = ()
 
 
-# ---------------------------------------------------------------- PEM / DER 读取
+# ── PEM / DER 读取 ──
 
 
 def _read_bytes(source: str | Path | bytes) -> bytes:
@@ -142,7 +142,7 @@ def load_cert_der(source: str | Path | bytes) -> bytes:
     return der
 
 
-# ---------------------------------------------------------------- 最小 ASN.1 遍历
+# ── 最小 ASN.1 遍历 ──
 
 
 class _Element:
@@ -213,7 +213,7 @@ def _tbs_fields(der: bytes) -> list[_Element]:
     return fields
 
 
-# ---------------------------------------------------------------- SPKI 与指纹
+# ── SPKI 与指纹 ──
 
 
 def spki_der(cert: str | Path | bytes) -> bytes:
@@ -268,7 +268,7 @@ def short_fingerprint(cert: str | Path | bytes) -> str:
     return short_fingerprint_of_der(spki_der(cert))
 
 
-# ---------------------------------------------------------------- 有效期
+# ── 有效期 ──
 
 
 def _parse_time(tag: int, raw: bytes, what: str) -> datetime:
@@ -320,7 +320,7 @@ def cert_not_before(cert: str | Path | bytes) -> datetime:
     return _validity_from(der, _tbs_fields(der))[0]
 
 
-# ---------------------------------------------------------------- SAN
+# ── SAN ──
 
 
 def san_entries(cert: str | Path | bytes) -> list[str]:
@@ -389,7 +389,7 @@ def san_covers(cert: str | Path | bytes, host: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------- 身份密钥 ↔ 证书
+# ── 身份密钥 ↔ 证书 ──
 
 
 def _der_length(length: int) -> bytes:
@@ -465,7 +465,7 @@ def cert_key_matches(cert: str | Path | bytes, key: str | Path | bytes) -> bool:
     return spki_der(cert) == key_spki_der(key)
 
 
-# ---------------------------------------------------------------- 汇总
+# ── 汇总 ──
 
 
 def certificate_info(cert: str | Path | bytes) -> TlsCertificateInfo:

@@ -93,8 +93,8 @@ def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     """
     if len(raw) <= limit:
         return decode_channel(raw)
-    # Reserve room for the diagnostic line so the final UTF-8 result, rather
-    # than only the raw payload, stays within the per-channel byte budget.
+    # 为诊断行预留空间，使最终的 UTF-8 结果（而不只是原始 payload）
+    # 落在单通道字节预算内。
     marker = f"\n{_TRUNCATION_MARKER}"
     marker_bytes = len(marker.encode("utf-8"))
     payload_limit = max(limit - marker_bytes - 1, 0)
@@ -107,9 +107,8 @@ def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     tail = raw[-tail_bytes:].decode(encoding, errors="replace") if tail_bytes else ""
     detail = f" {dropped} bytes dropped (kept first {head_bytes} and last {tail_bytes})\n"
 
-    # Malformed UTF-8 can expand when decoded with replacement characters.
-    # Trim text (tail first, to preserve its final marker) if that expansion
-    # would otherwise exceed the byte budget.
+    # 畸形 UTF-8 用替换字符解码时会膨胀；若会超出字节预算，
+    # 就裁剪文本（先裁尾部，以保住末尾标记）。
     detail_bytes = len((marker + detail).encode("utf-8"))
     available = max(limit - detail_bytes, 0)
     tail_encoded = tail.encode("utf-8")
@@ -192,13 +191,12 @@ async def reap_subprocess(proc: asyncio.subprocess.Process, *, timeout: float | 
 
 
 def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
-    """Close the platform subprocess transport after pipes have been drained.
+    """管道排空之后关闭平台子进程的 transport。
 
-    ``Process.communicate()`` drains the streams but Windows' Proactor
-    transport can defer closing its pipe handles until finalization.  Closing
-    the already-reaped transport explicitly prevents delayed
-    ``PytestUnraisableExceptionWarning`` and descriptor retention.  Fake
-    processes used by callers/tests simply have no transport and are ignored.
+    ``Process.communicate()`` 会排空各条流，但 Windows 的 Proactor transport
+    可能把管道句柄的关闭推迟到终结阶段。显式关闭已完成回收的 transport，
+    可避免迟到的 ``PytestUnraisableExceptionWarning`` 与描述符滞留。调用方
+    与测试使用的假进程本就没有 transport，直接忽略。
     """
     transport = getattr(proc, "_transport", None)
     close = getattr(transport, "close", None)

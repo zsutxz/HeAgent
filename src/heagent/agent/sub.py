@@ -205,7 +205,7 @@ class SubAgent:
         return replace(self._engine, policy=role_policy)
 
     def _announce_identity(self, task: str) -> tuple[str, str]:
-        """Derive a short human-readable name and purpose for progress announcements."""
+        """为进度播报推导一个简短的人读名称与用途。"""
         metadata = self._metadata or {}
         role_name = self._role.name if self._role is not None else None
         step = metadata.get("workflow_step") or metadata.get("goal_kind")

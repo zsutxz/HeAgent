@@ -169,7 +169,7 @@ def _run(binary: str, args: list[str], *, cwd: Path) -> str:
     return completed.stdout
 
 
-# ---------------------------------------------------------------- SAN 与配置
+# ── SAN 与配置 ──
 
 
 def _normalize_san(raw: str) -> str:
@@ -312,7 +312,7 @@ def _write_leaf_config(session: _Session, san_list: list[str]) -> None:
     session.leaf_config.write_bytes(_render_leaf_config(san_list).encode("utf-8"))
 
 
-# ---------------------------------------------------------------- openssl 动作
+# ── openssl 动作 ──
 
 
 def _tighten(path: Path) -> None:
@@ -415,7 +415,7 @@ def _backup(session: _Session) -> Path | None:
     return target
 
 
-# ---------------------------------------------------------------- 前置检查与呈现
+# ── 前置检查与呈现 ──
 
 
 def _require(session: _Session, *paths: Path) -> None:
@@ -463,7 +463,7 @@ def _render_report(info: TlsCertificateInfo, *, pin: str) -> str:
     )
 
 
-# ---------------------------------------------------------------- 命令
+# ── 命令 ──
 
 
 @click.group("tls")
