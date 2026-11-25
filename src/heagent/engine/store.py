@@ -14,6 +14,11 @@ messages / results / final_answer / error。AgentLoop 在 ``run()`` 中经 ``sta
 以及该 run 的产物目录（``<run_id>/``，如 rollout）。清理由 ``EngineContainer.prune_runs_once``
 在全新 run 启动时触发一次（与 ledger 同构）。
 
+另提供 :meth:`RunStore.heartbeat`：工具在途期间刷新 ``<run_id>.alive`` 心跳文件。快照的
+``updated_at`` 只在轮边界 ``checkpoint()`` 刷新，一次工具 / provider 调用跑过
+``RUN_STALE_IDLE_HOURS`` 时快照就是陈旧的——心跳是「该 run 所属进程还活着」的唯一磁盘信号，
+:meth:`RunStore.close_stale_running` 据此不误收在跑的 run。
+
 > 注意：与 ``context/session.py``（``.heagent/sessions/``，跨轮**对话历史**）用途不同——
 > RunStore 是**单次 run 的可恢复快照**（见 docs/frame/context.md 4.5 / docs/frame/engine.md 4.12）。
 """
@@ -33,6 +38,7 @@ from pydantic import BaseModel, Field
 # 需运行期导入以构建 schema（ruff TC001 为误报）。
 from heagent.engine.context import RunContext, RunStatus  # noqa: TC001
 from heagent.pub.persist import (
+    DirEntry,
     atomic_write_text,
     delete_entries,
     load_json_model,
@@ -49,6 +55,8 @@ logger = logging.getLogger(__name__)
 _PRUNE_PROGRESS_INTERVAL = 500
 # 锁文件后缀（与 persist.py 的 ``path.name + ".lock"`` 约定一致）。
 _LOCK_SUFFIX = ".lock"
+# 心跳文件后缀：在途工具期间由 ``heartbeat()`` 刷新 mtime（见模块 docstring）。
+_HEARTBEAT_SUFFIX = ".alive"
 
 
 class RunSnapshot(BaseModel):
@@ -135,7 +143,11 @@ class RunStore:
             final_answer=final_answer,
             error=error,
         )
-        return await self.save(snapshot)
+        path = await self.save(snapshot)
+        if snapshot.context.status is not RunStatus.RUNNING:
+            # 终态即收尾：心跳文件没有第二个读者，留着只会在 runs 目录里堆积。
+            await self._remove_heartbeat(snapshot.context.run_id)
+        return path
 
     async def save(self, snapshot: RunSnapshot) -> str:
         """把一份快照原子写到磁盘（按 run_id 命名），返回路径字符串。"""
@@ -200,6 +212,7 @@ class RunStore:
         if not await asyncio.to_thread(path.exists):
             return False
         await asyncio.to_thread(path.unlink)
+        await self._remove_heartbeat(run_id)
         return True
 
     async def close_stale_running(
@@ -210,11 +223,12 @@ class RunStore:
     ) -> list[str]:
         """把**陈旧** ``running`` 快照收尾为 ``FAILED``，返回被收尾的 run_id（升序）。
 
-        判据：``context.status == RUNNING`` 且 ``context.updated_at`` 距 ``now`` 超过
-        ``max_idle_hours``。活进程每轮迭代都经 ``RunContext.touch`` 刷新该字段，故超阈值
-        仍为 running 必是进程已死（崩溃 / 被杀 / 容器回收 / 宿主重启）。
+        判据：``context.status == RUNNING``、``context.updated_at`` 距 ``now`` 超过
+        ``max_idle_hours``，**且** :meth:`heartbeat` 写的心跳文件也不新鲜（缺文件 = 不新鲜）。
+        活进程每轮迭代都经 ``RunContext.touch`` 刷新时钟，工具在途期间续租再刷新心跳，故
+        「两条信号都过期」才判定进程已死（崩溃 / 被杀 / 容器回收 / 宿主重启）。
 
-        三条不变量（缺一即污染统计或丢数据）：
+        四条不变量（缺一即污染统计、丢数据或误杀在跑的 run）：
 
         * **只能写 ``FAILED``**：``RunStatus`` 只有 running/completed/failed，写别值会让
           ``RunSnapshot`` 校验失败、该 run 在 ``runtime_stats`` 等读者眼里整条消失；
@@ -224,6 +238,8 @@ class RunStore:
           （实测 4 个死 run 把某日的 run 累计时长从 4.2h 抬到 4.0d）。
         * **payload 原样保留**：整份快照 load→save，``messages``/``results``/
           ``final_answer`` 不动，收尾只改状态、时钟回填与 ``error``。
+        * **心跳新鲜即不动**：单轮工具调用可以跑得比阈值久（快照的 ``updated_at`` 只在轮边界
+          ``checkpoint`` 刷新），此时进程仍在干活，收尾会把它误标成 ``failed``。
 
         ``now`` 为 naive 本地时间（与 ``iso_now`` 同口径），仅供测试注入。
         """
@@ -251,6 +267,10 @@ class RunStore:
             idle_hours = (close_time - last).total_seconds() / 3600.0
             if idle_hours <= max_idle_hours:
                 continue
+            # 陈旧快照也可能是「单轮跑得比阈值久」的活 run：工具在途期间续租顺带刷新心跳，
+            # 心跳新鲜即证进程仍在干活，跳过收尾（否则会把在跑的 run 标成 failed）。
+            if await asyncio.to_thread(self._heartbeat_is_fresh, run_id, now=close_time, max_idle_hours=max_idle_hours):
+                continue
             ctx.mark_terminal(RunStatus.FAILED)
             ctx.updated_at = raw_updated  # 回填：终态写入的 touch 不能当结束时刻
             snapshot.error = (
@@ -259,6 +279,7 @@ class RunStore:
                 f"closed at {close_time.isoformat(timespec='seconds')} by RunStore.close_stale_running"
             )
             await self.save(snapshot)
+            await self._remove_heartbeat(run_id)
             closed.append(run_id)
             logger.warning("closed stale running run %s (idle %.1fh)", run_id, idle_hours)
         return closed
@@ -298,6 +319,7 @@ class RunStore:
         entries = await asyncio.to_thread(scan_dir, self._base)
         records = [e for e in entries if not e.is_dir and e.path.name.endswith(".json")]
         locks = [e for e in entries if not e.is_dir and e.path.name.endswith(_LOCK_SUFFIX)]
+        heartbeats = [e for e in entries if not e.is_dir and e.path.name.endswith(_HEARTBEAT_SUFFIX)]
         dir_names = {e.path.name for e in entries if e.is_dir}
         lock_names = {e.path.name for e in locks}
 
@@ -331,15 +353,31 @@ class RunStore:
             if entry.mtime >= cutoff:
                 continue
             to_unlink.append(entry.path)
+        # 第三遍：心跳文件（记录还在的由 checkpoint / close_stale_running 自己收尾）。
+        to_unlink.extend(self._expired_heartbeats(heartbeats, record_names=record_names, swept=swept, cutoff=cutoff))
 
         files_deleted, dirs_deleted = await asyncio.to_thread(delete_entries, to_unlink, to_rmtree)
         deleted = files_deleted + dirs_deleted
         await asyncio.to_thread(touch_prune_stamp, stamp)
 
-        total = len(records) + len(locks)
+        total = len(records) + len(locks) + len(heartbeats)
         if total >= _PRUNE_PROGRESS_INTERVAL:
             logger.info("run store prune: done — deleted %d of %d entries", deleted, total)
         return deleted
+
+    def _expired_heartbeats(
+        self, heartbeats: list[DirEntry], *, record_names: set[str], swept: set[str], cutoff: float
+    ) -> list[Path]:
+        """挑出该删的心跳文件：记录本轮被删 ⇒ 一并删；记录已不存在 ⇒ 只在自身也过期后回收。"""
+        doomed: list[Path] = []
+        for entry in heartbeats:
+            record_name = entry.path.name[: -len(_HEARTBEAT_SUFFIX)] + ".json"
+            record_gone = record_name not in record_names or record_name in swept
+            if not record_gone:
+                continue
+            if entry.mtime < cutoff or record_name in swept:
+                doomed.append(entry.path)
+        return doomed
 
     def _read_tree_nodes(self) -> dict[str, RunNode]:
         """同步批量读取全部快照的 context 并建节点（供 :meth:`build_run_tree` 线程卸载）。
@@ -366,3 +404,44 @@ class RunStore:
     def _path(self, run_id: str) -> Path:
         """run_id → 快照文件路径（``<base>/<run_id>.json``）。"""
         return self._base / f"{run_id}.json"
+
+    def _heartbeat_path(self, run_id: str) -> Path:
+        """run_id → 心跳文件路径（``<base>/<run_id>.alive``）。"""
+        return self._base / f"{run_id}{_HEARTBEAT_SUFFIX}"
+
+    def _heartbeat_is_fresh(self, run_id: str, *, now: datetime, max_idle_hours: float) -> bool:
+        """心跳文件是否新鲜（与 ``close_stale_running`` 同阈值口径）。"""
+        try:
+            mtime = self._heartbeat_path(run_id).stat().st_mtime
+        except OSError:
+            return False
+        return (now.timestamp() - mtime) <= max_idle_hours * 3600.0
+
+    async def heartbeat(self, run_id: str) -> None:
+        """刷新 run 的心跳文件（在途工具期间由 agent 层周期调用）。
+
+        为什么需要它：快照的 ``updated_at`` 只在轮边界 ``checkpoint()`` 刷新，一次 ``shell`` /
+        子 Agent / provider 调用跑过 ``RUN_STALE_IDLE_HOURS``（默认 6h）时快照就是陈旧的，
+        别的进程启动时会把在跑的 run 误判成死 run。心跳把「还在干活」这条事实落到磁盘，
+        :meth:`close_stale_running` 见到新鲜心跳即跳过收尾。
+
+        刻意 best-effort（只记 debug）：写心跳失败最多让收尾退回旧口径（可能误判一次），
+        但绝不该让工具执行因一条判活信号而改变结果。
+        """
+
+        def _touch() -> None:
+            path = self._heartbeat_path(run_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
+        try:
+            await asyncio.to_thread(_touch)
+        except OSError:
+            logger.debug("Run heartbeat write failed for %s; stale-run sweep falls back to idle time", run_id)
+
+    async def _remove_heartbeat(self, run_id: str) -> None:
+        """删除心跳文件（best-effort：不存在即视为已清理）。"""
+        try:
+            await asyncio.to_thread(self._heartbeat_path(run_id).unlink)
+        except OSError:
+            logger.debug("Run heartbeat removal skipped for %s (missing or unlinkable)", run_id)

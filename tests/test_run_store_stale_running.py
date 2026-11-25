@@ -14,11 +14,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 
 import pytest
 
 from heagent.agent.loop import AgentLoop
+from heagent.agent.tool_execution import _run_heartbeat_tick
 from heagent.config import get_settings, reset_settings
 from heagent.engine import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
@@ -152,6 +154,109 @@ class TestCloseStaleRunning:
         store = RunStore(base_dir=str(tmp_path / "runs"))
         with pytest.raises(ValueError, match="max_idle_hours"):
             await store.close_stale_running(max_idle_hours=-1)
+
+
+class _FakeEngine:
+    """只暴露 ``run_store`` 的假 engine：心跳 tick 的唯一依赖（不构造真容器）。"""
+
+    def __init__(self, store: RunStore) -> None:
+        self.run_store = store
+
+
+class _FakeLoop:
+    """``_run_heartbeat_tick`` 只读 ``loop.engine.run_store``，故按鸭子类型给最小替身。"""
+
+    def __init__(self, store: RunStore) -> None:
+        self.engine = _FakeEngine(store)
+
+
+def _age(path, hours: float) -> None:
+    """把文件 mtime 拨到 ``NOW - hours``（心跳新鲜度按 mtime 判，测试需要固定时钟）。"""
+    ts = (NOW - timedelta(hours=hours)).timestamp()
+    os.utime(path, (ts, ts))
+
+
+class TestHeartbeatKeepsLiveRun:
+    """工具在途心跳：快照时钟陈旧、但进程仍在干活时不得被收尾。
+
+    现实来源（2026-11-25 运维实测）：一次长工具把 ``updated_at`` 拖过阈值，另一个进程启动时
+    把在跑的 run 标成 failed。快照只在轮边界 checkpoint 刷新，因此「还活着」必须另有磁盘信号
+    ——`RunStore.heartbeat()` 写的 ``<run_id>.alive``；fresh 即证进程在跑。
+    """
+
+    @pytest.mark.asyncio
+    async def test_fresh_heartbeat_blocks_the_sweep(self, tmp_path) -> None:
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = _stale_ctx(idle_hours=22)
+        await _seed(store, ctx)
+        await store.heartbeat(ctx.run_id)
+        _age(store._heartbeat_path(ctx.run_id), hours=1)
+
+        assert await store.close_stale_running(max_idle_hours=6, now=NOW) == []
+        snapshot = await store.load(ctx.run_id)
+        assert snapshot is not None
+        assert snapshot.context.status is RunStatus.RUNNING
+        assert snapshot.error is None
+        assert store._heartbeat_path(ctx.run_id).exists()
+
+    @pytest.mark.asyncio
+    async def test_stale_heartbeat_does_not_block_and_is_removed(self, tmp_path) -> None:
+        """心跳本身也陈旧 ⇒ 证实进程已死，正常收尾并顺手清掉心跳文件。"""
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = _stale_ctx(idle_hours=22)
+        await _seed(store, ctx)
+        await store.heartbeat(ctx.run_id)
+        _age(store._heartbeat_path(ctx.run_id), hours=22)
+
+        assert await store.close_stale_running(max_idle_hours=6, now=NOW) == [ctx.run_id]
+        assert not store._heartbeat_path(ctx.run_id).exists()
+
+    @pytest.mark.asyncio
+    async def test_terminal_checkpoint_and_delete_clean_the_heartbeat(self, tmp_path) -> None:
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = RunContext()
+        await _seed(store, ctx)
+        await store.heartbeat(ctx.run_id)
+        assert store._heartbeat_path(ctx.run_id).exists()
+
+        ctx.mark_terminal(RunStatus.COMPLETED)
+        await store.checkpoint(ctx, prompt="p", system="s", messages=[], results=[], final_answer="done")
+        assert not store._heartbeat_path(ctx.run_id).exists()
+
+        await store.heartbeat(ctx.run_id)
+        assert await store.delete(ctx.run_id) is True
+        assert not store._heartbeat_path(ctx.run_id).exists()
+
+    @pytest.mark.asyncio
+    async def test_prune_reaps_heartbeats_of_gone_and_expired_records(self, tmp_path) -> None:
+        """心跳不会永久堆积：记录已不存在（无主）或记录本轮过期，都随 prune 回收。"""
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        # ① 无主心跳：从来没有对应快照（delete 之后残留 / 手工清理过记录）。
+        orphan_id = "deadbeefdeadbeefdeadbeefdeadbeef"
+        await store.heartbeat(orphan_id)
+        _age(store._heartbeat_path(orphan_id), hours=24 * 30)
+        # ② 过期记录 + 心跳：记录过期被删时心跳随之清掉。
+        ctx = _stale_ctx()
+        await _seed(store, ctx)
+        await store.heartbeat(ctx.run_id)
+        _age(store._path(ctx.run_id), hours=24 * 30)
+        _age(store._heartbeat_path(ctx.run_id), hours=24 * 30)
+
+        assert await store.prune(retention_days=7) >= 2
+        assert not store._heartbeat_path(orphan_id).exists()
+        assert not store._heartbeat_path(ctx.run_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_run_heartbeat_tick_refreshes_the_store_file(tmp_path) -> None:
+    """工具在途续租的附带动作：每个 tick 刷新一次心跳文件（``_run_heartbeat_tick`` 的唯一职责）。"""
+    store = RunStore(base_dir=str(tmp_path / "runs"))
+    ctx = RunContext()
+    tick = _run_heartbeat_tick(_FakeLoop(store), ctx)
+
+    await tick()
+
+    assert store._heartbeat_path(ctx.run_id).exists()
 
 
 class _StubProvider:

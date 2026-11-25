@@ -395,6 +395,7 @@ async def renew_lease_while_active(
     *,
     lease_seconds: int = 120,
     interval_seconds: float = 40,
+    on_tick: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """执行在途期间周期续租，直到被调用方取消（或记录已消失 / 已终态）。
 
@@ -404,6 +405,10 @@ async def renew_lease_while_active(
     正在跑的执行。间隔取租约的 1/3，保证单个心跳周期内的时钟抖动 / 事件循环排队不会
     让租约在两次续期之间过期；实现刻意用 ``asyncio.sleep`` 循环（间隔远大于单次落盘
     耗时，无漂移累积之忧）。
+
+    ``on_tick`` 是**可选附带动作**：每次续租成功后调用一次，供调用方把「还在干活」这条事实
+    同步到别处（生产用它刷新 run 快照心跳，见 ``RunStore.heartbeat``）。它与续租互不牵连——
+    附带动作抛错只记 debug 后继续下一轮，保活仍是本函数唯一的职责。
 
     调用方：``agent/tool_execution``（工具在途，同名缝包装 ``_renew_ledger_lease`` 是
     既有测试缝）与 :class:`LedgerAudit`（engine 自有审计在途）。
@@ -421,6 +426,12 @@ async def renew_lease_while_active(
             # 记录已被清理（或已终态）：续租已无意义，退出让回写路径去报告。
             safe_log(logger, logging.WARNING, "Ledger record %s vanished while the execution was in flight", key)
             return
+        if on_tick is not None:
+            try:
+                await on_tick()
+            except Exception:
+                # 附带动作（如刷新 run 心跳）失败只降级该信号，不打断续租。
+                safe_log(logger, logging.DEBUG, "Lease renewal side action failed for %s", key, exc_info=True)
 
 
 @dataclass(slots=True)

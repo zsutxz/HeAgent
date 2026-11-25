@@ -14,6 +14,16 @@
 
 > 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
 
+### Fixed
+
+- **长工具在途的 run 不再被别的进程误判成死 run**（`engine/store.py` + `engine/ledger.py` +
+  `agent/tool_execution.py`）：`RunStore.heartbeat()` 写 `<run_id>.alive` 心跳，工具在途续租
+  （40s 一次）顺带刷新它；`close_stale_running()` 的判据从「快照 `updated_at` 超
+  `RUN_STALE_IDLE_HOURS`」升级为「**且**心跳不新鲜」。收尾时清心跳，终态 `checkpoint` /
+  `delete` / `prune` 一并回收。残留：单轮 provider 调用或用户 `pause()` 超过阈值仍可能被短暂
+  误标（下一次 `checkpoint` 覆写回 `running` / `completed`，进程不受影响），见
+  `docs/frame/engine.md` 4.12。
+
 ## [0.2.0] - 2026-11-24
 
 ### Changed

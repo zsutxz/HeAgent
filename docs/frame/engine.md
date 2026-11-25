@@ -18,7 +18,7 @@
 | `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32）；PostToolUse 的**非空 stdout 进对话上下文**（以工具结果附注形态追加，单条 ≤2000 / 单次调用累计 ≤4000 字符，超限显式截断标记；注入点在 ledger 记账之后 ⇒ 幂等缓存只存原始工具输出） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（机制见 `docs/sandbox.md`；拆分见 §4.4 的 `tools/sandbox/` 说明） |
-| `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
+| `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次；`heartbeat(run_id)` 写 `<run_id>.alive`（工具在途续租顺带调用，40s 一次），`close_stale_running()` 以「快照 `updated_at` 超 `RUN_STALE_IDLE_HOURS` **且** 心跳不新鲜」为收尾判据 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由在途续租原语 `renew_lease_while_active`（本模块单源；`agent/tool_execution._renew_ledger_lease` 是其工具在途缝包装）与 `LedgerAudit`（audit-only 记账，`ToolExecutor.execute(audit=...)` 的可选审计面，幂等去重禁用）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
 | 其余七个模块 | `checkpoint.py` / `state_machine.py` / `story_batch.py` / `workflow_resource.py` / `workflow_runner.py` / `workflow_events.py` / `workflow_transition.py`——职责见 4.13 与对应模块页（本表不重复，避免两处漂移） |
@@ -34,3 +34,7 @@
 
 - **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（机制见 `docs/sandbox.md`）
 - **安全边界**：SafetyGuard / PolicyEngine / sandbox 三层的边界地位见 §4.18。
+- **陈旧 run 收尾只看两条信号**：快照 `updated_at`（轮边界刷新）+ 工具在途心跳（`<run_id>.alive`）。
+  因此「单轮 provider 调用」或「用户 `pause()` 暂停」超过 `RUN_STALE_IDLE_HOURS`（默认 6h）时，
+  别的进程仍可能把它短暂标成 `FAILED`——下一次 `checkpoint` 会整份覆写回 `running` / `completed`，
+  属误标而非误杀（进程不受影响），且 `resume` 照常可用。

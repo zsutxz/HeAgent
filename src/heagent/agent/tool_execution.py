@@ -39,7 +39,7 @@ from heagent.pub.types import ToolCall, ToolResult
 from heagent.tools.call_summary import activity_label, summarize_tool_call
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from heagent.agent.loop import AgentLoop, AgentState
     from heagent.engine import PolicyVerdict, RunContext
@@ -54,17 +54,41 @@ _LEDGER_LEASE_SECONDS = 120
 _LEDGER_LEASE_RENEW_INTERVAL = 40
 
 
-async def _renew_ledger_lease(ledger: ExecutionLedger, key: str) -> None:
+async def _renew_ledger_lease(
+    ledger: ExecutionLedger,
+    key: str,
+    *,
+    on_tick: Callable[[], Awaitable[None]] | None = None,
+) -> None:
     """工具在途期间周期续租（A28：循环体收敛到 engine 原语，本包装只保留缝与策略常量）。
 
-    本模块级名字是测试缝（``tests/test_window_reset.py`` 按名替换 / 直调），签名
+    本模块级名字是测试缝（``tests/test_window_reset.py`` 按名替换 / 直调），前两个位置参数
     ``(ledger, key)`` 与「失败只告警、绝不打断在途工具」语义不变；续租循环的实现在
     :func:`heagent.engine.ledger.renew_lease_while_active`（与 ``ToolExecutor`` 的
-    audit-only 记账共用同一份）。
+    audit-only 记账共用同一份）。``on_tick`` 是可选附带动作——生产传本 run 的快照心跳，
+    由续租循环吞掉它的异常（见 :func:`_run_heartbeat_tick`）。
     """
     await renew_lease_while_active(
-        ledger, key, lease_seconds=_LEDGER_LEASE_SECONDS, interval_seconds=_LEDGER_LEASE_RENEW_INTERVAL
+        ledger,
+        key,
+        lease_seconds=_LEDGER_LEASE_SECONDS,
+        interval_seconds=_LEDGER_LEASE_RENEW_INTERVAL,
+        on_tick=on_tick,
     )
+
+
+def _run_heartbeat_tick(loop: AgentLoop, run_context: RunContext) -> Callable[[], Awaitable[None]]:
+    """构造「刷新本 run 快照心跳」的附带动作（挂在工具在途续租上）。
+
+    为什么需要这条磁盘信号：快照 ``updated_at`` 只在轮边界 ``checkpoint`` 刷新，一次工具跑过
+    ``RUN_STALE_IDLE_HOURS``（默认 6h）时快照就是陈旧的，别的进程启动时会把在跑的 run 误判成
+    死 run（``RunStore.close_stale_running``）。心跳与续租同节奏（``_LEDGER_LEASE_RENEW_INTERVAL``）。
+    """
+
+    async def _tick() -> None:
+        await loop.engine.run_store.heartbeat(run_context.run_id)
+
+    return _tick
 
 
 async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolResult) -> None:
@@ -201,7 +225,13 @@ async def _claim_ledger(loop: AgentLoop, call: ToolCall, run_context: RunContext
         #     不 attach 回调；取消由调用方 finally 负责（见 _LedgerClaim）。
         return _LedgerClaim(
             cache_key=cache_key,
-            lease_task=asyncio.create_task(_renew_ledger_lease(loop.engine.ledger, cache_key)),
+            lease_task=asyncio.create_task(
+                _renew_ledger_lease(
+                    loop.engine.ledger,
+                    cache_key,
+                    on_tick=_run_heartbeat_tick(loop, run_context),
+                )
+            ),
         )
     cached = claim.record.metadata.get("result")
     if cached is None:

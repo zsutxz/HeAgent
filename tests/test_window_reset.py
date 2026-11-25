@@ -653,6 +653,49 @@ async def test_renewal_survives_heartbeat_io_failure(
     assert any("renewal failed" in record.message for record in caplog.records)
 
 
+async def test_renewal_ticks_the_attached_action(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """每次续租成功都触发附带动作（生产用它刷新 run 快照心跳，见 ``RunStore.heartbeat``）。"""
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.01)
+    ledger = ExecutionLedger(str(tmp_path / "ledger"))
+    await ledger.acquire("t:1", lease_seconds=30)
+    seen: list[int] = []
+    ticks: list[int] = []
+
+    async def _alive_twice(key: str, *, lease_seconds: int = 120):  # noqa: ANN202 - 测试替身
+        seen.append(1)
+        return None if len(seen) > 2 else object()
+
+    async def _tick() -> None:
+        ticks.append(1)
+
+    monkeypatch.setattr(ledger, "heartbeat", _alive_twice)
+    await asyncio.wait_for(tool_execution._renew_ledger_lease(ledger, "t:1", on_tick=_tick), timeout=2)
+
+    assert len(ticks) == 2  # 记录消失的那一轮不再触发（先判存活，再做附带动作）
+
+
+async def test_renewal_survives_attached_action_failure(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """附带动作抛错只降级该信号：续租照常继续，异常绝不冒进工具执行路径。"""
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.01)
+    ledger = ExecutionLedger(str(tmp_path / "ledger"))
+    await ledger.acquire("t:2", lease_seconds=30)
+    seen: list[int] = []
+    ticks: list[int] = []
+
+    async def _alive_twice(key: str, *, lease_seconds: int = 120):  # noqa: ANN202 - 测试替身
+        seen.append(1)
+        return None if len(seen) > 2 else object()
+
+    async def _boom() -> None:
+        ticks.append(1)
+        raise RuntimeError("heartbeat disk full")
+
+    monkeypatch.setattr(ledger, "heartbeat", _alive_twice)
+    await asyncio.wait_for(tool_execution._renew_ledger_lease(ledger, "t:2", on_tick=_boom), timeout=2)
+
+    assert ticks == [1, 1]  # 第一次失败后仍继续续租并再次尝试附带动作
+
+
 def _renewal_tasks() -> list[asyncio.Task[None]]:
     """当前在途的续租心跳任务（按协程名识别，不依赖任务命名）。"""
     current = asyncio.current_task()
