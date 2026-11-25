@@ -85,3 +85,4 @@ project/
 
 # 依赖漏洞扫描报告（CI artifact / 本地 --with-audit 产物）
 pip-audit.json
+.heagent/skills/todo/meta.yaml
