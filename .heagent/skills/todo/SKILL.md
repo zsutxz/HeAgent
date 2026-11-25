@@ -1,11 +1,11 @@
 ---
-name: todo_triage
+name: todo
 description: "收集与整理待办：① 收集模式把用户口述的待办/想法/缺陷线索追加进 docs/todo/todo.md 的收集池（不删原始行、除同义合并外不改写）；② 整理模式（手工触发）读 todo.md，筛出有价值/值得做的条目并细化为六项结构化待办（标题/背景动机/验收判据/落点/规模/风险前置）写入 docs/todo/refined.md，按日快照到 docs/todo/archive/YYYY-MM-DD.md；判为不做的必须给证据路径，无证据的进「待用户裁决」；只产文档、不改代码、不动票树。"
 triggers: [待办, todo, 代办事项, 收集待办, 整理待办, 记录待办, todo.md, refined, 待办清单]
 negative_triggers: [新闻采集, 运行数据统计, 模型用量统计, 代码评审, 提交代码, 台账收口]
 ---
 
-# todo_triage
+# todo
 
 ## Pattern
 待办收集|待办整理|todo 收集|todo 整理|记录待办|收集代办事项|收集待办事项|todo.md|refined.md|待办清单
