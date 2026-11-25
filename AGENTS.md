@@ -81,6 +81,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 - **Active ticket store** = 当前 goal 树自带的 `docs/<goal-id>/tickets/`（指针 `docs/current`；`tickets.py --project-root docs/<goal-id>/tickets …`，`mark` 是唯一写路径）。历史票树 `_bmad-output/Goal-3/tickets/`（Epic 70–73）与 `Goal-2-v6/tickets/`（Epic 61–69）是只读归档；`_bmad/custom/config.user.toml` 的 `active_initiative` 是 gitignored 用户配置 ⇒ 换机器 / 新 clone 需重写。布局、读取范围与守卫测试见 framework §8.5。
 - **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 62.1）；独立 intent 走 bmad 立项流程进票树；v6 追踪源（`epics.md` + `sprint-status.yaml`）已上移 `Goal-2-v6/` 根（只读）。
 - **WS/TLS 排障工具链**：`heagent tls {init,issue,rotate-key,fingerprint,verify}`（唯一签发入口）→ `scripts/ws_tls_attest.py`（一条命令四段承兑：绑定面 / TLS 握手 / pin 对账 / 认证闸门，`--self-check` 可离线自证；台账 A76 的服务端侧闭合工具）→ `scripts/ws_manual_probe.py`（配 `tls_ws_stub.py` 自证握手、手工交互）→ `scripts/cleanup_orphan_containers.ps1`；细节见各脚本头注释。
+- **外网暴露（cpolar 内网穿透）**：`powershell -ExecutionPolicy Bypass -File scripts\cpolar_tunnel.ps1 -Authtoken <token> -Detach` 一条命令完成下载绿色版 + 装配 token + 起隧道并回读公网地址；默认 `tcp` 透传（TLS 端到端仍在本机 ⇒ 客户端 SPKI pin 不变），`-Protocol http` 会在 cpolar 侧终结 TLS、pin 必然不匹配；隧道起来后 `scripts\cpolar_selftest.ps1` 一次性跑六项判据（四段承兑 / 无 token 必拒 / pin 负向对照 / wss ping / wss submit / 内网不回归）；付费档固定入口在后台「预留 → 保留 TCP 地址」取 host:port，用 `-RemoteAddr <host:port>` 绑定（预留地址缓存在 `.heagent/tmp/cpolar-remote-addr.txt`，之后重跑不必再传；`-Region` 透传 `-region`；本次公网地址落 `.heagent/tmp/cpolar-address.txt` = **三脚本唯一共享落点**）；地址回填与常驻用 `scripts\cpolar_publish.py`（`--apply` 地址有变才写进 App 的 `websocket_endpoint`，`--watch` 守护并自动回填，`--check-san` 额外提示证书是否覆盖该主机名）；细节见三份脚本头注释。
 
 ## 已知缺口
 
