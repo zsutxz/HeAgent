@@ -64,6 +64,10 @@ negative_triggers: [新闻采集, 运行数据统计, 模型用量统计, 代码
 7. 回写游标：值得做的行尾加 `→ T-…`；已完成的移入 `## 已归档` 并写 `（结论：YYYY-MM-DD …）`；
    不做的**留在原位**只追加 `（结论：不做 — 理由，YYYY-MM-DD）`，不删行。
 8. 落快照 `docs/todo/archive/YYYY-MM-DD.md`（内容 = 本轮 `refined.md` 全文；同日重跑覆盖）。
+   **快照在 `archive/` 子目录**：复制全文时必须把同目录相对链接回退一级
+   （`](todo.md)` → `](../todo.md)`、`](refined.md)` → `](../refined.md)`），否则解析成
+   `archive/todo.md` 而目标不存在 —— `tests/test_docs_links.py::test_cross_file_links_and_anchors_resolve`
+   会当场红（2026-11-25 实测）。
 9. 自校验三项，任一不符先修再汇报：① `refined.md` 里每个 `T-` 编号在 `todo.md` 都有来源行；
    ② 汇报的「剩余未整理」数 == `## 待整理` 里无游标行数；③ 两文件内同一 ID 不重复出现。
 10. 汇报分行分点：新增细化 N 条（逐条 ID + 标题）/ 判定不做 N 条（逐条理由）/ 待裁决 N 条 /
