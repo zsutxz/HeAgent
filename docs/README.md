@@ -21,6 +21,7 @@
 | 性能调优 | [performance.md](performance.md) | 基准/阈值/常用开关变更时同步方法、瓶颈与推荐值 |
 | 迁移与历史 | [迭代历程](iteration/cycles.md)（§3.3 架构沿革与参考来源） | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](../news/news.md)（`news/` 与 `docs/news.md` 均已 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
+| 待办池 | [todo/todo.md](todo/todo.md)（唯一手工入口）/ [todo/refined.md](todo/refined.md)（细化产出，随技能重渲染） | 随手记的待办追加进 `todo.md` 的 `## 待整理`；整理模式**手工触发、不挂 cron**，判「不做」须给证据路径 |
 | 观测 | [framework.md 事件契约](framework.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
 | API 参考 | [api.md](api.md)（12 个核心包的 docstring 自动生成：每包一条 `::: heagent.<包>` + `show_submodules`） | 包内新增模块不用改；**新增/删除一级核心包**要同步 `:::` 指令与页首索引表（判据 `tests/test_api_docs_pages.py`） |
 | 性能 | [性能基准](#性能基准) | 基准/阈值入口随测试基建变更更新 |
