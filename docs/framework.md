@@ -592,6 +592,11 @@ Canonical 工程纪律（评审与实现共用判据；2026-11-06 自 dsh AGENTS
 ADR 住 `docs/decisions/`。`_bmad/custom/config.user.toml` 的 `active_initiative` 是 gitignored
 用户配置（换机器 / 新 clone 需重写），不是文档事实源。
 
+**待办池住仓库根 `todo/`（不在 `docs/` 下）**：`todo/todo.md` 是唯一手工入口（`## 待整理` 追加区 /
+`## 已归档`），`todo/solutions/<主题名>.md` 装主题化的细化与方案（每个文件**先写 `## 细化（六项）`、
+再写方案正文**）。维护者 = `todo` 技能（`.heagent/skills/todo/`，手工触发、不挂 cron）；链接覆盖见
+`tests/test_docs_links.py` 的 `todo/**/*.md` 与位置守卫 `test_todo_pool_lives_at_repo_root_and_stays_covered`。
+
 **台账改写前的守卫**：`tests/test_deferred_id_registry.py`（活动计数在 `open-items.md` /
 `epic-overview.md` / `_bmad-output/README.md` 三站点逐处严格比对；速读节只允许引用活动项；闭环/退役
 一个条目要同步删速读节引用）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）。改台账路径须同步

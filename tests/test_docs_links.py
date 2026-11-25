@@ -10,8 +10,9 @@ slug 口径按 GitHub（github-slugger）：小写 → 删除 ASCII 标点（保
 预览、`git diff` 阅读）用的就是这套规则。
 
 范围只覆盖**当前事实文档**：`docs/**/*.md`、根 `README.md` / `AGENTS.md` / `CLAUDE.md`、
-`_bmad-output/README.md`、`examples/**/*.md`。历史归档（`_bmad-output/epics/**`、`retrospective-all-cycles.md` 等）
-是证据而非当前事实，允许指向已归档位置，不在此列。
+`_bmad-output/README.md`、`examples/**/*.md`、`todo/**/*.md`（仓库根待办池）。
+历史归档（`_bmad-output/epics/**`、`retrospective-all-cycles.md` 等）是证据而非当前事实，
+允许指向已归档位置，不在此列。
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ def _current_doc_paths() -> list[Path]:
     paths = [ROOT / name for name in CURRENT_DOCS]
     paths += sorted((ROOT / "docs").rglob("*.md"))
     paths += sorted((ROOT / "examples").rglob("*.md"))
+    paths += sorted((ROOT / "todo").rglob("*.md"))
     return [p for p in paths if p.is_file()]
 
 
@@ -121,6 +123,16 @@ def test_cross_file_links_and_anchors_resolve() -> None:
             if fragment and fragment not in _headings(resolved):
                 bad.append(f"{path.relative_to(ROOT)} -> {target}（目标文件无此标题）")
     assert not bad, "跨文件链接失效:\n" + "\n".join(bad)
+
+
+def test_todo_pool_lives_at_repo_root_and_stays_covered() -> None:
+    """待办池在**仓库根** `todo/`（不在 `docs/` 下）：位置漂移会让链接守卫静默失去覆盖。"""
+    assert not (ROOT / "docs" / "todo").exists(), "待办池已迁到仓库根 `todo/`，不要留 `docs/todo/` 副本"
+    covered = {path.relative_to(ROOT).as_posix() for path in _current_doc_paths()}
+    assert "todo/todo.md" in covered
+    solutions = ROOT / "todo" / "solutions"
+    for path in sorted(solutions.glob("*.md")):
+        assert path.relative_to(ROOT).as_posix() in covered
 
 
 def test_framework_toc_entries_match_its_headings() -> None:
