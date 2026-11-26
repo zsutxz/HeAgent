@@ -83,8 +83,8 @@ class _FakeConsole:
             raise self.probe_error
 
 
-def _adapter(console: _FakeConsole, state: str = "ok") -> ProjectChannelAdapter:
-    return ProjectChannelAdapter(console, lambda: state)  # type: ignore[arg-type]
+def _adapter(console: _FakeConsole, state: str = "ok", **kwargs: float) -> ProjectChannelAdapter:
+    return ProjectChannelAdapter(console, lambda: state, **kwargs)  # type: ignore[arg-type]
 
 
 # ── 项目列表投影 ──
@@ -394,6 +394,11 @@ class _GatedConsole(_FakeConsole):
         await self.gate.wait()
         return ProjectRunResponse(run_id="run-0001", session_id="sess-0001", status=RunStatus.RUNNING)
 
+    async def check_project(self, project_id: str) -> None:
+        self.calls.append(("check_project", project_id))
+        self.entered.set()
+        await self.gate.wait()
+
 
 def _start_calls(console: _FakeConsole) -> int:
     return sum(1 for name, _ in console.calls if name == "start_project_run")
@@ -538,3 +543,55 @@ async def test_cancelled_owner_is_marked_as_cancelled_in_the_window_log(caplog: 
 
     messages = [record.getMessage() for record in caplog.records if "idempotency_dropped" in record.getMessage()]
     assert len(messages) == 1 and "reason=cancelled" in messages[0]
+
+
+# ── 端口超时（实现方义务的行为判据，E75-R3 B9/V9 刻意延期项收口） ──
+
+
+async def test_submit_timeout_fails_loud_with_the_named_timeout_code() -> None:
+    """挂起的提交必须在上界内失败成**具名** ``timeout`` 码——契约只写义务，行为在这里承兑。"""
+    console = _GatedConsole()
+    adapter = _adapter(console, submit_timeout=0.05)
+
+    with pytest.raises(HttpRunConflictError) as excinfo:
+        await adapter.start_project_run(_PROJECT_ID, "hi")
+
+    assert excinfo.value.code is HttpErrorCode.TIMEOUT
+    assert _start_calls(console) == 1
+
+
+async def test_ensure_available_timeout_fails_loud_with_the_named_timeout_code() -> None:
+    """前置探测挂起同样要有上界：挂在 ``check_project`` 上 = 提交径第一段就卡死。"""
+    console = _GatedConsole()
+    adapter = _adapter(console, submit_timeout=0.05)
+
+    with pytest.raises(HttpRunConflictError) as excinfo:
+        await adapter.ensure_available(_PROJECT_ID)
+
+    assert excinfo.value.code is HttpErrorCode.TIMEOUT
+
+
+async def test_submit_timeout_shares_failure_with_joiners_and_frees_the_window() -> None:
+    """超时失败与幂等窗口的联动：合流者共享同一个具名失败，窗口释放后重试是真提交。
+
+    R3 M-3 的担忧「端口挂起占席位」在适配器层钉死：挂起不吞窗口、不静默成功，失败可重试。
+    """
+    console = _GatedConsole()
+    adapter = _adapter(console, submit_timeout=0.05)
+
+    owner = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await console.entered.wait()
+    joiner = asyncio.create_task(adapter.start_project_run(_PROJECT_ID, "hi", "req-1"))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    outcomes = await asyncio.gather(owner, joiner, return_exceptions=True)
+
+    assert all(isinstance(item, HttpRunConflictError) and item.code is HttpErrorCode.TIMEOUT for item in outcomes), (
+        "owner 与合流者都必须拿到同一个具名超时失败"
+    )
+    assert _start_calls(console) == 1, "合流者不得再次触达控制台"
+    console.gate.set()
+    retry = await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
+    assert retry.run_id == "run-0001"
+    assert _start_calls(console) == 2, "失败已移出窗口，同键重试是真提交"
