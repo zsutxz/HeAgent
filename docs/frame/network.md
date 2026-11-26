@@ -80,6 +80,61 @@ REST / 健康检查一律 404），默认 `127.0.0.1:9201`，配置面为 `WS_HO
 | TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。**2026-11-04 D5 修订**：回环 + 强制认证 + 明文 ⇒ 打 `ws event=plaintext_local_auth`（token 在回环明文上传输，本机窃听可读，同样必须可见）。 |
 | 安全立场 | 与 4.16 / 4.16.1 同一口径，边界地位见 §4.18（本节只列机制事实）。 |
 
+### TLS 与 pin（信任锚分层；Epic 73 / ADR-004）
+
+客户端信任锚是**服务端身份公钥的 SPKI-SHA256**，不是整张证书。由此得出一条反直觉但刻意的结论：
+**改 SAN、改有效期、重新签发 ⇒ pin 不变**；只有轮换身份密钥才会改 pin。
+
+| 层次 | 具体字段 | 重签叶证书会变吗 | 由谁决定 |
+| --- | --- | --- | --- |
+| 证书外壳 | `serialNumber` / `validity`（notBefore、notAfter）/ `signatureValue` | **会变**（新 serial、新签名） | `openssl x509 -req -days N` |
+| 证书扩展 | `extensions.subjectAltName`（SAN：IP / DNS 名单） | **会变**（`issue --san` 增删项） | `_render_leaf_config()`，`cli/tls_cmd.py:279` |
+| **公钥** | `tbsCertificate.subjectPublicKeyInfo` | **不会变**（密钥不动则恒定） | `identity.key`（长期身份密钥） |
+| pin 判定值 | `SHA-256(SPKI DER)` | **不会变** | `spki_sha256_of_der()`，`network/tls_identity.py:233` |
+
+**服务端如何保证「密钥不动」**
+
+- `heagent tls issue`：`openssl req -new -key identity.key` 只产 CSR，再用 CA 签出新的 `cert.pem`
+  （`_issue_leaf()`，`cli/tls_cmd.py:363`）——**从不执行 `genrsa`**。
+- listener 加载的 `key.pem` 是 `identity.key` 的字节副本（`_ensure_identity()`，
+  `cli/tls_cmd.py:359` 的 `shutil.copyfile`）⇒ `WS_TLS_KEY_FILE` 指向的内容恒等于身份密钥。
+- 机器守卫：`issue_leaf_cmd()`（`cli/tls_cmd.py:534`）重签前记 `pin_before`，重签后
+  `info.spki_sha256 != pin_before` 直接抛 `TlsCommandError`（「身份密钥未被复用」）⇒ 有人把 `issue`
+  改成顺手换密钥时，失败形态是命令非零退出，而不是静默让所有客户端 `pin_mismatch`。
+- `heagent tls rotate-key --yes` 是**唯一**改 pin 的动作（重新 `genrsa`），输出新旧两枚 pin 与双 pin
+  过渡提示；未带 `--yes` 且非 TTY 时拒绝执行。
+
+**实测对照**（同一把 `identity.key`、同一 CA，只差天数与 SAN；材料在 `.heagent/tmp/pinlab2/` 可复现）
+
+| 判据 | cert-A（1 天 / 2 项 SAN） | cert-B（30 天 / 4 项 SAN） |
+| --- | --- | --- |
+| serial | `2B1F…2CEB` | `2B1F…2CEC` |
+| notAfter | `Nov 27 01:15:23 2026 GMT` | `Dec 26 01:15:23 2026 GMT` |
+| SAN | `192.168.2.226`、`localhost` | 上述两项 + `5.tcp.cpolar.cn` + `99.tcp.vip.cpolar.cn` |
+| 整证书 DER SHA-256 | `bb35d3f4…8c44`（变） | `9c888878…4413`（变） |
+| **SPKI SHA-256（pin）** | `247a8b26…fd301` | `247a8b26…fd301`（**不变**） |
+
+同一把密钥的三处对照：`identity.key` 的 SPKI、两张证书里的 SPKI、生产 `cert.pem` 的 SPKI 逐字节相等
+（`spki_sha256 = 247a8b26…fd301`、`pin = sha256/JHqLJ…UP0wE=`、短指纹 `ER5I-WJUT-A7JP`）。
+
+**客户端口径（与 SAN 的关系）**
+
+- 客户端校验三条：SPKI 命中 pin（最多 old + new 两个）、证书未过期、**不校主机名**。身份由 pin 承担
+  ⇒ 内网地址漂移、cpolar 域名变更都**不需要重签、不需要重发安装包**。
+- 因此启动期的 `ws event=tls_identity`（SAN 不含绑定地址）对**只认 pin 的客户端并不致命**
+  （`cli/http_config.py:218`）；它针对的是会校主机名的标准校验路径（`curl`、
+  `openssl s_client -verify_hostname`、默认开启主机名校验的第三方库）。该告警只喊不停。
+- 三个客户端本地错误码（`pin_mismatch` / `cert_expired` / `cert_unreadable`）服务端**不产生**，
+  定义与 UI 要点见 `docs/errors.md` 第四节。
+
+**三个常见误区**
+
+- 用**整张证书**的哈希当 pin ⇒ 30 天到期就得换 pin、每台设备重装一次（ADR-004 要消灭的正是这个）。
+- 以为「改了 SAN 要重发安装包」⇒ 不需要；需要重发安装包的只有 `rotate-key`。
+- 把**整证书 DER** 传给 `spki_sha256_of_der()` / `short_fingerprint_of_der()` ⇒ **不报错，但算的是另一个
+  哈希**（会误判「服务端换了身份密钥」）。手里只有证书时用 `spki_sha256()` / `spki_sha256_base64()`；
+  手里只有私钥时用 `key_spki_der()` 再喂 `*_of_der()`。
+
 ### CLI 旁路订阅（Epic 55）
 
 `/api/runs/{run_id}/ws` 订阅的是**网页创建的 run**；终端里那一轮 run 由 CLI 自己持有，既没有
