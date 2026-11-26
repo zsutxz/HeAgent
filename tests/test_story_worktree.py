@@ -136,13 +136,42 @@ async def test_conflicting_story_commit_aborts_and_fails_loudly(repo: Path) -> N
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "main edits README")
 
-    with pytest.raises(WorktreeError):
+    with pytest.raises(WorktreeError) as excinfo:
         await promote_story_commit(repo, "goal-1-s1", commit=story_sha)
 
     assert (repo / "README.md").read_text(encoding="utf-8") == "main version\n"
     assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists(), "必须已 abort，工作区干净"
+    # 冲突失败**保留**临时引用：它是 story 提交在 gc 下的唯一锚点，删了它提交就随 worktree 移除而悬空
     refs = _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
-    assert story_ref("goal-1-s1") not in refs, "失败也必须清掉临时引用"
+    assert story_ref("goal-1-s1") in refs, "失败必须保留临时引用（story 提交的 gc 锚点）"
+    assert str(story_ref("goal-1-s1")) in str(excinfo.value), "报错必须写明引用保留，指明回收路径"
+
+
+async def test_retry_after_conflict_reuses_the_retained_ref_and_recovers_the_commit(repo: Path) -> None:
+    """引用保留 = 可恢复语义：解决冲突后**原样**重试，update-ref 幂等重建、pick 成功后才删引用。"""
+    path = await create_worktree(repo, "goal-1", "s1")
+    (path / "README.md").write_text("s1 version\n", encoding="utf-8")
+    _git(path, "add", ".")
+    _git(path, "commit", "-q", "-m", "feat: s1 edits README")
+    story_sha = await head_commit(path)
+
+    (repo / "README.md").write_text("main version\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "main edits README")
+
+    with pytest.raises(WorktreeError):
+        await promote_story_commit(repo, "goal-1-s1", commit=story_sha)
+    assert story_ref("goal-1-s1") in _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
+
+    # 解决冲突（退掉主工作区的冲突提交），原样重试 promote
+    _git(repo, "reset", "--hard", "HEAD~1")
+    promoted = await promote_story_commit(repo, "goal-1-s1", commit=story_sha)
+
+    assert await head_commit(repo) == promoted
+    assert (repo / "README.md").read_text(encoding="utf-8") == "s1 version\n"
+    assert story_ref("goal-1-s1") not in _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/"), (
+        "成功回收后引用必须删除"
+    )
 
 
 async def test_concurrent_promotions_do_not_fight_over_the_git_index(repo: Path) -> None:

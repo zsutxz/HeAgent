@@ -110,22 +110,27 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
     流程与失败语义：
 
     1. 先建临时引用 ``refs/heagent/stories/<story>`` 指向该提交——detached HEAD 的提交一旦失去
-       引用，``git gc`` 可能把它回收；pick 成功后再删引用。
+       引用，``git gc`` 可能把它回收。
     2. ``git cherry-pick`` 到主工作区当前分支；冲突时 ``cherry-pick --abort`` 恢复干净工作区，
        再抛 :class:`WorktreeError`（**不**留下半合并状态）。
+    3. **只有 pick 成功才删引用**；失败时引用保留——它是 story 提交在 gc 下的唯一锚点，删了它
+       提交就随 worktree 移除而悬空（gc 宽限后不可恢复）。报错写明引用名，解决冲突后**原样重试**
+       即可回收（``update-ref`` 幂等重建引用）。
     """
     ref = story_ref(story_id)
     async with _MERGE_LOCK:
         await _git(repo_root, "update-ref", ref, commit)
         try:
             await _git(repo_root, "cherry-pick", commit)
-        except WorktreeError:
+        except WorktreeError as exc:
             with contextlib.suppress(WorktreeError):
                 await _git(repo_root, "cherry-pick", "--abort")
-            raise
-        finally:
-            with contextlib.suppress(WorktreeError):
-                await _git(repo_root, "update-ref", "-d", ref)
+            raise WorktreeError(
+                f"{exc}; story commit stays pinned at {ref} - resolve the conflict and rerun "
+                "the story (update-ref recreates it idempotently)"
+            ) from exc
+        with contextlib.suppress(WorktreeError):
+            await _git(repo_root, "update-ref", "-d", ref)
         return await head_commit(repo_root)
 
 
