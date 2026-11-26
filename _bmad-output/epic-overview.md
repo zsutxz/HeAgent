@@ -27,9 +27,9 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 4 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 3 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
-- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `docs/decisions/adr-0004-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 交付与宿主 `netstat` 对账挂 **A76**（`.env` 的 `wss` + token 生产姿态已于 2026-11-21 切换完成）；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
+- ✅ **Epic 73 WS TLS 安装期信任（第二步，2026-11-19 交付）**：6/6 `done`；信任锚 = SPKI pin（ADR-004，正文 `docs/decisions/adr-0004-ws-tls-install-time-trust.md`）；`heagent tls {init,issue,rotate-key,fingerprint,verify}` 唯一签发入口 + 启动/doctor 三查；客户端 pin 交付与宿主 `netstat` 对账原挂 A76，**2026-11-26 退役**（客户端属另一仓 `aihome-client`，服务端侧已由 `scripts/ws_tls_attest.py` 一条命令承兑；`.env` 的 `wss` + token 生产姿态已于 2026-11-21 切换完成）；需求真源 `docs/tls-connect-guide.md`（gitignored，决策正文以 ADR-004 为准）。
 - ✅ **Epic 72 WS 内网明文接入（第一步，2026-11-19 交付）**：5/5 `done`——`lan` 档免 token（三准入 + 每启动 WARNING）、第二 listener 退役（`WS_EXTERNAL_*` 五键 + 9301 + setup_ws_external.py 全删）、doctor `ws_lan_*` 三查、安全口径双档化、容器内端到端取证；retro `accepted-with-open-items`；残差 **A75**。
 - ✅ **Epic 61 Web 检索工具周期（已闭合，2026-11-16）**：61.1 引擎层 `66a5b9f` + 61.2 工具面 `1877250` + 61.3 文档收口，三票 done；真实密钥冒烟经用户裁定跳过，挂账 **A55**（等 WEB_SEARCH_API_KEY）。
 - ✅ **Epic 63 测试体系增强（已收口，2026-11-18）**：63.1–63.8 全 finished（7 done + 63.4 dropped）、`src/` 零改动；CI 基准强制门禁、fixtures 单一宿、参数化 78%；retro `accepted`，三条 ADR 落 `docs/decisions/`。
@@ -51,7 +51,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `Goal-2-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（4 条——A55/A65/A67/A76，**索引**）
+#### A. 活动台账未闭合条目（3 条——A55/A65/A67，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。
