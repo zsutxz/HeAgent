@@ -58,9 +58,12 @@ async def test_embedded_service_exposes_task_endpoint(tmp_path, monkeypatch: pyt
     service = build_http_service(settings, http_enabled=True, ws_enabled=False)
     http_server = service._http  # 装配产物：None 表示 HTTP listener 未装配
     assert http_server is not None
+    # 端口必须取装配实际值：本机若占用了配置端口（如常驻实例占 9101），装配器会顺延；
+    # 写死 9101 会让 Host 校验按「port not allowed」403（2026-11-26 本机分诊）。
+    port = http_server.config.port
 
     transport = httpx.ASGITransport(app=http_server.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:9101") as client:
+    async with httpx.AsyncClient(transport=transport, base_url=f"http://127.0.0.1:{port}") as client:
         response = await client.get("/api/tasks")
 
     assert response.status_code == 200

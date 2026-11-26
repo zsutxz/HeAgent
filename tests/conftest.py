@@ -149,6 +149,22 @@ def _seal_global_skill_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
 
 @pytest.fixture(autouse=True)
+def _seal_credential_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """密封凭据类 OS 环境变量：pydantic-settings 直读进程环境，文件层密封（``_isolate_dotenv_files``）挡不住这一层。
+
+    开发机常设 DEEPSEEK/KIMI 等凭据键 ⇒ 「未配置凭据」假设的用例（向导跳过提问 / doctor
+    ``no_credentials`` 不报 / 配置验证不拦）本机恒红而 CI 通过——不可复现，与文件层密封同一立场。
+    键集取 wizard 的 SECRET 面（唯一权威），另补三个 wizard 不问但配置加载会认的键。
+    """
+    from heagent.cli.wizard import WIZARD_ITEMS, WizardKind
+
+    keys = {item.key for item in WIZARD_ITEMS if item.kind is WizardKind.SECRET}
+    keys |= {"OPENAI_API_KEY", "ANTHROPIC_API_KEYS", "ANTHROPIC_AUTH_TOKEN"}
+    for key in keys:
+        monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_token_calibration() -> None:
     """隔离 token 校准的进程级全局状态（``tokens._CALIBRATION``）。
 

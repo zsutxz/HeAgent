@@ -554,7 +554,9 @@ class TestCronStatusCli:
 
         assert result.exit_code == 2
         assert "unreadable" in result.stderr
-        assert "IsADirectoryError" in result.stderr
+        # 目录路径在 POSIX 抛 IsADirectoryError、Windows 抛 PermissionError——错误类型名因 OS 而异，
+        # 但都必须走「unreadable + exit 2」分支，不得静默当成空任务表。
+        assert "IsADirectoryError" in result.stderr or "PermissionError" in result.stderr
         assert "no jobs scheduled" not in result.output
 
     def test_command_is_read_only(self, tmp_path: Path) -> None:
