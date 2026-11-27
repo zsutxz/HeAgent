@@ -26,7 +26,7 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 | 参数 | 动作 |
 |---|---|
 | `<目标描述>` / `new <描述>` | 跑 `scripts/new-goal.py <goal-id>` 建骨架，执行 Step 01 |
-| `next` | 推进下一步；Step 07 取 `tickets.py next` 的 `ready_to_start`，按「epic 内并行批」组批（缺省只取首行） |
+| `next` | 推进下一步；Step 07 取 `tickets.py next` 的 `ready_to_start`，按「epic 内并行批」组批（默认整批并行，不成批时单条串行） |
 | `run` | 连续推进到审批门、失败或完成 |
 | `status` | 读 `progress.md` + `tickets.py status/next` 报告进度 |
 | `review [step]` | 只读审查状态与产物一致性，不推进、不改文件 |
@@ -56,9 +56,13 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 9. **只读审查**：`review` 不委派实现型子会话、不改任何文件与状态；每条发现给位置、证据、严重度、处置。
 10. **显性失败**：状态文件缺失/损坏、脚本非零退出、同一子任务连续两次失败时如实报告并停，不伪造进度。
 11. **完成即提交、交接、换会话**：一批 entry 全部 `built` 后，按 `workflow.md`「完成即自动提交」判据提交；未过判据不提交，缺口写进交接块。随后按「上下文交接与续跑」覆盖写 `progress.md` 交接块，并注册一次性 cron（`recurring: false`，`* * * * *`），注册前先 `cron_list` 去重。cron 只换执行入口、不清空当前会话，回复里须写明要清零需用户 `/clear` 或另开会话。遇 `hitl` / checkpoint、Step 08 放行前、显性失败或需用户裁决时不注册。
-12. **同 epic 内可成批并行**：Step 07 默认逐条串行；同 epic 内声明了 `parallel_group` 与 `write_set`、
-    且过「七条件」的相邻 entry 可成批并行——用 `task_parallel` 同时开子会话，但**门禁、`mark`、提交、
-    交接仍由宿主串行收口**（本仓源码树、容器 workspace 与设备腿只有一份）。写集相交、缺声明、带
-    checkpoint / `hitl`、跨 epic 一律 fail-closed 退回串行；批内越集写撤销本 epic 的并行授权。
+12. **同 epic 内默认成批并行**：Step 07 默认成批并行——声明齐全且过「七条件」的相邻 entry 用
+    `task_parallel` 同时开子会话（`parallel_group` / `write_set` 是 Step 06 的义务声明）；**门禁、`mark`、
+    提交、交接仍由宿主串行收口**（本仓源码树、容器 workspace 与设备腿只有一份）。声明缺失、写集相交、
+    带 checkpoint / `hitl`、跨 epic 一律 fail-closed 单条串行兜底；批内越集写撤销本 epic 的并行授权。
     细则见 `workflow.md` 的「epic 内并行批」。
-13. **Epic 收口三审**：该 epic 全部 entry 达 `built` / `in-review` / `done` 后自动开跑，不呈报、不等确认。三审（`R1` 规格对账、`R2` 不变量与守卫、`R3` `code_review` 三镜头）与回顾的顺序、报告落点与缺口处置，以 `workflow.md`「epic 收口三审」为准；三份报告与回顾的 `## 三审记录` 缺一即不提交。
+13. **Epic 收口三审**：该 epic 全部 entry 达 `built` / `in-review` / `done` 后自动开跑，不呈报、不等确认；
+    开跑前先换一次上下文（交接块 + 一次性 cron）。三镜头**并行审读**（`task_parallel` 开三个子会话，
+    同一快照、只读，产出待核验清单），宿主合并落盘后**串行**做验证与反证——`R1` 规格对账、
+    `R2` 不变量与守卫、`R3` `code_review` 三镜头。顺序、报告落点与缺口处置以 `workflow.md`
+    「epic 收口三审」为准；三镜头齐备的报告与回顾的 `## 三审记录` 缺一即不提交。

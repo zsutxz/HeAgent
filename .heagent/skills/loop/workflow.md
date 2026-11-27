@@ -30,7 +30,7 @@ epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 g
 
 1. 读 `docs/current` 与 goal 目录的 `progress.md`，确定状态与下一步；已绑定 initiative
    时同时读 `tickets.py status <goal 目录>` 与 `next <goal 目录>`（story 事实只认脚本）。
-2. 取**最小序号的未完成步骤**；Step 07 内按 `next` 的 `ready_to_start` 组批（尊重表序与 `after`）：声明齐全且七条件全过时成批并行，否则只取首行。
+2. 取**最小序号的未完成步骤**；Step 07 按「epic 内并行批」组批：默认成批并行（尊重表序与 `after`），组批与兜底判定见该节。
    把该步契约全文 + 输入产物路径（含 `find <goal 目录> <ref>` 给出的 entry / epic 文件 / plan 路径）作为任务
    正文，用 `task_delegate` 开全新子会话执行；子会话默认不写盘：产物正文或报告写在回复里，由宿主落盘；只有 Step 07 实现子会话按 entry 的 `write_set` 写源码、测试与 plan。
 3. 子会话返回后，宿主按该步**验收核对**清单核对产出（`command:` 类核对亲自执行，含 `tickets.py` 与
@@ -43,7 +43,7 @@ epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 g
    写交接块，再用 `tickets.py next <goal 目录>` 取下一批（不成批时取 `ready_to_start` 首行）继续——它可能就是
    下一个 epic 的第一条 entry，照常执行，不停下来等「epic 完成确认」。epic 里的 entry 停在 `built`
    （`state = review`）**不阻塞**续跑；`done` 只在 Step 08 的 `approve` 后逐条写。
-6. **epic 全部 entry 完成后自动跑收口链**：触发与顺序以「epic 收口三审」为准（判据只认 `tickets.py status`，已完成的轮次跳过）。下一个 epic 的 `after` 未满足时按 `next` 的 `blocked[].waiting_on` 报告并停。
+6. **epic 全部 entry 完成后自动跑收口链**：触发与顺序以「epic 收口三审」为准（判据只认 `tickets.py status`，已完成的镜头跳过）。下一个 epic 的 `after` 未满足时按 `next` 的 `blocked[].waiting_on` 报告并停。
 
 ## 审批门与 checkpoint（v7 口径）
 
@@ -59,9 +59,9 @@ epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 g
   推荐项**的确认与该门的放行——按契约执行（Step 08 则逐条 `mark done` + 状态置 `done`），并把答复原文记入
   决策日志。用户未表态时停在门前，`done` 永不自行写。
 
-- **并行纪律**：默认逐条串行；只有声明齐全（`parallel_group` + `write_set`）且「七条件」全过才成批并行
-  （见「epic 内并行批」），任一不满足即 fail-closed 退回串行。`after` 仍只用于核对顺序合法：任何
-  entry 的依赖必须由构建顺序更靠前的 entry 或 epic 交付。
+- **并行纪律**：默认并行——声明齐全（`parallel_group` + `write_set`）且「七条件」全过的相邻 entry 一律
+  成批并行（见「epic 内并行批」）；串行是 fail-closed 兜底，只落声明缺失或条件不过的那几条。`after`
+  仍只用于核对顺序合法：任何 entry 的依赖必须由构建顺序更靠前的 entry 或 epic 交付。
 - **显性失败**：状态文件缺失或损坏、脚本非零退出、同一子会话任务连续两次失败时，宿主如实报告并停
   （状态置 blocked），不猜测、不伪造进度、不静默跳步。
 
@@ -76,10 +76,10 @@ epic 拆分（信封 + `[[epic]]` + 薄 epic 文件），只规划不实现。St
 重任务步骤**：在单个子会话内完成一条 entry 的计划、实现、测试与评审，并且是唯一允许创建实现产物、
 唯一允许新增或修改测试文件的步骤。Step 08 是**全系统最终验收步骤**：只在全部 entry 完成后运行一次。
 
-Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围内推进：默认**串行**，声明齐全且
-七条件全过的相邻 entry 成批**并行**（见「epic 内并行批」），一个子会话仍只处理一条 entry。该 epic 全部
-entry 完成后**自动**跑**Epic 收口**（三审 + 回顾 `<E编号>-<slug>-retrospective.md` + 自动提交 + 转下一个
-epic，见该步正文与「epic 收口三审」）；未满足触发条件时不要额外做事。v7 已取消 sprint 概念：需要分批
+Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围内推进：默认**成批并行**（组批与兜底
+判定见「epic 内并行批」）；一个子会话仍只处理一条 entry。该 epic 全部 entry 完成后**自动**跑**Epic
+收口**（三镜头并行三审 + 回顾 `<E编号>-<slug>-retrospective.md` + 自动提交 + 转下一个 epic，见该步正文与
+「epic 收口三审」）；未满足触发条件时不要额外做事。v7 已取消 sprint 概念：需要分批
 推进时用 `after` 与 `hitl` 表达，不再引入 sprint 表或「Sprint 收口」。
 
 **产物位置**：规划产物在 initiative（PRD `prd-<slug>/`、架构 `architecture-<slug>/`、epic 文件、
@@ -274,16 +274,17 @@ spine 只固定「各自独立构建会不一致」的决策；采纳方式是�
 - 仍开放、必须由人裁决的点写成 `unknown`（一句话用户问题）——**构建前必须清零**，否则 `next` 会把
   它列进 `blocked`。
 
-**并行声明（可选）。** 计划在 Step 07 与同 epic 其他 entry 并行构建的条目，在该 entry 上加
-`parallel_group`（非空组名）与 `write_set`（该 entry 会改的仓库相对路径全清单，含新建文件与测试文件）；
-不写的 entry 一律串行、零开销。`tickets.py` 不读这两个键（不进 `status`），它们是 `/loop` 的组批门控
+**并行声明（义务）。** 并行是 Step 07 的默认形态：每条 entry 都默认声明 `parallel_group`（非空组名，
+能同批的进同组）与 `write_set`（该 entry 会改的仓库相对路径全清单，含新建文件与测试文件）；不声明的
+entry 单条串行兜底，且须在 plan 写明不能并行的原因（带门 / 依赖并发中的 entry / 单条已满负荷）。
+`tickets.py` 不读这两个键（不进 `status`），它们是 `/loop` 的组批门控
 输入，判定规则见「epic 内并行批」。
 
 **不要**为 entry 预写 leaf 文件（`story.md`）：只有评审、细化或发布时才 `tickets.py pull <epic 目录> <entry id>`。
 **不要**引入 sprint：v7 已取消 sprint，构建顺序只由表序与 `after` 决定；需要可演示切片时，在
 `## Story 拆分` 里说明每条 epic 收口可演示什么。
 
-**排序与树检查。** 表序即执行顺序：宿主按 epic 表序推进，epic 内按表序组批（默认逐条串行、可成批并行），所以按将构建
+**排序与树检查。** 表序即执行顺序：宿主按 epic 表序推进，epic 内按表序组批（默认成批并行、声明缺失或条件不过的条目单条串行），所以按将构建
 的顺序写，不留空号、不重复编号。收尾跑 `tickets.py status <goal 目录>`，把 `problems` 提到的问题
 逐条修掉再提交审批。
 
@@ -311,7 +312,7 @@ checkpoint）。**缺任一章即未通过验收核对。**
 
 `bmad-build` 是本步骤的实现、测试与评审方法论来源（计划模板在 `.heagent/skills/bmad-build/plan-template.md`，
 上游安装源同名文件在 `.claude/skills/bmad-build/`）。
-**按批执行（默认串行）**：声明齐全且七条件全过的相邻 entry 成批并行（见「epic 内并行批」）；每个子会话只处理一条 entry，按表序取 `tickets.py next <goal 目录>` 的
+**按批执行（默认并行）**：组批与兜底判定见「epic 内并行批」。每个子会话只处理一条 entry，按表序取 `tickets.py next <goal 目录>` 的
 `ready_to_start`（整批按声明序，或仅首行），或按用户点名的 `<ref>`；宿主在任务正文里给出该 entry 全文、epic 文件全文、
 `find` 返回的 plan 路径与 `brief.md` 路径，并附上 `after` 所指 entry 的 plan 中 Code Map /
 Design Notes / Plan Change Log 作为连续性上下文。开始前必须核对：该 entry 无 `unknown`、无未裁决
