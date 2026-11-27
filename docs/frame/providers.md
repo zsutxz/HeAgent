@@ -35,9 +35,11 @@ class BaseProvider(Protocol):
 - 提取系统消息（`_extract_system()` 合并为 Anthropic 顶层 `system` 字段）
 - 消息/工具调用格式转换：HeAgent ↔ Anthropic API
 - **提示词缓存（FR-3）**：两处 `cache_control: {"type": "ephemeral"}` 断点——system prompt 末块
-  （`_build_system_param()`）与**最后一个工具定义**（`_to_anthropic_tools()`）。Anthropic 的缓存前缀
-  按 `tools → system → messages` 累计，断点落在 tools 末尾即可把整段工具 schema（通常比 system 还大）
-  一起纳入；断点必须是块边界，只打这两个，多打既无收益也会被 API 拒。
+  （`_build_system_param()`）与**最后一个工具定义**（`_to_anthropic_tools()`）。缓存前缀按
+  `tools → system → messages` 累计，故 system 断点覆盖的是「tools + system」整段；而 system 尾部含
+  per-run `<shell-workspace>` 与 per-prompt `<skills>` 两个易变块（见 4.2 的系统提示词注入顺序）
+  ⇒ 该断点几乎每轮 miss，真正稳定的前缀是 tools，工具断点就是为它而加。断点上限是 **4 个**（超 4 才
+  400），两处都在预算内，不要再往里加。
   由 `anthropic_prompt_caching` 开关控制（默认开启；使用不支持 cache_control 的代理时应关闭）
 
 ### chain.py — Provider 回退链（**外层**）

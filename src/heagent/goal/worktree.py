@@ -115,7 +115,8 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
        再抛 :class:`WorktreeError`（**不**留下半合并状态）。
     3. **只有 pick 成功才删引用**；失败时引用保留——它是 story 提交在 gc 下的唯一锚点，删了它
        提交就随 worktree 移除而悬空（gc 宽限后不可恢复）。报错写明引用名，解决冲突后**原样重试**
-       即可回收（``update-ref`` 幂等重建引用）。
+       即可回收（``update-ref`` 幂等重建引用）。反过来，冲突后**决定不要这个 story** 时引用必须
+       由 :func:`drop_story_ref` 显式删掉，否则被它钉住的提交对象永久留在库里。
     """
     ref = story_ref(story_id)
     async with _MERGE_LOCK:
@@ -132,6 +133,21 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
         with contextlib.suppress(WorktreeError):
             await _git(repo_root, "update-ref", "-d", ref)
         return await head_commit(repo_root)
+
+
+async def drop_story_ref(repo_root: str | Path, story_id: str) -> bool:
+    """丢弃一个 story 的临时引用（**放弃**该 story 时的显式回收口），返回是否真删掉了。
+
+    :func:`promote_story_commit` 只在 pick 成功时删引用，冲突失败刻意保留（见该函数第 3 条）。
+    「冲突之后决定不要这个 story」是另一种终态：引用得有人显式删，否则被它钉住的提交对象永久
+    留在对象库里（只有 ``git count-objects -v`` / ``for-each-ref`` 能发现）。语义与
+    ``git update-ref -d`` 一致：引用本来就不在时返回 ``False`` 且不抛错（幂等，可反复调用）。
+    """
+    ref = story_ref(story_id)
+    if not (await _git(repo_root, "for-each-ref", "--format=%(refname)", ref)).strip():
+        return False
+    await _git(repo_root, "update-ref", "-d", ref)
+    return True
 
 
 async def promote_goal_products(
@@ -234,6 +250,7 @@ __all__ = [
     "WORKTREE_DIRNAME",
     "WorktreeError",
     "create_worktree",
+    "drop_story_ref",
     "head_commit",
     "list_worktrees",
     "promote_goal_products",

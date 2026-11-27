@@ -14,6 +14,7 @@ import pytest
 from heagent.goal.worktree import (
     WorktreeError,
     create_worktree,
+    drop_story_ref,
     head_commit,
     list_worktrees,
     promote_goal_products,
@@ -172,6 +173,23 @@ async def test_retry_after_conflict_reuses_the_retained_ref_and_recovers_the_com
     assert story_ref("goal-1-s1") not in _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/"), (
         "成功回收后引用必须删除"
     )
+
+
+async def test_drop_story_ref_releases_the_anchor_and_is_idempotent(repo: Path) -> None:
+    """放弃 story 时的显式回收口：删掉锚点一次成功，再删返回 False（幂等，不抛错）。
+
+    冲突失败会刻意保留引用（gc 锚点），但「决定不要这个 story」是另一种终态——没有这条出口，
+    被钉住的提交对象永久留在对象库里。
+    """
+    path = await create_worktree(repo, "goal-1", "s1")
+    (path / "README.md").write_text("s1 version\n", encoding="utf-8")
+    _git(path, "add", ".")
+    _git(path, "commit", "-q", "-m", "feat: s1 edits README")
+    _git(repo, "update-ref", story_ref("goal-1-s1"), await head_commit(path))
+
+    assert await drop_story_ref(repo, "goal-1-s1") is True
+    assert story_ref("goal-1-s1") not in _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
+    assert await drop_story_ref(repo, "goal-1-s1") is False, "引用本来就不在时必须幂等返回 False"
 
 
 async def test_concurrent_promotions_do_not_fight_over_the_git_index(repo: Path) -> None:

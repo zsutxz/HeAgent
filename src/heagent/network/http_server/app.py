@@ -93,6 +93,10 @@ def _asset_response(responses: Any, name: str, request: Any) -> Any:
 
     ``ETag`` 取内容摘要，``If-None-Match`` 命中回 304：``cache-control: no-cache`` 的口径不变
     （每次都要回源校验），但校验通过时不再重传整份页面 / JS / CSS。
+
+    比对是**整串精确相等**（RFC 9110 允许的「多值列表」「``W/`` 弱校验符」都不命中，退化成 200）：
+    浏览器拿到强 ETag 会原样回送，这条够用；代价是资源每次都要读一次并算一次摘要（省的是带宽，
+    不是服务端 I/O）。哪天前面挂了会改写 ETag 的代理，304 会静默失效——那不是回归，是本函数的边界。
     """
     try:
         payload = read_web_asset(name)

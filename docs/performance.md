@@ -138,7 +138,7 @@ py-spy top --pid <PID>                                  # 实时热点
 | 面 | 改了什么 | 判据 | 何时才有意义 |
 | --- | --- | --- | --- |
 | Provider 元数据 LRU（`providers/metadata_cache.py`） | 加 `evictions` 计数并进 `provider metadata cache:` 日志行（`evictions=N`）；零查询的 run 不再打 `hit_rate=0.00`（与「真 0 命中率」区分开） | `tests/providers/test_metadata_cache.py`、`tests/test_cache_capacity_settings.py` | 日志出现 `evictions>0` ⇒ `PROVIDER_METADATA_CACHE_SIZE` 小于活跃 provider 实例数 |
-| Anthropic 提示词缓存（`providers/anthropic.py`） | 断点补到**最后一个工具定义**：缓存前缀按 `tools → system → messages` 累计，此前只有 system 进缓存，工具 schema 每轮全价 | `tests/providers/test_anthropic.py` | 工具多 / schema 大、同一 session 多轮复用同一套工具时省的是**真金**（缓存读 ~0.1x） |
+| Anthropic 提示词缓存（`providers/anthropic.py`） | 断点补到**最后一个工具定义**。system 断点覆盖的是「tools + system」整段，而 system 尾部有 per-run `<shell-workspace>` 与 per-prompt `<skills>` 两个易变块（注入顺序见 `agent/system_prompt.py`）⇒ 该断点几乎每轮 miss、tools 夹在里面一起失效；tools 断点提供的是真正稳定的那一截前缀（两断点都在 4 个上限内） | `tests/providers/test_anthropic.py` | 工具多 / schema 大、同一 session 多轮复用同一套工具时省的是**真金**（缓存读 ~0.1x）；system 稳定时两断点嵌套、无额外稳态成本（只在首轮多写一次 tools 段） |
 | 技能匹配结果缓存（`skills/skill_catalog.py`） | 缓存键改用 `prompt.casefold()`：匹配本身大小写无关，`Hello` 与 `hello` 不再占两个槽 | `tests/test_skill_match_cache.py` | 同类问句大小写混着来时（客户端输入法差异） |
 | WS 提交幂等窗口（`cli/ws_submission_cache.py`） | 过期清理加两层早停（最旧未过期 ⇒ O(1) 跳过整趟扫描；要扫时遇未过期即停）；容量淘汰只找第一条已完成项，不再先建全量列表 | `tests/test_ws_submission_cache.py`（`_CountingEntries` 数扫描次数） | 高频提交流；语义（在途不踢、TTL 从提交计时）一条未变 |
 | 会话列表备忘录（`context/session.py`） | 溢出由「整表 `clear()`」改为 FIFO 淘汰最旧一条 | `tests/test_session.py` | 会话数接近 1024 时：旧形状会周期性把全部会话重解析一遍 |

@@ -68,8 +68,18 @@ def log(message: str) -> None:
 
 
 # ── 目标与地址回读 ──
+#: 通配绑定的两个字面量：这里只做**比对**（不是 bind），但 ruff/bandit 的「硬编码全接口绑定」
+#: 规则按字面量命中 ⇒ 显式豁免一次（同 `cli/http_config.py` 的 nosec 立场：抑制是正确姿态）。
+_WILDCARD_HOSTS = frozenset({"0.0.0.0", "::"})  # noqa: S104  # nosec B104
+
+
 def tunnel_target() -> str:
-    """隧道目标 = WS listener 的真实绑定地址（`.env` 的 WS_HOST:WS_PORT）。"""
+    """隧道目标 = WS listener 的真实绑定地址（`.env` 的 `WS_HOST:WS_PORT`）。
+
+    回退值与 `cpolar_tunnel.ps1` / `cpolar_selftest.ps1` **同源**：缺键、`0.0.0.0`、`::` 一律落
+    `127.0.0.1`（通配绑定没有可路由地址）。**不要**写死某台机器的私有 IP——那会让换机后的
+    `[info] 隧道目标` 谎报一个隧道并未使用的主机。
+    """
     host, port = "", ""
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -78,7 +88,9 @@ def tunnel_target() -> str:
                 host = line.split("=", 1)[1].strip().strip('"').strip("'")
             elif line.startswith("WS_PORT="):
                 port = line.split("=", 1)[1].strip().strip('"').strip("'")
-    return f"{host or '192.168.2.226'}:{port or '9201'}"
+    if not host or host in _WILDCARD_HOSTS:
+        host = "127.0.0.1"
+    return f"{host}:{port or '9201'}"
 
 
 def normalize_address(value: str) -> str | None:
@@ -121,17 +133,36 @@ def address_from_admin_api() -> str | None:
     return None
 
 
+def _decode_log(raw: bytes) -> str:
+    """cpolar 日志的编码不统一：按 BOM 判 UTF-16，否则先严格 UTF-8、失败再当无 BOM 的 UTF-16LE。
+
+    本仓实测 cpolar / PowerShell 侧落盘的文本出现过 UTF-16LE（`FF FE` 开头、字符间夹空格），
+    按 UTF-8 硬读会整篇变成替换符、正则静默零命中 ⇒ 第四级回读会假装「日志里没有地址」。
+    """
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", "replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-16-le", "replace")
+
+
 def address_from_log() -> str | None:
     # 日志名带时间戳（每次起隧道一份），按 mtime 从新到旧找第一份含地址的
     if not CPOLAR_LOG_DIR.exists():
         return None
-    candidates = sorted(
-        CPOLAR_LOG_DIR.glob("tunnel*.log"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    for path in candidates:
-        text = path.read_text(encoding="utf-8", errors="replace")
+
+    def _mtime(path: pathlib.Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:  # 并发轮转删掉了：排序时按最旧计，不炸整个回读
+            return 0.0
+
+    for path in sorted(CPOLAR_LOG_DIR.glob("tunnel*.log"), key=_mtime, reverse=True):
+        try:
+            text = _decode_log(path.read_bytes())
+        except OSError:  # 同上：读的瞬间被删
+            continue
         hit = FORWARDING.search(text) or ANY_TUNNEL.search(text)
         if hit:
             return hit.group(1)
@@ -314,24 +345,30 @@ def publish(address: str, source: str, apply: bool, check_san: bool) -> int:
 
 
 def watch(apply: bool, check_san: bool, interval: int) -> None:
-    log("[watch] 常驻：隧道掉了重起，地址变了就回填（Ctrl+C 结束）")
-    last: str | None = None
+    log("[watch] 常驻：隧道掉了重起、地址变了就回填（Ctrl+C 结束）")
+    last_seen: str | None = None
+    last_applied: str | None = None
+    last_checked: str | None = None
     while True:
         found = ensure_tunnel()
         if found is None:
             log("[watch] 隧道没起来，30 秒后重试")
         else:
             address, source = found
-            if address != last:
+            if address != last_seen:
                 log(f"[watch] 公网地址 {address}（来源：{source}）")
-                if apply:
-                    try:
-                        apply_to_app(f"wss://{address}")
-                    except (RuntimeError, subprocess.SubprocessError) as error:  # 设备不在线不该打死守护循环
-                        log(f"[watch] 回填失败：{error}")
-                if check_san:
-                    report_san(address)
-                last = address
+                last_seen = address
+            if apply and address != last_applied:
+                try:
+                    apply_to_app(f"wss://{address}")  # 返回 False = 本来就是它，同样算同步完成
+                    last_applied = address
+                except (RuntimeError, subprocess.SubprocessError) as error:  # 设备不在线不该打死守护循环
+                    # **不**更新 last_applied：设备掉线是一时的，地址却可能长期不变（付费预留地址）
+                    # ⇒ 下一轮必须重试，否则这次的失败会被永久记住、App 永远停在旧地址。
+                    log(f"[watch] 回填失败（下一轮重试）：{error}")
+            if check_san and address != last_checked:
+                report_san(address)
+                last_checked = address
         time.sleep(interval)
 
 

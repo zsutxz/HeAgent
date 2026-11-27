@@ -99,7 +99,8 @@ tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物�
 manual 模式 checkpoint 确认每批一次。Story 物理隔离已落地（AD-20 / A41，2026-11-21）：授权并行时该
 Story 在确定性路径 `<repo>/.heagent/worktrees/<goal>/<story>` 的 detached worktree 里跑
 （`context_dir` 透传 ⇒ 围栏根与写集审计基线都钉 worktree），完成后经临时引用 + cherry-pick 回收提交
-（冲突 abort 后显性 FAILED），worktree 在 finally 移除。围栏根换成 worktree 时**运行产物根不跟着搬**：
+（冲突 abort 后显性 FAILED；引用**只在 pick 成功时删**，失败保留作 gc 锚点，放弃该 story 时用
+`goal/worktree.py::drop_story_ref` 显式回收），worktree 在 finally 移除。围栏根换成 worktree 时**运行产物根不跟着搬**：
 `RunContext.state_root` 钉容器根（与 `RunStore` / `ExecutionLedger` 同源），工具审计因此落主工作区而不是
 随 worktree 移除丢失；run 快照与 ledger 本就读容器根，不受隔离影响。
 产物面同理不能靠 cherry-pick：`_he-output/` 是 gitignore 面，故 worktree 移除前由

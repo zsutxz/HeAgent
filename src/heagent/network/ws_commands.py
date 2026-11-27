@@ -220,8 +220,10 @@ async def _submit_run(
 
     错误一律走错误帧且**不断连**（客户端可继续提交）：输入类 ``empty_prompt`` / ``invalid_request``、
     名额类 ``run_conflict`` / ``total_inflight_limit`` / 关停 ``shutting_down``——与
-    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。``project_id`` 缺省时创建路径逐字
-    不变；带值时改走 :func:`_start_project_run`（项目端口），``RunRequest`` 校验两条路径共用。
+    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。项目径另有 ``timeout``（适配器上界，
+    见 ``cli/ws_project_adapter``）与项目侧具名码，两者都由端口抛 ``HttpRunConflictError`` 逐字透传。
+    ``project_id`` 缺省时创建路径逐字不变；带值时改走 :func:`_start_project_run`（项目端口），
+    ``RunRequest`` 校验两条路径共用。
     """
     try:
         request = RunRequest.model_validate({"prompt": prompt})

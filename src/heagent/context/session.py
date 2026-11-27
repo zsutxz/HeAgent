@@ -55,6 +55,9 @@ WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
 # 会话标题上限（字符）：标题进控制台列表、详情与页面，必须有界。
 MAX_SESSION_TITLE_CHARS = 120
 # list_metadata 元数据备忘录的容量上限；溢出按 FIFO 淘汰最旧一条（不清表，避免整轮重解析）。
+# 适用范围：会话总数 ≤ 上限时全命中；略超（< 2×上限）时只重解析被挤掉的那几条；**远超**（> 2×上限）
+# 时每轮仍要重解析大部分文件——本方法给扫到的**每个**文件都写缓存，与返回的 limit（200）无关，
+# 故「上千份会话」的场景只能靠调大本上限或缩小 list_metadata 的写缓存范围，别指望 FIFO 兜住。
 _META_CACHE_MAX_ENTRIES = 1024
 # 派生标题上限：它是摘要而非用户设定的标题，刻意比可设标题更短。
 MAX_DERIVED_TITLE_CHARS = 60

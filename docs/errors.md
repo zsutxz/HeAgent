@@ -92,7 +92,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `code` | HTTP | 描述 | 原因 | 方案 |
 | --- | --- | --- | --- | --- |
 | `rate_limited` | 429 | 连接或订阅超额 | `HTTP_MAX_CONNECTIONS` / `HTTP_MAX_SUBSCRIBERS` / `WS_MAX_CONNECTIONS` 已满 | 关掉闲置页面或客户端；按实际并发调大对应上限 |
-| `timeout` | 无固定状态 | **保留码，当前无发送点** | 超时判定不改用错误码：由 `HTTP_IDLE_TIMEOUT` / `HTTP_TOOL_INFLIGHT_TIMEOUT` / `HTTP_REQUEST_TIMEOUT` 各自处理 | 这三个键见 `.env.example` 第 18 节；不要等这个码出现 |
+| `timeout` | 无固定状态 | **WS 项目通道的提交上界**：适配器调控制台超过构造期 `submit_timeout`（默认 30s） | 提交链含配置求解与文件锁，卡住时不能无界占住连接；超时**结果未知**——run 可能已经建起来，客户端却没拿到 `run_id` | 唯一发送点是 `cli/ws_project_adapter`（提交与前置探测各一处，2026-11-26）；收到即按「可能已提交」处理：可重试，同项目若已被占用会先回 `run_conflict`；HTTP 侧的 `HTTP_IDLE_TIMEOUT` / `HTTP_TOOL_INFLIGHT_TIMEOUT` / `HTTP_REQUEST_TIMEOUT` 仍**不**用这个码（见 [frame/network.md](frame/network.md) 4.16） |
 
 ### 边界类
 
