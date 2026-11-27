@@ -23,7 +23,7 @@ epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 g
 | `references/tickets.md` | 「票树接口」「状态与目录约定」 |
 | `references/parallel-batch.md` | 「epic 内并行批」 |
 | `references/closeout.md` | 「epic 收口三审」「完成即自动提交」「上下文交接与续跑」 |
-| `references/commands.md` | 「只读文档审查」「`auto` 自动推进（仅用户显式发起）」 |
+| `references/commands.md` | 「只读文档审查」 |
 | `references/standards.md` | 「全局标准」 |
 
 ## 宿主执行循环
@@ -120,7 +120,7 @@ Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围�
 ## Step 02: brainstorm-options（发散构思）
 
 - 执行角色：`bmad-brainstorming`
-- **交互**：默认**与用户交互**（见本节「交互轮」）；`/loop auto` 或用户当轮说「你自己定」
+- **交互**：默认**与用户交互**（见本节「交互轮」）；用户当轮说「你自己定 / 不用问我」
   时退化为一次成稿
 - 输入：用户意图、市场综述、上一轮用户回复（若有）、`step-02-brainstorm-options/report.md` 的
   `## 待回答的问题` 段
@@ -154,7 +154,7 @@ Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围�
   此后**不注册任何自动 job**（无人接手只会空转）：用户回复即在同一会话继续，或新会话 `/loop next` 读该段续跑
   ——已答就进下一轮，未答就原样重报问题，不重开一轮。
 
-**退化（不交互）路径。** `/loop auto` 或用户当轮说「你自己定 / 不用问我」时不走交互轮：按
+**退化（不交互）路径。** 用户当轮说「你自己定 / 不用问我」时不走交互轮：按
 `Ideate for me` 一次成稿，报告 `## 用户输入` 写「未交互（原因）」并记 `Assumption:`。用户中途说「先别
 问了」同样立即转收敛轮，不算跳步。
 
@@ -298,7 +298,7 @@ checkpoint）。**缺任一章即未通过验收核对。**
 
 ## Step 07: implement-story（实现故事）
 
-- 执行角色：`bmad-build`（人在场）／`bmad-build-auto`（`/loop auto` 无人值守）
+- 执行角色：`bmad-build`（本契约唯一的实现角色——全程有人在场，没有无人值守档）
 - 输入：`tickets.py find <goal 目录> <ref>` 给出的 entry（或其 leaf 文件）、epic 文件、plan 路径、brief.md
 - 产出（每条 entry）：plan 文件（路径取 `find` 的 `plan`，与 `tickets.toml` 同级），frontmatter 的
   `status` 沿 `draft → ready-for-dev → in-progress → in-review → built` 推进；该 epic 全部 entry 完成后
@@ -321,8 +321,8 @@ Design Notes / Plan Change Log 作为连续性上下文。开始前必须核对�
 **状态与证据。** plan 的 `ticket` 必须等于 entry 的 `id`；`baseline_revision` 必须是改动前从版本
 控制直接取得的完整规范 id。状态只经 `tickets.py mark <goal 目录> <ref> <status>` 推进，不手改 frontmatter。
 
-**checkpoint。** `plan_checkpoint` → 计划完成后停下（`bmad-build-auto` 用「Halt after planning」停在
-`ready-for-dev`），宿主呈报计划等人放行；`hitl` → 需要人操作的环节由宿主暂停并说明；`done_checkpoint`
+**checkpoint。** `plan_checkpoint` → 计划完成后停在
+`ready-for-dev`，宿主呈报计划等人放行；`hitl` → 需要人操作的环节由宿主暂停并说明；`done_checkpoint`
 → `built` 后停下等人放行。没人要求的门不要自行加。
 
 **Epic 收口。** 满足触发条件后按「epic 收口三审」「完成即自动提交」「上下文交接与续跑」三节执行。本步只把不属于任何 entry 的真实问题追加到 goal `brief.md`「延期项」段，不扩范围。

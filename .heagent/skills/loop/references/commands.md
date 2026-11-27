@@ -1,4 +1,4 @@
-# /loop 契约 · 只读审查与 cron
+# /loop 契约 · 只读文档审查
 
 > 本文件是 `workflow.md` 拆出的章节，与它同属流程真源；章节归属见 `workflow.md` 的「文件地图」。
 
@@ -19,18 +19,3 @@
 不推进步骤；每条发现给位置、证据、严重度（Critical/High/Medium/Low）与建议处置；`review` 是 goal
 文档/状态审查，不等于代码评审——代码评审走「epic 收口三审」：`R1` = `bmad-code-review`（规格与契约轴）、
 `R2` = 不变量与守卫反脆弱（含注入反证）、`R3` = 技能 `code_review` 的三镜头（对抗 / 边界 / 验证缺口）。
-
-## cron 自动推进（仅 `auto`，用户显式发起）
-
-> **范围**：这是本契约里**唯一**用到 cron 的入口，且只由用户显式发 `/loop auto` 触发。交接路径（`next` / `run` / 每批完成 / 三审前）**永不**自动注册 job——续跑靠交接块 + 用户一句指令，见 `closeout.md`「上下文交接与续跑」。
-
-`auto [cron]` 用 cron 工具注册一个按表达式触发的 job，其 prompt 固定为以下模板（`auto off` 注销
-prompt 以「推进 goal」开头的 job）：
-
-> 推进 goal：读 `docs/current` 指向 goal 的 progress.md、brief.md 与 `- Initiative:` 行，
-> 跑 `tickets.py next <goal 目录>`，用 `bmad-build-auto` 构建 `ready_to_start` 的并行批（批内一条 entry 一个子会话；不成批时只取首行）。
-> 遇到 `hitl` / `plan_checkpoint` / `done_checkpoint` / `blocked` / `unknown` 时不要推进，原样报告
-> 等待项；任何情况下都不要把 entry `mark done`。
-
-无人值守也按同一组批规则：写集相交、带 checkpoint 或需人操作时一律退回逐条串行。无人值守的边界：`bmad-build-auto` 不提问，任何不明确一律在 plan 里记 `blocked` + 原因后停；它需要
-subagents，且需要干净工作树。
