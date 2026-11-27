@@ -417,7 +417,8 @@ class Settings(BaseSettings):
 
     # ── Web 检索（web_search 引擎面） ──
     # 引擎名查 web_search_engine 的 registry；换引擎 = 改此声明，src 零 diff。未知名 fail-loud。
-    web_search_engine: str = Field(default="tavily", min_length=1)
+    # 默认 duckduckgo（2026-11-27 用户裁定：免 key 零费优先；反爬拦截时显性报错，可切 tavily/zhipu）。
+    web_search_engine: str = Field(default="duckduckgo", min_length=1)
     # 空 = 未配置：web_search 工具常在，调用时显性报错（注册面不因缺密钥收窄）。
     web_search_api_key: str = Field(default="")
 

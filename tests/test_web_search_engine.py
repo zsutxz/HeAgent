@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 
 import httpx
 import pytest
@@ -303,3 +304,170 @@ class TestZhipuEngine:
         _install_mock(monkeypatch, lambda r: _json_response({"search_result": []}))
         engine = wse.ZhipuEngine(api_key="k")
         assert await engine.search("q") == []
+
+
+# ---------------------------------------------------------------------------
+# DuckDuckGo 免 key 引擎（HTML 端点解析，刮削面）
+# ---------------------------------------------------------------------------
+
+_DDGS_RESULT_FIXTURE = """<!DOCTYPE html>
+<html><body>
+<div class="result"><div class="links_main result__body">
+<h2 class="result__title">
+<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.example%2F1&amp;rut=a1"><b>Duck</b> Title 1</a>
+</h2>
+<a class="result__snippet" href="#">Snippet &quot;text&quot; with <b>bold</b></a>
+</div></div>
+<div class="result"><div class="links_main result__body">
+<h2 class="result__title">
+<a class="result__a" href="https://b.example/2">Direct Title 2</a>
+</h2>
+</div></div>
+<div class="result"><div class="links_main result__body">
+<h2 class="result__title">
+<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fc.example%2F3&amp;rut=c3">Title &amp; Co 3</a>
+</h2>
+<a class="result__snippet" href="#">plain snippet</a>
+</div></div>
+</body></html>
+"""
+
+_DDGS_NO_RESULTS_FIXTURE = """<html><body>
+<div class="no-results">No results for <b>zzz</b>.</div>
+</body></html>
+"""
+
+_DDGS_DRIFT_FIXTURE = "<html><body><p>anomaly page</p></body></html>"
+
+
+def _html_response(body: str, status: int = 200) -> httpx.Response:
+    request = httpx.Request("POST", "https://html.duckduckgo.com/html/")
+    return httpx.Response(status, text=body, request=request)
+
+
+class TestDuckDuckGoEngine:
+    """DuckDuckGo 免 key 引擎（HTML 刮削面）：请求形态、解析清洗与显性失败纪律。"""
+
+    async def test_posts_form_query_with_browser_ua_no_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.create_engine("duckduckgo", api_key="unused")
+        results = await engine.search("hello world", max_results=3)
+        req = captured["requests"][0]
+        assert req.method == "POST"
+        assert str(req.url) == "https://html.duckduckgo.com/html/"
+        assert "authorization" not in req.headers
+        assert req.headers["User-Agent"] == wse._DDG_USER_AGENT
+        assert urllib.parse.parse_qs(req.content.decode())["q"] == ["hello world"]
+        assert captured["client_kwargs"]["trust_env"] is False
+        assert captured["client_kwargs"]["timeout"] == wse._ENGINE_TIMEOUT
+        assert len(results) == 3
+
+    async def test_redirect_href_resolves_real_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        results = await engine.search("q")
+        assert results[0].url == "https://a.example/1"
+        assert results[2].url == "https://c.example/3"
+
+    async def test_direct_href_used_as_is(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        results = await engine.search("q")
+        assert results[1].url == "https://b.example/2"
+
+    async def test_title_and_snippet_strip_tags_and_unescape(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        results = await engine.search("q")
+        assert results[0].title == "Duck Title 1"
+        assert results[0].snippet == 'Snippet "text" with bold'
+        assert results[2].title == "Title & Co 3"
+
+    async def test_missing_snippet_is_empty_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        results = await engine.search("q")
+        assert results[1].snippet == ""
+
+    async def test_max_results_clamps_and_slices(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        assert len(await engine.search("q", max_results=2)) == 2
+        assert len(await engine.search("q", max_results=0)) == 1
+        assert len(await engine.search("q", max_results=99)) == 3
+
+    async def test_results_capped_at_max_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        blocks = "".join(
+            f'<div class="result__body"><a class="result__a" href="https://x.example/{i}">T{i}</a></div>'
+            for i in range(21)
+        )
+        _install_mock(monkeypatch, lambda r: _html_response(f"<html><body>{blocks}</body></html>"))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        assert len(await engine.search("q", max_results=99)) == 20
+
+    async def test_no_results_marker_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_NO_RESULTS_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        assert await engine.search("q") == []
+
+    async def test_zero_parsed_without_marker_raises_not_fake_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_DRIFT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError, match="反爬") as excinfo:
+            await engine.search("q")
+        assert excinfo.value.category == ErrorCategory.NON_TRANSIENT
+
+    async def test_http_403_raises_anti_bot_with_engine_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response("forbidden", status=403))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError, match="反爬") as excinfo:
+            await engine.search("q")
+        assert "tavily/zhipu" in str(excinfo.value)
+        assert excinfo.value.status_code == 403
+
+    async def test_http_429_classified_rate_limited(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response("slow down", status=429))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError) as excinfo:
+            await engine.search("q")
+        assert excinfo.value.category == ErrorCategory.RATE_LIMITED
+        assert excinfo.value.status_code == 429
+
+    async def test_timeout_is_transient(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _boom(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectTimeout("conn timeout", request=request)
+
+        _install_mock(monkeypatch, _boom)
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError) as excinfo:
+            await engine.search("q")
+        assert excinfo.value.category == ErrorCategory.TRANSIENT
+
+    async def test_create_engine_without_key_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.create_engine("duckduckgo")
+        results = await engine.search("q")
+        assert [r.url for r in results] == ["https://a.example/1", "https://b.example/2", "https://c.example/3"]
+        assert captured["requests"]  # 免 key 引擎真的发出请求，而非构造期拦截
+
+    async def test_blank_query_raises_without_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError, match="查询不能为空"):
+            await engine.search("   ")
+        assert captured["requests"] == []
+
+    async def test_overlong_query_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _html_response(_DDGS_RESULT_FIXTURE))
+        engine = wse.DuckDuckGoEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError, match="查询过长"):
+            await engine.search("x" * 401)
+
+    def test_duplicate_registration_raises(self) -> None:
+        saved = wse._ENGINE_REGISTRY
+        wse._ENGINE_REGISTRY = dict(saved)
+        try:
+            with pytest.raises(wse.SearchEngineError, match="已注册"):
+                wse.register_engine("duckduckgo", lambda api_key: wse.DuckDuckGoEngine(api_key=api_key))
+        finally:
+            wse._ENGINE_REGISTRY = saved

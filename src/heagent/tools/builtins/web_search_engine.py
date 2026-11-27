@@ -1,4 +1,4 @@
-"""web_search 引擎层 — 检索引擎抽象、Tavily/Zhipu 实现、按配置名构造的 registry。
+"""web_search 引擎层 — 检索引擎抽象、Tavily/Zhipu/DuckDuckGo 实现、按配置名构造的 registry。
 
 引擎可插拔契约：换引擎只改配置声明（``web_search_engine``），src 零 diff；
 新增引擎 = 实现 ``SearchEngine`` 协议 + ``register_engine`` 注册工厂。
@@ -12,7 +12,10 @@ OS 级沙箱兜底；凭据只经 env/config 注入，引擎不打密钥日志�
 
 from __future__ import annotations
 
+import html
 import logging
+import re
+import urllib.parse
 from typing import TYPE_CHECKING, Protocol
 
 import httpx
@@ -31,7 +34,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 检索引擎查询长度上限（API 契约：超限 4xx，引擎侧 fail-fast；Tavily/Zhipu 共用）
+# 检索引擎查询长度上限（API 契约：超限 4xx，引擎侧 fail-fast；三引擎共用）
 _MAX_QUERY_CHARS = 400
 # 引擎参数钳位上限；注入上下文前的确定性截断预算在工具面
 _MAX_RESULTS_CAP = 20
@@ -219,6 +222,121 @@ class ZhipuEngine(_BearerPostSearchEngine):
         return {"search_engine": "search_std", "search_query": q, "search_result_count": n}
 
 
+# ── DuckDuckGo 免 key 引擎（HTML 端点解析，刮削面）─────────────────────────
+# DDG 对默认客户端 UA 返回 403，必须带浏览器 UA（UA 是模块级常量字符串，非配置——常量≠配置）
+_DDG_ENDPOINT = "https://html.duckduckgo.com/html/"
+_DDG_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+# 刮削面反爬拦截码：免 key 引擎的 403 是反爬不是认证失败，不能走 classify_error 的 AUTH 桶
+_DDG_FORBIDDEN_STATUS = 403
+# 解析锚点（DDG HTML 端点的 class 约定）
+_DDGS_BLOCK_MARKER = "result__body"  # 结果块锚点，块内再找标题锚与摘要锚
+_DDGS_TITLE_MARKER = "result__a"
+_DDGS_SNIPPET_MARKER = "result__snippet"
+_DDGS_NO_RESULTS_MARKER = "no-results"  # DDG 官方零命中标记
+
+
+def _anchor_text_and_href(block: str, class_marker: str) -> tuple[str, str] | None:
+    """取块内 class 含 ``class_marker`` 的第一个 <a>，返回 ``(href, 内文)``；无则 ``None``。
+
+    内文清洗固定「先剥标签后 unescape」——先 unescape 会把实体还原成 <>，被下一步误剥。
+    """
+    match = re.search(r'<a\b[^>]*class="[^"]*' + class_marker + r'[^"]*"[^>]*>(.*?)</a>', block, re.DOTALL)
+    if match is None:
+        return None
+    href_match = re.search(r'href="([^"]*)"', match.group(0))
+    href = href_match.group(1) if href_match else ""
+    text = html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+    return href, text
+
+
+def _resolve_ddg_href(href: str) -> str:
+    """解出 DDG 跳转链（``/l/?uddg=<urlencoded 真实 URL>&rut=...``）的真实 URL；直链原样。"""
+    if "uddg=" not in href:
+        return href
+    values = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg")
+    return values[0] if values and values[0] else href
+
+
+class DuckDuckGoEngine:
+    """DuckDuckGo 免 key 检索引擎（POST HTML 端点 + stdlib 解析，刮削面）。
+
+    无 key、响应是 HTML，不适配 ``_BearerPostSearchEngine``（Bearer-JSON 骨架），自含实现
+    ``SearchEngine`` 协议；查询校验、钳位、超时与错误分类与 API 引擎共面（复用模块常量与
+    ``classify_error``）。刮削面特有显性失败纪律：页面带 no-results 标记 → 真零命中返回
+    ``[]``；无标记且解析出 0 条 → 显性报错（反爬拦截或结构漂移），不冒充零命中。
+    """
+
+    def __init__(self, api_key: str = "") -> None:
+        # 免 key：按 registry 工厂签名收下 api_key 但忽略，缺 key 不报错、正常工作
+        self._api_key = api_key
+
+    async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+        """执行一次 DDG HTML 搜索并解析结构化结果（HTTP/解析失败显性报错，不吞错）。"""
+        q = query.strip()
+        if not q:
+            raise SearchEngineError("查询不能为空")
+        if len(q) > _MAX_QUERY_CHARS:
+            raise SearchEngineError(f"查询过长（>{_MAX_QUERY_CHARS} 字符），当前 {len(q)} 字符")
+
+        # HTML 端点无数量参数，钳位口径与 API 引擎一致，只作用于客户端截取
+        n = min(max(max_results, 1), _MAX_RESULTS_CAP)
+        try:
+            async with httpx.AsyncClient(timeout=_ENGINE_TIMEOUT, trust_env=False) as client:
+                response = await client.post(_DDG_ENDPOINT, data={"q": q}, headers={"User-Agent": _DDG_USER_AGENT})
+        except httpx.TimeoutException as exc:
+            raise SearchEngineError(f"检索请求超时: {q[:50]}", category=ErrorCategory.TRANSIENT) from exc
+        except httpx.RequestError as exc:
+            raise SearchEngineError(f"检索请求失败: {exc}", category=ErrorCategory.TRANSIENT) from exc
+        if _HTTP_REDIRECT_MIN <= response.status_code < _HTTP_REDIRECT_MAX:
+            raise SearchEngineError(
+                f"检索引擎重定向 {response.status_code}（直连不应重定向，疑网关劫持）",
+                status_code=response.status_code,
+                category=ErrorCategory.TRANSIENT,
+            )
+        if response.status_code == _DDG_FORBIDDEN_STATUS:
+            raise SearchEngineError(
+                "DuckDuckGo 反爬拦截（HTTP 403，浏览器 UA 未被接受）；长期依赖请配置 tavily/zhipu 引擎",
+                status_code=response.status_code,
+                category=ErrorCategory.NON_TRANSIENT,
+            )
+        if response.status_code >= _HTTP_CLIENT_ERROR_MIN:
+            # 其余 >=400 走既有判据（429 -> RATE_LIMITED 等），指引文本随分类自带上浮
+            provider_error = ProviderError(response.text[:200], status_code=response.status_code)
+            category = classify_error(provider_error)
+            raise SearchEngineError(
+                f"{_CATEGORY_HINTS[category]}检索引擎 HTTP {response.status_code}: {response.text[:200]}",
+                status_code=response.status_code,
+                category=category,
+            )
+
+        page = response.text
+        if re.search(r'class="[^"]*' + _DDGS_NO_RESULTS_MARKER + r'[^"]*"', page):
+            return []  # DDG 官方零命中标记：真零命中，不进入解析
+        results: list[SearchResult] = []
+        for block in re.split(r'class="[^"]*' + _DDGS_BLOCK_MARKER + r'[^"]*"', page)[1:]:
+            anchor = _anchor_text_and_href(block, _DDGS_TITLE_MARKER)
+            if anchor is None or not anchor[0]:
+                continue
+            snippet = _anchor_text_and_href(block, _DDGS_SNIPPET_MARKER)
+            results.append(
+                SearchResult(
+                    title=anchor[1],
+                    url=_resolve_ddg_href(html.unescape(anchor[0])),
+                    snippet=snippet[1] if snippet else "",
+                )
+            )
+        if not results:
+            # 无标记又解析不出结果 = 反爬软拦截页或结构漂移：显性失败，不冒充零命中
+            raise SearchEngineError(
+                "DuckDuckGo 页面解析出 0 条结果且无 no-results 标记（疑反爬拦截或页面结构漂移），不冒充零命中",
+                status_code=response.status_code,
+                category=ErrorCategory.NON_TRANSIENT,
+            )
+        return results[:n]
+
+
 _ENGINE_REGISTRY: dict[str, Callable[[str], SearchEngine]] = {}
 
 
@@ -244,6 +362,14 @@ def _make_zhipu(api_key: str) -> SearchEngine:
 
 
 register_engine("zhipu", _make_zhipu)
+
+
+def _make_duckduckgo(api_key: str) -> SearchEngine:
+    # 免 key：api_key 按 registry 工厂签名收下即忽略，三引擎工厂签名统一
+    return DuckDuckGoEngine(api_key=api_key)
+
+
+register_engine("duckduckgo", _make_duckduckgo)
 
 
 def create_engine(name: str, api_key: str = "") -> SearchEngine:

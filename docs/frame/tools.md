@@ -186,7 +186,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 | 工具 | 功能 |
 |------|------|
 | `web_fetch` | 抓取 HTTP URL 内容（`@tool(read_only=True)`，`max_length` 截断；SSRF 围栏 + 流式截断 + 重定向再校验） |
-| `web_search` | 按主题检索（`@tool(read_only=True)`，引擎经 `WEB_SEARCH_ENGINE` 声明可插拔、默认 Tavily；条数硬切片 + 摘要/title/url 钳位 + 汇总 ≤20000 字符确定性预算 + `guard_content` 围栏；无密钥时工具常在、调用显性报错） |
+| `web_search` | 按主题检索（`@tool(read_only=True)`，引擎可插拔（duckduckgo 默认免 key / tavily / zhipu），经 `WEB_SEARCH_ENGINE` 声明；条数硬切片 + 摘要/title/url 钳位 + 汇总 ≤20000 字符确定性预算 + `guard_content` 围栏；需 key 的引擎无密钥时工具常在、调用显性报错） |
 
 **Git 工具（4 个，`git.py`，均 `@tool(read_only=True)`）：**
 
