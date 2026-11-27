@@ -114,7 +114,8 @@ checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id �
 
 Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
 与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
-无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.18。
+无人值守 cron（指 `/goal auto` 这一档；v7 的 `/loop` 已在 2026-11-27 移除自动推进入口，
+见 [`docs/faq.md`](../faq.md) 的 `/loop` 段）不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.18。
 
 `workflow.md` 是自包含的声明式入口。其 `on_create` 声明创建规范化 `GoalArtifact` 和 `current` 指针；
 每个 inline `## Step NN:` 区块声明 prompt、输入输出和 checkpoint。CLI 只映射已支持的

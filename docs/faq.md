@@ -349,6 +349,7 @@ heagent run --resume <session-id> "…"       # 指定会话
 
 - 触发：`/loop <大目标描述>`；`reset` 只删 `docs/current` 指针，不删 goal 目录。
 - 运行状态：`docs/<goal-id>/progress.md` ＋ 指针 `docs/current`（内容是 goal 目录相对 `docs/` 的路径）；每步用一个**全新** `task_delegate` 子会话（同 epic 内声明齐全时可成批 `task_parallel`），无 Python 状态机；交接块是唯一的跨会话载体。
+- 交接与续跑：一批 entry（串行时即一条）或一个 epic 完成后，覆盖写 `progress.md` 的 `## 交接块`，并在回复里给出**可直接复制的续跑指令**——同会话发「继续」／`/clear` 后 `/loop next`／新会话发 `/loop next`，三选一；**不注册 cron、不建任何自动 job**，也**不**为「等你换会话」而停（不换就在当前会话继续）。`/loop auto` 已移除，本契约**没有无人值守档**：`plan_checkpoint` 一律停在 `ready-for-dev` 等人放行。
 - 规划与 story 状态：票树住 goal 目录自带的 `docs/<goal-id>/tickets/`（`tickets.py` 每条命令都必须带显式目录；`mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
 - 与 `/goal` 的关系：两套工作流**互不读写**对方的产物目录（`/goal` 在 `_he-output/goals/`，`/loop` 在 `docs/`）。
 
