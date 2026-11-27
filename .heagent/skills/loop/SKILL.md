@@ -33,7 +33,7 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 | `pause` / `resume <回复>` | 置 paused / 记回答进决策日志并写入 `brief.md` 用户补充段，恢复等待项；Step 02 交互轮的回答也走这里（原话进 `step-02-brainstorm-options/report.md`，不写 `brief.md` 冻结段） |
 | `approve` / `reject <原因>` / `amend <补充>` | 处理审批门；Step 08 的 `approve` 还会逐条 `mark done` |
 | `decisions` | 回显决策日志 |
-| `auto [cron]` / `auto off` | 注册 / 注销自动推进 job（永不写 `done`） |
+| `auto [cron]` / `auto off` | **仅用户显式发起**的自动推进 job（注册 / 注销，永不写 `done`）；交接路径永不自动注册 |
 | `reset` | 清除 current 指针（goal 目录保留） |
 
 ## 执行总则
@@ -55,14 +55,14 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
    `mark done` 并记答复原文；未表态就停在门前。
 9. **只读审查**：`review` 不委派实现型子会话、不改任何文件与状态；每条发现给位置、证据、严重度、处置。
 10. **显性失败**：状态文件缺失/损坏、脚本非零退出、同一子任务连续两次失败时如实报告并停，不伪造进度。
-11. **完成即提交、交接、换会话**：一批 entry 全部 `built` 后，按 `workflow.md`「完成即自动提交」判据提交；未过判据不提交，缺口写进交接块。随后按「上下文交接与续跑」覆盖写 `progress.md` 交接块，并注册一次性 cron（`recurring: false`，`* * * * *`），注册前先 `cron_list` 去重。cron 只换执行入口、不清空当前会话，回复里须写明要清零需用户 `/clear` 或另开会话。遇 `hitl` / checkpoint、Step 08 放行前、显性失败或需用户裁决时不注册。
+11. **完成即提交、交接、续跑**：一批 entry 全部 `built` 后，按 `workflow.md`「完成即自动提交」判据提交；未过判据不提交，缺口写进交接块。随后按「上下文交接与续跑」覆盖写 `progress.md` 交接块，并在本轮回复里给出**可直接复制的续跑指令**（同一会话发「继续」或 `/loop next`；要清零上下文就先 `/clear` 或另开会话再发）。**不注册 cron、不建任何自动 job**——续跑只靠「交接块 + 用户一句话」，流程不因没有定时器而停下。遇 `hitl` / checkpoint、Step 08 放行前、显性失败或需用户裁决时同样只交接、不自动推进。
 12. **同 epic 内默认成批并行**：Step 07 默认成批并行——声明齐全且过「七条件」的相邻 entry 用
     `task_parallel` 同时开子会话（`parallel_group` / `write_set` 是 Step 06 的义务声明）；**门禁、`mark`、
     提交、交接仍由宿主串行收口**（本仓源码树、容器 workspace 与设备腿只有一份）。声明缺失、写集相交、
     带 checkpoint / `hitl`、跨 epic 一律 fail-closed 单条串行兜底；批内越集写撤销本 epic 的并行授权。
     细则见 `workflow.md` 的「epic 内并行批」。
 13. **Epic 收口三审**：该 epic 全部 entry 达 `built` / `in-review` / `done` 后自动开跑，不呈报、不等确认；
-    开跑前先换一次上下文（交接块 + 一次性 cron）。三镜头**并行审读**（`task_parallel` 开三个子会话，
+    开跑前先交接（覆盖写交接块）并**建议**换新上下文：用户换就新会话 `/loop next`（三审随之在新会话里开跑），不换就在当前会话直接开跑——**不得为等换会话而停**（不注册 cron）。三镜头**并行审读**（`task_parallel` 开三个子会话，
     同一快照、只读，产出待核验清单），宿主合并落盘后**串行**做验证与反证——`R1` 规格对账、
     `R2` 不变量与守卫、`R3` `code_review` 三镜头。顺序、报告落点与缺口处置以 `workflow.md`
     「epic 收口三审」为准；三镜头齐备的报告与回顾的 `## 三审记录` 缺一即不提交。

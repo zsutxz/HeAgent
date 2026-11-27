@@ -23,7 +23,7 @@ epic 文件、`tickets.toml`）与 story 状态（plan frontmatter）全部住 g
 | `references/tickets.md` | 「票树接口」「状态与目录约定」 |
 | `references/parallel-batch.md` | 「epic 内并行批」 |
 | `references/closeout.md` | 「epic 收口三审」「完成即自动提交」「上下文交接与续跑」 |
-| `references/commands.md` | 「只读文档审查」「cron 自动推进」 |
+| `references/commands.md` | 「只读文档审查」「`auto` 自动推进（仅用户显式发起）」 |
 | `references/standards.md` | 「全局标准」 |
 
 ## 宿主执行循环
@@ -120,7 +120,7 @@ Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围�
 ## Step 02: brainstorm-options（发散构思）
 
 - 执行角色：`bmad-brainstorming`
-- **交互**：默认**与用户交互**（见本节「交互轮」）；`/loop auto`、cron 触发或用户当轮说「你自己定」
+- **交互**：默认**与用户交互**（见本节「交互轮」）；`/loop auto` 或用户当轮说「你自己定」
   时退化为一次成稿
 - 输入：用户意图、市场综述、上一轮用户回复（若有）、`step-02-brainstorm-options/report.md` 的
   `## 待回答的问题` 段
@@ -151,10 +151,10 @@ Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围�
 - 交互轮只写报告与 memlog：不建票树、不改 `brief.md` 冻结段、不碰实现；用户的方向性裁决留到 Step 04
   落成带日期的 `Decision:` 行；
 - 未答轮次写进报告的 `## 待回答的问题`，并把 `progress.md` 的当前步骤记成「Step 02 交互轮 N 待用户回复」；
-  此后**不注册 cron**（无人接手只会空转）：用户回复即在同一会话继续，或新会话 `/loop next` 读该段续跑
+  此后**不注册任何自动 job**（无人接手只会空转）：用户回复即在同一会话继续，或新会话 `/loop next` 读该段续跑
   ——已答就进下一轮，未答就原样重报问题，不重开一轮。
 
-**退化（不交互）路径。** `/loop auto`、cron 触发，或用户当轮说「你自己定 / 不用问我」时不走交互轮：按
+**退化（不交互）路径。** `/loop auto` 或用户当轮说「你自己定 / 不用问我」时不走交互轮：按
 `Ideate for me` 一次成稿，报告 `## 用户输入` 写「未交互（原因）」并记 `Assumption:`。用户中途说「先别
 问了」同样立即转收敛轮，不算跳步。
 
