@@ -220,3 +220,86 @@ class TestRedirectAndRegistry:
                 wse.register_engine("tavily", lambda api_key: wse._make_tavily(api_key))
         finally:
             wse._ENGINE_REGISTRY = saved
+
+
+_ZHIPU_PAYLOAD = {
+    "search_result": [
+        {"title": "Z1", "link": "https://z.example/1", "content": "c1"},
+        {"title": "Z2", "link": "https://z.example/2", "content": "c2", "media": "site"},
+    ],
+}
+
+
+class TestZhipuEngine:
+    """智谱引擎（GLM 生态）：请求形态、字段映射与显性失败与 Tavily 同纪律（共用 HTTP 面）。"""
+
+    async def test_posts_search_query_with_bearer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _json_response(_ZHIPU_PAYLOAD))
+        engine = wse.create_engine("zhipu", api_key="k-zhipu")
+        results = await engine.search("hello world", max_results=2)
+
+        req = captured["requests"][0]
+        assert req.method == "POST"
+        assert str(req.url) == "https://open.bigmodel.cn/api/paas/v4/web_search"
+        assert req.headers["Authorization"] == "Bearer k-zhipu"
+        assert json.loads(req.content) == {
+            "search_engine": "search_std",
+            "search_query": "hello world",
+            "search_result_count": 2,
+        }
+        assert [r.title for r in results] == ["Z1", "Z2"]
+        assert results[0].url == "https://z.example/1"
+        assert results[0].snippet == "c1"
+
+    async def test_no_key_raises_without_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _json_response(_ZHIPU_PAYLOAD))
+        engine = wse.ZhipuEngine(api_key="")
+        with pytest.raises(wse.SearchEngineError, match="密钥"):
+            await engine.search("q")
+        assert captured["requests"] == []
+
+    async def test_max_results_clamped_both_ends(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _install_mock(monkeypatch, lambda r: _json_response(_ZHIPU_PAYLOAD))
+        engine = wse.ZhipuEngine(api_key="k")
+        await engine.search("q", max_results=0)
+        assert json.loads(captured["requests"][0].content)["search_result_count"] == 1
+        await engine.search("q", max_results=99)
+        assert json.loads(captured["requests"][1].content)["search_result_count"] == 20
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (429, ErrorCategory.RATE_LIMITED),
+            (401, ErrorCategory.AUTH_FAILED),
+            (500, ErrorCategory.TRANSIENT),
+            (400, ErrorCategory.NON_TRANSIENT),
+        ],
+    )
+    async def test_http_status_classified(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, expected: ErrorCategory
+    ) -> None:
+        _install_mock(monkeypatch, lambda r: _json_response({"detail": "boom"}, status=status))
+        engine = wse.ZhipuEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError) as excinfo:
+            await engine.search("q")
+        assert excinfo.value.category == expected
+        assert excinfo.value.status_code == status
+
+    async def test_missing_search_result_list_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _json_response({"data": []}))
+        engine = wse.ZhipuEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError, match="形状非法"):
+            await engine.search("q")
+
+    async def test_all_items_missing_link_raises_not_fake_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """全部条目缺 link 显性报错，不静默返回 [] 冒充零命中（与 Tavily 缺 url 同判）。"""
+        payload = {"search_result": [{"title": "a"}, {"title": "b"}]}
+        _install_mock(monkeypatch, lambda r: _json_response(payload))
+        engine = wse.ZhipuEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError, match="全部缺 link"):
+            await engine.search("q")
+
+    async def test_genuinely_empty_results_return_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_mock(monkeypatch, lambda r: _json_response({"search_result": []}))
+        engine = wse.ZhipuEngine(api_key="k")
+        assert await engine.search("q") == []
