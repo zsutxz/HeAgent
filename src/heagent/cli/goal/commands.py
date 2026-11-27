@@ -6,15 +6,12 @@ import asyncio
 import difflib
 import os
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from heagent.cli.goal.execution import (
     _GOAL_ADVANCED,
-    _GOAL_DONE,
     _GOAL_FAILED,
     _active_goal_dir_or_hint,
-    _goal_active_md,
     _goal_checkpoint_prompt,
     _goal_declarative_active_dir,
     _goal_declarative_prepare,
@@ -29,7 +26,6 @@ from heagent.cli.goal.verify import (
 )
 from heagent.config import get_settings
 from heagent.context.loader import load_context_files
-from heagent.cron.expr import cron_matches
 from heagent.engine import (
     StorySpec,
     WorkflowCheckpointError,
@@ -86,7 +82,8 @@ if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider
     from heagent.pub.types import StoryExecutionContext
 
-_GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
+#: 旧版 `/goal auto` 写进 JobStore 的 prompt 前缀：能力已于 2026-11-27 移除，
+#: 这里只用于「收尸」——把遗留 job 认出来并删掉，绝不按普通 prompt 执行。
 _GOAL_AUTO_PREFIX = "goal-advance "
 
 
@@ -170,6 +167,7 @@ async def _goal_declarative_new(
         _echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
         return
     if previous is not None and cron_store is not None:
+        # 上一个 goal 名下的**旧版** auto job 一并收尸（能力已移除，见 `_goal_auto_remove`）。
         _goal_auto_remove(cron_store, previous.name)
     await _goal_declarative_advance(provider, engine, workflow)
 
@@ -428,38 +426,6 @@ async def _goal_declarative_run(
         _echo("[goal] declarative workflow interrupted; use /goal resume to continue", err=True)
 
 
-async def _goal_declarative_auto(
-    workflow: WorkflowResource,
-    args: str,
-    cron_store: JobStore | None,
-) -> None:
-    goal_dir = _goal_declarative_active_dir()
-    if args == "off":
-        if cron_store is None or goal_dir is None:
-            _echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
-            return
-        _echo(f"[goal] auto disabled: removed {_goal_auto_remove(cron_store, goal_dir.name)} job(s)", err=True)
-        return
-    if cron_store is None or goal_dir is None:
-        _echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
-        return
-    schedule = args or workflow.auto_schedule or _GOAL_AUTO_DEFAULT_CRON
-    try:
-        fields = schedule.split()
-        if len(fields) != _CRON_FIELD_COUNT or any(
-            not field or any(not part.strip() for part in field.split(",")) for field in fields
-        ):
-            raise ValueError("cron must contain five non-empty fields")
-        cron_matches(schedule, datetime.now(UTC))
-    except (TypeError, ValueError) as exc:
-        _echo(f"[goal] invalid cron expression: {exc}", err=True)
-        return
-    _goal_auto_remove(cron_store, goal_dir.name)
-    job = cron_store.create_job(f"{_GOAL_AUTO_PREFIX}{goal_dir.name}", schedule)
-    cron_store.add(job)
-    _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
-
-
 def _goal_workflow_option(args: str) -> tuple[str, str]:
     """拆出字符串参数里的 ``--workflow <包id>``（或 ``--workflow=<包id>``）选项；返回 ``(剩余文本, 包 id)``。
 
@@ -685,8 +651,12 @@ async def _goal_declarative_dispatch(
         async with goal_mutex():
             _goal_reset()
     elif head == "auto":
-        if (workflow := await _goal_bound_workflow()) is not None:
-            await _goal_declarative_auto(workflow, rest, cron_store)
+        _echo(
+            "[goal] auto has been removed: this workflow no longer registers cron jobs; "
+            "use `heagent cron add` for scheduled runs.",
+            err=True,
+        )
+        _goal_usage()
     elif (intended := _goal_typo_subcommand(args)) is not None:
         _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()
@@ -720,7 +690,7 @@ def _goal_usage() -> None:
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
         "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
-        "  /goal auto [cron]     注册 cron 自动推进（默认 */15 * * * *；off 注销）",
+        "  /goal auto            已移除（本工作流不再注册 cron；要定时推进用 `heagent cron add`）",
         err=True,
     )
 
@@ -736,6 +706,7 @@ def _goal_reset() -> None:
 
 
 def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
+    """删掉该 goal 名下**旧版** auto job（能力已移除，只做收尸），返回删除条数。"""
     removed = 0
     for job in store.list_jobs():
         if job.prompt == f"{_GOAL_AUTO_PREFIX}{goal_id}" and store.remove(job.id):
@@ -744,44 +715,17 @@ def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
 
 
 def _goal_auto_goal_id(prompt: str) -> str | None:
-    """返回调度器自有的 auto prompt 里的精确 goal id；非该形态则为 ``None``。"""
+    """识别**旧版** auto job 的 prompt（``goal-advance <id>``）并取出 goal id；其它形态 ``None``。
+
+    `/goal auto` 已于 2026-11-27 移除，这个函数现在只服务「收尸」：旧版本注册的 job 还在
+    用户的 `jobs.json` 里，认不出来就会被当成普通 prompt 跑一轮 loop。
+    """
     if not prompt.startswith(_GOAL_AUTO_PREFIX):
         return None
     goal_id = prompt[len(_GOAL_AUTO_PREFIX) :].strip()
     if goal_id_is_valid(goal_id):
         return goal_id
     return None
-
-
-async def _goal_cron_advance(
-    provider: BaseProvider, engine: EngineContainer | None, store: JobStore, goal_id: str
-) -> None:
-    """Run one scheduled goal step under the same process lock as manual commands.
-
-    cron 与手动命令同一解析口径（Story 51-6，AD-8）：推进的是 goal **冻结绑定**的
-    workflow，不读当前配置——配置换包后 cron 仍按绑定推进或显性失败，绝不静默换流程。
-    """
-    try:
-        async with goal_mutex():
-            current = _goal_active_md()
-            if current is None or current.parent.name != goal_id:
-                removed = _goal_auto_remove(store, goal_id)
-                if removed:
-                    _echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
-                return
-            try:
-                declarative_workflow = resolve_bound_workflow(current.parent, get_settings().goal_workflow_skill)
-            except (WorkflowCheckpointError, OSError, ValueError) as exc:
-                _echo(f"[goal] auto stopped: {exc}", err=True)
-                _goal_auto_remove(store, goal_id)
-                return
-            outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
-            if outcome in {_GOAL_DONE, _GOAL_FAILED}:
-                removed = _goal_auto_remove(store, goal_id)
-                _echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
-    except OSError:
-        # 另一进程正持 goal 锁：显性失败并提示，cron 下一 tick 自动重试。
-        _echo("[goal] 另一进程正在推进 goal（锁等待超时）；本 tick 跳过，下一 tick 自动重试。", err=True)
 
 
 async def _goal_runner(

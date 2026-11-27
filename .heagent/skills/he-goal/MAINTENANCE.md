@@ -9,7 +9,7 @@
 （本包 `meta.yaml` 声明 `canonical_id: he-goal`），CLI 读取下列资源执行工作流：
 
 - `workflow.md` —— 工作流契约：8 步的顺序、`input`/`output`、`checkpoint`、`validation` 门禁、`role`、
-  `story_loop`、`max_iterations` 与 frontmatter 策略声明（`max_rounds` / `auto_schedule` /
+  `story_loop`、`max_iterations` 与 frontmatter 策略声明（`max_rounds` /
   `open_question_*`）。**改工作流行为只改这个文件，不改代码。**
 - `templates/prompt.md`（步骤提示词骨架）与 `templates/gate.md`（门禁块骨架，渲染结果填入上者的
   `{gate}`）—— 两个文件的**文件名由 `workflow.md` frontmatter 声明**（`prompt_template:` /

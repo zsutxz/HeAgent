@@ -215,8 +215,8 @@ def build_cron_job_runner(
 ) -> CronJobRunner:
     """构造 cron 任务的 job runner（原 cli/gui 两处 ``_run_job`` 的逐字合并，Phase 2 C3）。
 
-    runner 语义：goal 自动推进 job（``_goal_auto_goal_id`` 命中）走 ``_goal_cron_advance``
-    续推 workflow；其余 prompt 构造**一次性 loop**（与入口主 loop 共享 provider/engine/
+    runner 语义：**旧版** `/goal auto` 留下的 job（``_goal_auto_goal_id`` 命中）只做收尸 ——
+    删掉该 job 并跳过，不构造 loop、不发通知；其余 prompt 构造**一次性 loop**（与入口主 loop 共享 provider/engine/
     stores，事件经同一 EventBus 汇聚），使用传入的 ``run_context``，不与交互中的主 loop
     抢占上下文。
 
@@ -239,13 +239,18 @@ def build_cron_job_runner(
             logger.warning("cron notifier failed; notification dropped (job=%s)", job_id, exc_info=True)
 
     async def _run_job(prompt: str, run_context: RunContext) -> None:
-        from heagent.cli.goal import _goal_auto_goal_id, _goal_cron_advance
+        from heagent.cli.goal import _goal_auto_goal_id
         from heagent.network.http_protocol import CronResultStatus  # noqa: PLC0415 —— 见上方惰性导入说明
 
         goal_id = _goal_auto_goal_id(prompt)
         if goal_id is not None:
-            # goal 自动推进不是「给用户的回答」——不发通知（零投递、零回显）。
-            await _goal_cron_advance(provider, engine, cron_store, goal_id)
+            # **旧版** `/goal auto` 留下的 job（能力已于 2026-11-27 移除）：收尸并跳过。
+            # 绝不把它当普通 prompt 跑一轮 loop（那会拿 `goal-advance <id>` 当问题回答），
+            # 也不发通知——它不是「给用户的回答」。
+            job_id = str(run_context.metadata.get("job_id", "") or "")
+            if cron_store is not None and job_id:
+                cron_store.remove(job_id)
+            logger.warning("cron event=legacy_goal_auto_skipped job_id=%s goal_id=%s", job_id, goal_id)
             return
         loop = AgentLoop(
             provider,

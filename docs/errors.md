@@ -214,7 +214,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | 沙箱后端不可用 | `sandbox` / `firejail` / `docker` / `winjob` | `heagent run --sandbox passthrough "hi"` / `heagent run --sandbox docker "hi"` / `heagent doctor` |
 | MCP 配置 / 连接失败 | `mcp` / `.mcp.json` | `heagent doctor` / `/mcp-prompt` |
 | 技能 / 工作流包不可用 | `skill` / `workflow role` / `workflow package` | `/goal doctor` / `heagent doctor` / `/help` |
-| 定时任务失败 | `cron` / `job store` / `schedule` | `/goal auto` / `heagent doctor` |
+| 定时任务失败 | `cron` / `job store` / `schedule` | `heagent cron list` / `heagent doctor` |
 | 会话 id 非法 / 会话缺失 | `session` / `--resume` / `rollout` / `replay` | `/clear` / `heagent run "hi"` |
 | provider 未配置 / 切换失败 | `provider` / `routing pool` / `not supported by any configured account` | `/provider` / `/model auto` / `heagent doctor` |
 | 配置键非法 | `invalid value` / `cannot parse` / `.env` / `config` | `heagent doctor` / `heagent init --interactive` |

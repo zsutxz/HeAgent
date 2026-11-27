@@ -11,12 +11,10 @@ import pytest
 import heagent.cli.console as cli
 import heagent.cli.goal as cli_goal
 from heagent.cli.goal import (
-    _goal_cron_advance,
     _goal_declarative_runner,
     _goal_declarative_workflow,
     _goal_runner,
 )
-from heagent.cron.jobs import JobStore
 from heagent.config import reset_settings
 from heagent.engine import (
     WorkflowGateError,
@@ -246,24 +244,6 @@ async def test_declarative_resume_advances_once_under_goal_lock(
 
     assert len(successful_step) == 2
     assert observed == [True]
-
-
-@pytest.mark.asyncio
-async def test_declarative_auto_uses_same_completed_checkpoint(
-    declarative_cwd: Path,
-    successful_step: list[str],
-) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new scheduled workflow")
-    await _goal_runner(SimpleNamespace(), None, "pause")
-    await _goal_runner(SimpleNamespace(), None, "resume")
-    await _goal_runner(SimpleNamespace(), None, "next")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    store = JobStore(str(declarative_cwd / "jobs.json"))
-    await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
-
-    await _goal_cron_advance(SimpleNamespace(), None, store, goal_id)
-    assert len(successful_step) == 2
-    assert store.list_jobs() == []
 
 
 @pytest.mark.asyncio
@@ -735,25 +715,6 @@ def test_interactive_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
 
 
 @pytest.mark.asyncio
-async def test_declarative_auto_keeps_job_when_paused_at_checkpoint(
-    declarative_cwd: Path,
-    successful_step: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Prompt-mode checkpoint pauses are waiting, not terminal: cron auto must survive them."""
-    await _goal_runner(SimpleNamespace(), None, "new scheduled pause workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    store = JobStore(str(declarative_cwd / "jobs.json"))
-    await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
-
-    await _goal_cron_advance(SimpleNamespace(), None, store, goal_id)
-
-    assert len(successful_step) == 1
-    assert len(store.list_jobs()) == 1
-    assert "paused; use /goal resume first" in capsys.readouterr().err
-
-
-@pytest.mark.asyncio
 async def test_open_question_mode_default_injects_proceed_with_default(
     declarative_cwd: Path,
     successful_step: list[str],
@@ -1041,13 +1002,13 @@ def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.Monke
         assert placeholder in workflow.gate_template
 
 
-def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative_cwd: Path) -> None:
-    """``max_rounds`` / ``auto_schedule`` come from the workflow declaration, not from code."""
+def test_declared_run_rounds_override_cli_defaults(declarative_cwd: Path) -> None:
+    """``max_rounds`` comes from the workflow declaration, not from code."""
     workflow_path = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow_path.write_text(
         workflow_path.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n",
-            'step_executor: subagent\nmax_rounds: 3\nauto_schedule: "0 3 * * *"\n',
+            "step_executor: subagent\nmax_rounds: 3\n",
         ),
         encoding="utf-8",
     )
@@ -1056,7 +1017,6 @@ def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative
 
     assert workflow is not None
     assert workflow.max_rounds == 3
-    assert workflow.auto_schedule == "0 3 * * *"
 
 
 def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarative_cwd: Path) -> None:

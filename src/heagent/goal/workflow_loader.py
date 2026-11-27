@@ -320,7 +320,6 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         checkpoint_mode=cast("CheckpointMode", checkpoint_mode),
         open_question_mode=cast("OpenQuestionMode", open_question_mode),
         max_rounds=_bounded_int(package, values, resource, key="max_rounds", default=10, maximum=100),
-        auto_schedule=_value_text(values, "auto_schedule"),
         open_question_default=_value_text(values, "open_question_default"),
         open_question_block=_value_text(values, "open_question_block"),
         prompt_template=_declared_template(package, values, resource, "prompt_template"),

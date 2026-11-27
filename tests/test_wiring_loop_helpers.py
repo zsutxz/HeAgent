@@ -1,6 +1,6 @@
 """wiring loop 装配共享缝契约（Phase 2 C3）。
 
-``build_cron_job_runner``：goal 分支短路走 ``_goal_cron_advance``、其余 prompt 构造
+``build_cron_job_runner``：旧版 goal-advance job 只收尸（删 job + 跳过，不构造 loop）、其余 prompt 构造
 一次性 loop 并透传装配参数；``ensure_runtime_config``：构造完成后的 engine 必有快照，
 None 显性失败。
 """
@@ -73,40 +73,39 @@ class TestEnsureRuntimeConfig:
 
 
 class TestBuildCronJobRunner:
-    async def test_goal_branch_short_circuits_to_advance(
+    async def test_legacy_goal_job_is_swept_without_building_a_loop(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine_container
     ) -> None:
-        """goal 自动推进 prompt 不构造 loop，直接走 _goal_cron_advance。"""
+        """旧版 goal-advance job 只收尸：删 job + 跳过，不构造 loop、不打 provider。"""
         from heagent.cron.jobs import JobStore
-
-        advanced: list[str] = []
 
         def fake_auto_goal_id(prompt: str) -> str | None:
             return "goal-123" if prompt.startswith("goal:") else None
 
-        async def fake_advance(provider, engine, store, goal_id) -> None:  # noqa: ANN001
-            advanced.append(goal_id)
-
         monkeypatch.setattr("heagent.cli.goal._goal_auto_goal_id", fake_auto_goal_id)
-        monkeypatch.setattr("heagent.cli.goal._goal_cron_advance", fake_advance)
 
         config = resolve_runtime_config()
         provider = _RecordingProvider()
+        store = JobStore(str(tmp_path / "jobs.json"))
+        job = store.create_job("goal:推进一下", "* * * * *")
+        store.add(job)
         runner = build_cron_job_runner(
             provider,
             engine_container,
             config,
-            JobStore(),
+            store,
             skills=None,
             facts=None,
             profile=None,
             retry_mw=lambda req, next_handler: next_handler(req),
         )
-        run_context: RunContext = engine_container.create_run_context(workspace_root=str(tmp_path))
+        run_context: RunContext = engine_container.create_run_context(
+            metadata={"kind": "cron", "job_id": job.id}, workspace_root=str(tmp_path)
+        )
         await runner("goal:推进一下", run_context)
 
-        assert advanced == ["goal-123"]
         assert provider.calls == []  # 未构造 loop、未调用 provider
+        assert store.list_jobs() == []  # 遗留 job 已被删掉
 
     async def test_plain_prompt_builds_one_shot_loop(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine_container

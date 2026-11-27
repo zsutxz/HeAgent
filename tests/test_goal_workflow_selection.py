@@ -301,7 +301,7 @@ async def test_status_resolves_the_frozen_binding_not_the_current_setting(
 
 
 class _RecordingCronStore:
-    """``/goal auto`` 注册路径的最小 JobStore 替身（记录注册的 job）。"""
+    """最小 JobStore 替身：记录任何被注册的 job（用来断言「现在什么都不注册」）。"""
 
     def __init__(self) -> None:
         self.jobs: list[SimpleNamespace] = []
@@ -340,7 +340,6 @@ _BOUND_ARMS = [
     ("reject 请修改", "no step is awaiting a decision"),
     ("amend 请补充", "no step is awaiting a decision"),
     ("decisions", "decisions: none recorded yet"),
-    ("auto", "workflow=he-alpha-flow"),
     ("doctor", "doctor:"),
 ]
 
@@ -478,33 +477,35 @@ async def test_external_step_file_drift_fails_the_restore(
 
 
 @pytest.mark.asyncio
-async def test_package_drift_fails_the_cron_path_too(
-    goal_cwd: Path, successful_step: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+async def test_auto_arm_is_removed_and_registers_nothing(goal_cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """``/goal auto`` 已移除：只回显移除说明 + 用法表，不注册 job。"""
+    store = _RecordingCronStore()
+    capsys.readouterr()
+
+    await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
+
+    err = capsys.readouterr().err
+    assert "auto has been removed" in err
+    assert "/goal auto" in err  # 用法表里的移除注记
+    assert store.jobs == []
+
+
+@pytest.mark.asyncio
+async def test_new_goal_sweeps_the_legacy_auto_job_of_the_previous_goal(
+    goal_cwd: Path, successful_step: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """旧版 `/goal auto` 注册的 job 在开新 goal 时被收尸（能力已移除，只留清理）。"""
     _make_package(goal_cwd, "he-alpha")
     monkeypatch.setenv("GOAL_WORKFLOW_SKILL", "he-alpha")
     reset_settings()
-    await _goal_runner(SimpleNamespace(), None, "new cron drift probe")
-    goal_id = (goal_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    successful_step.clear()
-    workflow_path = goal_cwd / ".heagent" / "skills" / "he-alpha" / "workflow.md"
-    workflow_path.write_text(workflow_path.read_text(encoding="utf-8") + "\nMore.\n", encoding="utf-8")
-    capsys.readouterr()
+    await _goal_runner(SimpleNamespace(), None, "new legacy sweep probe")
+    previous = (goal_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    store = _RecordingCronStore()
+    store.add(store.create_job(f"goal-advance {previous}", "0 3 * * *"))
 
-    await cli_goal._goal_cron_advance(SimpleNamespace(), None, _FakeStore(), goal_id)  # type: ignore[arg-type]
+    await _goal_runner(SimpleNamespace(), None, "new second goal", cron_store=store)
 
-    assert "auto stopped" in capsys.readouterr().err
-    assert successful_step == []
-
-
-class _FakeStore:
-    """``/goal auto`` 注销路径的最小 JobStore 替身。"""
-
-    def list_jobs(self) -> list[object]:
-        return []
-
-    def remove(self, job_id: str) -> bool:
-        return False
+    assert store.list_jobs() == []
 
 
 # ── ⑤ 老 Goal 无键 → 兼容绑定注入的默认；⑦ 只读路径不改写原件 ────────

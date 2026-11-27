@@ -189,8 +189,6 @@ class WorkflowResource(BaseModel):
     open_question_mode: OpenQuestionMode = ""
     # /goal run 单次连续推进的步数上限（声明优先；缺失用默认值）。
     max_rounds: int = 10
-    # /goal auto 的默认 cron；空 = 用 CLI 内置默认。
-    auto_schedule: str = ""
     # open_question_mode 各自对应的一段策略文案；空 = 用 CLI 内置默认。
     open_question_default: str = ""
     open_question_block: str = ""

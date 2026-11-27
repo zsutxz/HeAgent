@@ -19,14 +19,15 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 在 `goal/workflow_support.py`（2026-11-17 Story 62.8 拆出，`application` 再导出保导入面）——
 两模块均 click-free（架构契约测试钉死 import 图）；`cli/goal/` 子包是渲染薄壳
 （messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
-`_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
-三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
+`_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI
+两入口仍收敛同一 use-case（GUI 经 `_goal_runner`），无复制推进逻辑；`/goal auto` 的 cron 入口已于
+2026-11-27 移除，遗留 job 只做收尸（见 `cli/goal/commands.py::_goal_auto_remove`）。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
-  id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
+  id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、旧 auto job prompt 解析、旧 job 注销匹配三处下游依赖）。
 - `/goal next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤默认每次只执行一条 Story；
   声明门控并行（Epic 52）授权时一批并发执行（见下「声明门控并行与写集围栏」）。每条 Story（串行）
   或每批（并行，批 = 单 checkpoint 单元）完成后持久化 checkpoint / evidence；`/goal run` 可连续推进，遇到检查点、
@@ -40,14 +41,15 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   求值，未通过经 `WorkflowRunner` 的 `GATE_FAILED` 事件进 `BLOCKED`。`gate:` 名字由宿主注册表
   （`QUALITY_GATES`，名字 → 语义 + 求值函数分派表）提供，加载期由 `workflow_loader` 校验（未注册或
   声明条件不满足均 fail-loud）。
-- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
+- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto` 已移除（要定时跑用 `heagent cron add`），
+  旧版本注册的 goal-advance job 在开新 goal 与 cron 执行时被清理。
 - **步骤级审批与决策记录（Story 51-5）**：步骤 frontmatter 可声明 `approval: required`（可带一句
   说明）——该步做完工作后挂起 `WAITING_USER`，完成簿记延后，只有人工决策能推进；未声明的步骤
   零行为变化。「第几步需要审批」只存在于该步声明里，`src/` 无任何按步骤名/序号的审批判断（AD-13）。
   四个事件语义独立（AD-3）：`/goal approve` 接受并落定完成（唯一把该步标记完成的路径；末步批准
   即完成 goal）、`/goal reject <原因>` 驳回（步骤未完成，落 BLOCKED，修订后 `resume` 重跑）、
   `/goal amend <补充>` 带补充重跑（步骤未完成，落 PENDING；补充同时进需求文档「用户补充」段）、
-  `/goal resume` 只恢复执行——审批门挂起时被显性拒绝，不隐式等同批准。cron/auto 推进在审批门前
+  `/goal resume` 只恢复执行——审批门挂起时被显性拒绝，不隐式等同批准。任何非交互推进（含 cron job）在审批门前
   停下，不自动批准人工 Gate；CLI/GUI 共用 `goal/application.record_decision` 同一应用服务。
   每次决策在 `<goal_dir>/decisions/` 追加一条版本化记录（id、步骤、原文、UTC 时间、影响范围、
   结果状态、审批轮次；成功的 `/goal resume` 亦记一条 RESUME——只标记执行被恢复，不等于批准），
@@ -59,7 +61,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试），
   同一 task 内可重入。**变更内核自持**：`goal/application` 的 `advance` / `pause_resume` /
   `record_decision` 三个写方法整段读改写都在锁内（GUI/HTTP 等第二入口直调即得互斥，不依赖
-  入口层自觉）；CLI 的 `/goal` 变更入口（new/next/run/resume/reset/cron 推进）仍在外层整段
+  入口层自觉）；CLI 的 `/goal` 变更入口（new/next/run/resume/reset 推进）仍在外层整段
   持锁组合（`_goal_mutex()` 薄别名）。锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从
   同一状态各自推进后互相覆盖 brief.md」丢进度。只读命令（`/goal status` / `/goal doctor`）
   是无锁快照读，半截文件按「损坏」显性报错。
@@ -114,8 +116,8 @@ checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id �
 
 Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
 与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
-无人值守 cron（指 `/goal auto` 这一档；v7 的 `/loop` 已在 2026-11-27 移除自动推进入口，
-见 [`docs/faq.md`](../faq.md) 的 `/loop` 段）不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.18。
+无人值守 cron（`heagent cron add` 注册的 job；`/goal auto` 与 v7 `/loop auto` 的自动推进入口
+均已于 2026-11-27 移除，见 [`docs/faq.md`](../faq.md) 的 `/loop` 段）不提升权限，审批与 sandbox 策略仍由 engine 处理；该层的边界地位见 §4.18。
 
 `workflow.md` 是自包含的声明式入口。其 `on_create` 声明创建规范化 `GoalArtifact` 和 `current` 指针；
 每个 inline `## Step NN:` 区块声明 prompt、输入输出和 checkpoint。CLI 只映射已支持的

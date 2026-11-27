@@ -1,4 +1,4 @@
-"""The shared Goal status projection rendered by the CLI, GUI and cron entry points."""
+"""The shared Goal status projection rendered by the CLI and GUI entry points."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -207,22 +207,12 @@ def test_gui_and_interactive_cli_use_the_shared_goal_entry_point() -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_cron_goal_job_drives_the_shared_advance_use_case(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The scheduler must not fork its own advance logic: cron runs ``/goal next``'s use case."""
-    calls: list[str] = []
+def test_goal_cli_exposes_no_cron_advance_entry() -> None:
+    """`/goal auto` 已移除：goal CLI 不得再有 cron 推进入口，遗留 job 只做收尸。"""
+    from heagent.cli.goal import commands as goal_commands
 
-    async def _advance(_provider: object, _engine: object, _workflow: WorkflowResource) -> str:
-        calls.append("advance")
-        return goal_cli._GOAL_ADVANCED
-
-    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_advance", _advance)
-    # cron 与手动命令同一解析口径——推进 goal 冻结绑定的 workflow。
-    monkeypatch.setattr("heagent.cli.goal.commands.resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
-    monkeypatch.setattr("heagent.cli.goal.commands._goal_active_md", lambda: tmp_path / "demo" / "brief.md")
-
-    await goal_cli._goal_cron_advance(provider=None, engine=None, store=None, goal_id="demo")
-
-    assert calls == ["advance"]
+    assert not hasattr(goal_cli, "_goal_cron_advance")
+    assert not hasattr(goal_commands, "_goal_cron_advance")
+    # 收尸能力保留：认旧版 prompt 并取出 goal id（供 `_goal_auto_remove` 删 job）。
+    assert goal_cli._goal_auto_goal_id("goal-advance demo") == "demo"
+    assert goal_cli._goal_auto_goal_id("说 hello") is None

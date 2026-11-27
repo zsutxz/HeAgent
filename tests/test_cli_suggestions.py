@@ -58,7 +58,7 @@ _SCENARIO_ANCHORS: dict[str, str] = {
     "sandbox": "--sandbox passthrough",
     "mcp": "/mcp-prompt",
     "skill": "/goal doctor",
-    "cron": "/goal auto",
+    "cron": "heagent cron list",
     "session": "/clear",
     "provider": "/provider",
     "config_invalid": "heagent doctor",

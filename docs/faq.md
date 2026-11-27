@@ -335,7 +335,6 @@ heagent run --resume <session-id> "…"       # 指定会话
 /goal status          查看状态和产物
 /goal pause           保存并暂停
 /goal resume [回复]   提交回复并继续
-/goal auto [cron]     注册定时推进；off 注销
 ```
 
 产物在 `_he-output/goals/<goal-id>/`。工作流契约见 `.heagent/skills/he-goal/workflow.md`，

@@ -25,13 +25,7 @@ from heagent.cli.goal.commands import (
     _goal_bound_workflow as _goal_bound_workflow,
 )
 from heagent.cli.goal.commands import (
-    _goal_cron_advance as _goal_cron_advance,
-)
-from heagent.cli.goal.commands import (
     _goal_declarative_advance as _goal_declarative_advance,
-)
-from heagent.cli.goal.commands import (
-    _goal_declarative_auto as _goal_declarative_auto,
 )
 from heagent.cli.goal.commands import (
     _goal_declarative_decision as _goal_declarative_decision,

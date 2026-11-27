@@ -4,7 +4,7 @@
 
 - 一次执行 = 一条通知，成功带 ``loop.run`` 的最终答案；
 - 失败带异常首行，且异常**继续上抛**（scheduler 仍要 ledger.fail + 更新 last_run）；
-- goal 自动推进分支零通知（D5：它不是「给用户的回答」）；
+- 旧版 goal 自动推进 job 只收尸：跳过 + 删 job + 零通知（`/goal auto` 已移除）；
 - 通知器自己炸了不影响 cron 结果（降级为「少一条通知」+ 一条 warning）。
 
 回归价值：断点正是「``_run_job`` 把 ``loop.run(prompt)`` 的返回值丢掉」——上面第 1 条断言
@@ -70,12 +70,12 @@ def fake_loop(monkeypatch: pytest.MonkeyPatch) -> type[_FakeLoop]:
     return _FakeLoop
 
 
-def _build_runner(engine: EngineContainer, notifier: Any) -> Any:
+def _build_runner(engine: EngineContainer, notifier: Any, *, store: JobStore | None = None) -> Any:
     return build_cron_job_runner(
         object(),  # provider 不被替身 loop 使用
         engine,
         resolve_runtime_config(),
-        JobStore(),
+        store if store is not None else JobStore(),
         skills=None,
         facts=None,
         profile=None,
@@ -130,29 +130,31 @@ class TestFailurePath:
 
 
 class TestGoalBranch:
-    async def test_goal_advance_never_notifies(
+    async def test_legacy_goal_auto_job_is_swept_without_running_a_loop(
         self,
         fake_loop: type[_FakeLoop],
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """D5：goal 自动推进不是「给用户的回答」——零通知（也不构造 loop）。"""
-        advanced: list[str] = []
-
-        async def fake_advance(provider: Any, engine: Any, store: Any, goal_id: str) -> None:
-            advanced.append(goal_id)
-
+        """``/goal auto`` 已移除：遗留 job 只收尸——删 job、跳过、零通知、不构造 loop。"""
         monkeypatch.setattr("heagent.cli.goal._goal_auto_goal_id", lambda prompt: "goal-1")
-        monkeypatch.setattr("heagent.cli.goal._goal_cron_advance", fake_advance)
+        store = JobStore(str(tmp_path / "jobs.json"))
+        job = store.create_job("goal-advance goal-1", "0 3 * * *")
+        store.add(job)
 
         engine = EngineContainer.default(workspace_root=str(tmp_path))
         notifications: list[tuple[str, CronResultStatus, str]] = []
-        runner = _build_runner(engine, lambda *args: notifications.append(args))
+        runner = _build_runner(engine, lambda *args: notifications.append(args), store=store)
+        context = engine.create_run_context(metadata={"kind": "cron", "job_id": job.id}, workspace_root=str(tmp_path))
 
-        await runner("goal:推进一下", _cron_context(engine, tmp_path))
+        with caplog.at_level(logging.WARNING, logger="heagent.cli.wiring"):
+            await runner("goal-advance goal-1", context)
 
-        assert advanced == ["goal-1"]
         assert notifications == []
+        assert _FakeLoop.constructed == 0
+        assert store.list_jobs() == []
+        assert any("legacy_goal_auto_skipped" in record.message for record in caplog.records)
 
 
 class TestNotifierIsolation:

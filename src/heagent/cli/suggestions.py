@@ -171,7 +171,7 @@ SCENARIOS: tuple[ErrorScenario, ...] = (
         label="定时任务失败",
         keywords=("cron", "job store", "scheduled job", "schedule"),
         suggestions=(
-            CommandSuggestion(command="/goal auto", when="重新注册 goal 的 cron 自动推进"),
+            CommandSuggestion(command="heagent cron list", when="查看已注册的定时任务与状态"),
             _DOCTOR,
         ),
     ),
