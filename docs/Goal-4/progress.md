@@ -89,6 +89,22 @@
 
 - 2026-11-23 Decision: 用户回复原文 `approve`（承接「Step 08 报告已呈报」）⇒ 按契约把 E74（5 条）+ E75（6 条）entry 逐条 `mark done`（E76 六条已于 2026-11-23 早前 approve 置 done），`progress.md` 状态置 `done`。三棵票树 `tickets.py status` 实测 `{E74: 5 done, E75: 6 done, E76: 6 done}`，`problems` / `unpinned_after` / `undeclared_after` / `order_conflict` 全空。
 
+- 2026-11-27 **代码审查落改（用户指令「审查代码」→「改」→「提交」，提交 `73f9518d`）**：审查面 = 近 5 个
+  代码 / 脚本提交（`bb971c03` 六处缓存面、`64e0c519` 项目通道提交超时上界、`a010faf3` story 引用保留、
+  `8c72942a` cpolar 三脚本、`50d6e654` conftest 凭据密封），结论 **0 Critical / 0 High / 3 Medium / 9 Low**。
+  当轮落改 7 处：① `docs/errors.md` 的 `timeout` 从「保留码·当前无发送点」改为真实口径（唯一发送点 =
+  `ws_project_adapter`，超时结果未知）；② `docs/frame/network.md` 补项目通道提交上界（构造期 `submit_timeout`
+  默认 30s）+ `docs/frame/cli.md` 适配器行去掉「只翻译不含判据」；③ `docs/performance.md` 与
+  `docs/frame/providers.md` 的提示词缓存理由改写（system 尾部含 per-run / per-prompt 易变块 ⇒ system 断点
+  几乎每轮 miss，稳定前缀是 tools；断点上限 4 个而非「多打就被拒」）；④ `scripts/cpolar_publish.py` 的
+  `--watch` 回填失败不再记忆（下一轮重试）、隧道目标回退统一 `127.0.0.1`、日志按 BOM 判 UTF-16；
+  ⑤ 三条边界 docstring（幂等窗口 `submit_timeout < ttl` 耦合 / 会话备忘录 FIFO 适用区间 / 静态资源 ETag
+  整串精确比较）；⑥ `goal/worktree.py` 新增 `drop_story_ref`（放弃 story 时回收 gc 锚点，幂等 + 判据）；
+  ⑦ `ws_commands._submit_run` 码清单补 `timeout`。**未修而升台账 2 条**：A77（`except TimeoutError` 捕获面
+  偏宽，内层超时会被改写成 30s 文案）、A78（cpolar 地址回退无活性校验，死地址可能被 `--apply` 写进 App）。
+  门禁：`ruff` / `ruff format --check` / `mypy` 净、9 个测试面 `292 passed`、契约快照五份 `[OK]`、
+  `mkdocs --strict` 0 WARNING、台账守卫 8 passed；**未 push**。
+
 ## 交接块（下一轮入口）
 
 - 下一条：**无** —— E77 三条 entry 全部 `done`、epic 容器 `status: done`，Goal-4 合计 4 epic / 20 entry 全 done。
