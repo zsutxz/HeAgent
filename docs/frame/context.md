@@ -85,6 +85,6 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
   `POST /api/projects/{id}/runs` 不带 `session_id` 时取**最近**会话（往往正是 CLI 在写的那个）。
   SYSTEM 消息不参与比对（每次 run 重建、`load` 时会剔除），合并结果只保留本次 writer 的 SYSTEM。
 - **回收**：`prune(retention_days)` 按 mtime 回收 `*.json`，并顺带用 `pub.persist.reap_dangling_locks`回收**孤儿锁**（三判据全中才删：同名记录已不存在 + 锁 mtime 超限 + `timeout=0` 非阻塞加锁证明无人持有）；`delete()` 不回收（新锁过不了年龄门槛）。
-- **列表**：`list_metadata` 对超过 `MAX_SESSION_METADATA_BYTES`（1 MiB）的会话**只读头部**（`_read_head` 有界读 + 严格解码；`_metadata_from_head` 只在 `"messages"` **之前**的元数据区取值——落盘键序保证 `session_id`/`version`/`timestamp`/`title` 都在那里），`message_count` 退化为 `None`（D6 口径）。
+- **列表**：`list_metadata` 对超过 `MAX_SESSION_METADATA_BYTES`（1 MiB）的会话**只读头部**（`_read_head` 有界读 + 严格解码；`_metadata_from_head` 只在 `"messages"` **之前**的元数据区取值——落盘键序保证 `session_id`/`version`/`timestamp`/`title` 都在那里），`message_count` 退化为 `None`（D6 口径）。列表侧另有进程内**元数据备忘录**（键 = 文件名 + `mtime_ns` + `size`，未变更文件不重解析）；容量上限 `_META_CACHE_MAX_ENTRIES`（1024）溢出时按 FIFO 淘汰最旧一条，**不整表清空**（2026-11-26 改：整表 `clear()` 会让下一轮把上千份会话重新解析一遍）。
 
 > 注意：另有一套 `engine/store.py` 的 `RunStore`（`.heagent/runs/<run_id>.json`）保存**单次运行快照**（含上下文 / 结果 / 最终答案），见 4.12。两者用途不同——session 是跨轮对话历史，RunStore 是单次 run 的可恢复快照。

@@ -130,6 +130,20 @@ py-spy top --pid <PID>                                  # 实时热点
 | 流式迭代内的 token 估算复用（`stream_runtime` 每轮一次 `count_tokens`） | 186k tokens 的消息：8–11 ms/次（estimate 模式）；同迭代内第二次只在 usage 缺失分支发生 | 相对一次 LLM 往返（秒级）<1% ⇒ 不合并（合并会破坏「每轮独立基线」的语义，A54 ⑦） |
 | Story 写审计基线（每 step 一次 `git diff` + 内容指纹） | 300 个 4 KB 文件全量指纹 8.1 ms；20 个 1.2 ms | 基线必须「会话开始前」采集，跨 step 复用会把前一步产物判成越集写 ⇒ 不复用（A54 ⑥） |
 
+### 六处缓存面的一次优化（2026-11-26）
+
+都是「顺手做对」的量级（微秒到毫秒），**不是**性能主线；列在这里是为了下次勘察时不必重做，
+也为了记住每处的判据文件名。
+
+| 面 | 改了什么 | 判据 | 何时才有意义 |
+| --- | --- | --- | --- |
+| Provider 元数据 LRU（`providers/metadata_cache.py`） | 加 `evictions` 计数并进 `provider metadata cache:` 日志行（`evictions=N`）；零查询的 run 不再打 `hit_rate=0.00`（与「真 0 命中率」区分开） | `tests/providers/test_metadata_cache.py`、`tests/test_cache_capacity_settings.py` | 日志出现 `evictions>0` ⇒ `PROVIDER_METADATA_CACHE_SIZE` 小于活跃 provider 实例数 |
+| Anthropic 提示词缓存（`providers/anthropic.py`） | 断点补到**最后一个工具定义**：缓存前缀按 `tools → system → messages` 累计，此前只有 system 进缓存，工具 schema 每轮全价 | `tests/providers/test_anthropic.py` | 工具多 / schema 大、同一 session 多轮复用同一套工具时省的是**真金**（缓存读 ~0.1x） |
+| 技能匹配结果缓存（`skills/skill_catalog.py`） | 缓存键改用 `prompt.casefold()`：匹配本身大小写无关，`Hello` 与 `hello` 不再占两个槽 | `tests/test_skill_match_cache.py` | 同类问句大小写混着来时（客户端输入法差异） |
+| WS 提交幂等窗口（`cli/ws_submission_cache.py`） | 过期清理加两层早停（最旧未过期 ⇒ O(1) 跳过整趟扫描；要扫时遇未过期即停）；容量淘汰只找第一条已完成项，不再先建全量列表 | `tests/test_ws_submission_cache.py`（`_CountingEntries` 数扫描次数） | 高频提交流；语义（在途不踢、TTL 从提交计时）一条未变 |
+| 会话列表备忘录（`context/session.py`） | 溢出由「整表 `clear()`」改为 FIFO 淘汰最旧一条 | `tests/test_session.py` | 会话数接近 1024 时：旧形状会周期性把全部会话重解析一遍 |
+| 静态资源（`network/http_server/app.py`） | 内容 ETag + `If-None-Match` → 304；`cache-control: no-cache`（必须回源校验）不变 | `tests/network/test_http_server.py` | 页面每次刷新都要回源校验 JS/CSS，304 省掉重传正文 |
+
 ## 四、参数说明与推荐值
 
 「推荐」列给的是**常见场景的起点**，不是最优解；「何时改」列才是判据。

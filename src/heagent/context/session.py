@@ -54,7 +54,7 @@ WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
 
 # 会话标题上限（字符）：标题进控制台列表、详情与页面，必须有界。
 MAX_SESSION_TITLE_CHARS = 120
-# list_metadata 元数据备忘录的容量上限；溢出即整表清空（下次列表全量重解析一次）。
+# list_metadata 元数据备忘录的容量上限；溢出按 FIFO 淘汰最旧一条（不清表，避免整轮重解析）。
 _META_CACHE_MAX_ENTRIES = 1024
 # 派生标题上限：它是摘要而非用户设定的标题，刻意比可设标题更短。
 MAX_DERIVED_TITLE_CHARS = 60
@@ -487,8 +487,9 @@ class SessionStore:
         self._base = Path(base_dir)
         # list_metadata 的 (文件名, mtime_ns, size) → 元数据 备忘录。键含内容指纹
         # （原子替换写必换 mtime/size），故无需主动失效也正确；本店写点（save/create/
-        # rename/delete）仍显式按名清除，收敛「同 tick 同尺寸改名」的碰撞窗口。溢出即清空
-        # （列表页有条数硬上限，1024 足够覆盖；进程内多线程仅 get/set，GIL 原子性足够）。
+        # rename/delete）仍显式按名清除，收敛「同 tick 同尺寸改名」的碰撞窗口。溢出按
+        # FIFO 淘汰最旧一条（列表页有条数硬上限，1024 足够覆盖；进程内多线程仅 get/set，
+        # GIL 原子性足够）。
         self._meta_cache: dict[tuple[str, int, int], SessionMetadata] = {}
 
     async def prune(self, retention_days: int, *, min_interval_seconds: int = 0) -> int:
@@ -699,8 +700,10 @@ class SessionStore:
                 meta = _unreadable_metadata(path.stem, info.st_mtime)
             entries.append(meta)
             self._meta_cache[cache_key] = meta
-            if len(self._meta_cache) > _META_CACHE_MAX_ENTRIES:
-                self._meta_cache.clear()
+            while len(self._meta_cache) > _META_CACHE_MAX_ENTRIES:
+                # FIFO 淘汰最旧一条，而不是整表 clear()：清空会让下一轮列表把上千份会话
+                # （含大会话只读头部的那些）重新解析一遍，形成一次冷启动尖峰。
+                self._meta_cache.pop(next(iter(self._meta_cache)))
         entries.sort(key=lambda item: (item.timestamp, item.session_id), reverse=True)
         return entries[:limit]
 

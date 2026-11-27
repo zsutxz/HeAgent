@@ -126,6 +126,32 @@ def test_debug_mode_emits_exactly_one_line(caplog: pytest.LogCaptureFixture) -> 
     assert "hit_rate=0.00" in lines[0]
 
 
+def test_zero_query_window_stays_silent(caplog: pytest.LogCaptureFixture) -> None:
+    """一次查询都没有时不打 ``hit_rate=0.00``：否则与「真命中率为 0」不可区分。"""
+    pool, _ = _pool_with_cache()
+
+    with caplog.at_level(logging.INFO, logger="heagent.providers.cache_report"):
+        log_metadata_cache_stats(pool, debug_mode=True)
+
+    assert [rec for rec in caplog.records if "provider metadata cache:" in rec.getMessage()] == []
+
+
+def test_report_carries_the_eviction_count(caplog: pytest.LogCaptureFixture) -> None:
+    """容量不足的判据在日志里：``evictions`` 非零说明 provider 实例数已超出缓存容量。"""
+    cache = ProviderMetadataCache(max_size=1)
+    pool = SwitchableProvider({"inner": _MinimalProvider("inner")}, default="inner", metadata_cache=cache)
+    outsider = _MinimalProvider("outsider")
+    cache.get(outsider, outsider.get_metadata)  # 先占满唯一槽位
+    pool.get_metadata()  # 溢出 ⇒ 淘汰 outsider，evictions=1
+
+    with caplog.at_level(logging.INFO, logger="heagent.providers.cache_report"):
+        log_metadata_cache_stats(pool, debug_mode=True)
+
+    lines = [rec.getMessage() for rec in caplog.records if "provider metadata cache:" in rec.getMessage()]
+    assert len(lines) == 1, lines
+    assert "evictions=1" in lines[0]
+
+
 def test_disabled_debug_and_leaf_provider_stay_silent(caplog: pytest.LogCaptureFixture) -> None:
     """非 debug、以及栈里没有聚合层（叶 provider 直返）时都不许打日志。"""
     pool, _ = _pool_with_cache()

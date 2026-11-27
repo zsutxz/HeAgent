@@ -68,6 +68,7 @@ class ProviderMetadataCache:
         self._entries: OrderedDict[object, ProviderMetadata] = OrderedDict()
         self._hits = 0
         self._misses = 0
+        self._evictions = 0
 
     # ── 观测面 ──
 
@@ -85,6 +86,15 @@ class ProviderMetadataCache:
     def misses(self) -> int:
         """未命中次数（每次未命中都会调用一次 ``compute``）。"""
         return self._misses
+
+    @property
+    def evictions(self) -> int:
+        """因容量溢出被淘汰的次数（``invalidate`` / ``clear`` 不计入）。
+
+        非零说明 ``PROVIDER_METADATA_CACHE_SIZE`` 小于当前活跃的 provider 实例数：命中率会
+        随淘汰同步塌陷，且每次淘汰后的下一次查询都要重建 ``ProviderMetadata``。
+        """
+        return self._evictions
 
     @property
     def hit_rate(self) -> float:
@@ -114,6 +124,7 @@ class ProviderMetadataCache:
         self._entries.move_to_end(provider)
         while len(self._entries) > self._max_size:
             self._entries.popitem(last=False)  # 淘汰最久未用的一条
+            self._evictions += 1
         return metadata
 
     def invalidate(self, provider: object) -> None:
@@ -124,7 +135,8 @@ class ProviderMetadataCache:
         self._entries.pop(provider, None)
 
     def clear(self) -> None:
-        """清空全部条目**并重置 hits / misses**（换 provider 池或观测窗口重开时用）。"""
+        """清空全部条目**并重置 hits / misses / evictions**（换 provider 池或观测窗口重开时用）。"""
         self._entries.clear()
         self._hits = 0
         self._misses = 0
+        self._evictions = 0

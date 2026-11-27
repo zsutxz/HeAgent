@@ -279,18 +279,20 @@ def _match_index(
 def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> list[SkillMatch]:
     """Return explainable, backward-compatible skill matches.
 
-    结果按 ``(技能库指纹, prompt, threshold)`` 缓存；返回的是缓存载荷的**副本**，调用方
-    就地改写不会污染后续命中。
+    结果按 ``(技能库指纹, prompt.casefold(), threshold)`` 缓存：匹配本身就大小写无关
+    （``prompt_text`` 与 ``skill_tokens`` 内部都 casefold），把 casefold 提到键上不改变
+    任何结果，只让 ``Hello`` / ``hello`` 共用同一个缓存槽。返回的是缓存载荷的**副本**，
+    调用方就地改写不会污染后续命中。
     """
     if not prompt.strip():
         return []
     fingerprint = skill_library_fingerprint(store)
-    key = (fingerprint, prompt, threshold)
+    prompt_text = prompt.casefold()
+    key = (fingerprint, prompt_text, threshold)
     cached = store.match_cache.results.get(key)
     if isinstance(cached, list):
         return [match.model_copy(deep=True) for match in cached]
-    prompt_text = prompt.casefold()
-    matches = _match_index(_index_for(store, fingerprint), prompt_text, skill_tokens(prompt), threshold)
+    matches = _match_index(_index_for(store, fingerprint), prompt_text, skill_tokens(prompt_text), threshold)
     store.match_cache.results.put(key, matches)
     return [match.model_copy(deep=True) for match in matches]
 

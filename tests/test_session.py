@@ -394,6 +394,30 @@ class TestListMetadataMemo:
         store.delete("aaa")
         assert calls["n"] == 3
 
+    def test_meta_cache_evicts_oldest_instead_of_clearing_everything(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """备忘录溢出按 FIFO 淘汰（只掉一条），不再整表 clear() 让下一轮全量重解析。"""
+        import heagent.context.session as session_mod
+
+        monkeypatch.setattr(session_mod, "_META_CACHE_MAX_ENTRIES", 2)
+        store = _store(tmp_path)
+        for name in ("aaa", "bbb", "ccc"):
+            store.save(name, _msgs("hi"))
+
+        calls = {"n": 0}
+        original = session_mod._metadata_from_raw
+
+        def counting(*args: object, **kwargs: object):
+            calls["n"] += 1
+            return original(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(session_mod, "_metadata_from_raw", counting)
+        assert len(store.list_metadata()) == 3
+
+        assert calls["n"] == 3
+        assert len(store._meta_cache) == 2  # 淘汰到上限，而不是 clear() 归零
+
     def test_rename_and_delete_refresh(self, tmp_path: Path) -> None:
         store = _store(tmp_path)
         store.save("aaa", _msgs("hi"))

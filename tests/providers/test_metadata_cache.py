@@ -107,6 +107,25 @@ def test_capacity_evicts_least_recently_used() -> None:
     assert a.metadata_calls == 2
 
 
+def test_evictions_count_capacity_overflow_only() -> None:
+    """淘汰计数只由容量溢出驱动：命中 / invalidate 都不计入，clear() 归零。"""
+    cache = ProviderMetadataCache(max_size=2)
+    a, b, c = _StubProvider("a"), _StubProvider("b"), _StubProvider("c")
+    cache.get(a, a.get_metadata)
+    cache.get(b, b.get_metadata)
+    assert cache.evictions == 0
+
+    cache.get(c, c.get_metadata)  # 溢出 ⇒ 淘汰 a
+    assert cache.evictions == 1
+
+    cache.get(c, c.get_metadata)  # 命中不是淘汰
+    cache.invalidate(b)  # 显式失效也不是淘汰
+    assert cache.evictions == 1
+
+    cache.clear()
+    assert (cache.evictions, cache.hits, cache.misses) == (0, 0, 0)
+
+
 def test_lru_hit_refreshes_recency() -> None:
     """命中会刷新 recency：先命中 a 再插 c，被淘汰的是 b 而不是 a。"""
     cache = ProviderMetadataCache(max_size=2)

@@ -115,6 +115,19 @@ class TestStaticPage:
         assert css.status_code == 200
         assert css.headers["content-type"].startswith("text/css")
 
+    async def test_assets_carry_an_etag_and_answer_304(self, client: httpx.AsyncClient) -> None:
+        """静态资源带内容 ETag；`If-None-Match` 命中回 304 且不再重传正文。"""
+        first = await client.get("/app.js")
+        etag = first.headers["etag"]
+        assert etag.startswith('"') and etag.endswith('"')
+
+        second = await client.get("/app.js", headers={"if-none-match": etag})
+
+        assert second.status_code == 304
+        assert second.content == b""
+        assert second.headers["etag"] == etag
+        assert second.headers["cache-control"] == "no-cache"
+
     async def test_page_renders_text_without_html_injection(self, client: httpx.AsyncClient) -> None:
         """页面脚本必须用 textContent/createTextNode 渲染不可信内容，绝不写 innerHTML。"""
         script = (await client.get("/app.js")).text

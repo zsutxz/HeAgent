@@ -152,6 +152,35 @@ class TestSend:
         assert len(resp.tool_calls) == 1
 
     @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_caches_tool_schemas_on_the_last_tool(self, mock_cls: MagicMock) -> None:
+        """工具 schema 一并进缓存前缀：断点**只**落在最后一个工具上（块边界，多打被 API 拒）。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
+        p = AnthropicProvider(api_key="sk-test")  # prompt_caching 默认 True
+        tools = [ToolSchema(name=f"t{i}", description="d", parameters={"type": "object"}) for i in range(3)]
+
+        await p.send([Message(role=Role.USER, content="hi")], tools=tools)
+
+        _, kwargs = mock_client.messages.create.call_args
+        markers = [tool.get("cache_control") for tool in kwargs["tools"]]
+        assert markers == [None, None, {"type": "ephemeral"}]
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_tools_stay_unmarked_when_cache_disabled(self, mock_cls: MagicMock) -> None:
+        """禁用缓存时不往工具 schema 里塞 cache_control（兼容不认该字段的代理）。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
+        p = AnthropicProvider(api_key="sk-test", prompt_caching=False)
+        tools = [ToolSchema(name="run", description="run", parameters={"type": "object"})]
+
+        await p.send([Message(role=Role.USER, content="hi")], tools=tools)
+
+        _, kwargs = mock_client.messages.create.call_args
+        assert all("cache_control" not in tool for tool in kwargs["tools"])
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
     async def test_send_caches_system_prompt(self, mock_cls: MagicMock) -> None:
         """启用缓存时，system 应包装为带 cache_control 的块列表（FR-3）。"""
         mock_client = AsyncMock()

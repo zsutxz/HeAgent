@@ -118,6 +118,46 @@ async def test_drop_is_idempotent_and_frees_the_key() -> None:
     assert cache.reserve(_KEY)[1] is True
 
 
+class _CountingEntries(dict):  # type: ignore[type-arg]
+    """数「整趟扫描」次数的条目表：用来钉住 ``reserve`` 的 O(1) 稳态路径。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.full_scans = 0
+
+    def items(self):  # type: ignore[override]
+        self.full_scans += 1
+        return super().items()
+
+
+@pytest.mark.asyncio
+async def test_fresh_window_skips_the_full_scan() -> None:
+    """稳态（最旧一条都还没过期）下 reserve 不做全表扫描——这是高频提交的主路径。"""
+    cache, _ = await _cache()
+    entries = _CountingEntries()
+    cache._entries = entries  # type: ignore[attr-defined] - 判据要数扫描次数
+
+    for index in range(5):
+        cache.reserve(("p1234abc", f"req-{index}"))
+
+    assert entries.full_scans == 0
+    assert len(entries) == 5
+
+
+@pytest.mark.asyncio
+async def test_expired_window_scans_once_per_reserve() -> None:
+    """真有过期项时才扫表，且只扫一趟（不是每个键各自一趟）。"""
+    cache, now = await _cache()
+    entries = _CountingEntries()
+    cache._entries = entries  # type: ignore[attr-defined]
+    cache.reserve(("p1234abc", "old"))
+    now[0] += IDEMPOTENCY_TTL_SECONDS + 1.0
+
+    cache.reserve(("p1234abc", "new"))
+
+    assert entries.full_scans == 1
+
+
 def test_window_defaults_match_the_documented_numbers() -> None:
     """60s / 256 是写进 `docs/framework.md` 的对外口径：常量与构造默认值必须同源。
 

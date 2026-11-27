@@ -138,9 +138,19 @@ def _build_usage(usage: object) -> TokenUsage:
 _ZERO_USAGE = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
 
-def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
-    """把 HeAgent 工具转换成 Anthropic 的工具 schema 格式。"""
-    return [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
+def _to_anthropic_tools(tools: list[ToolSchema], *, caching: bool = False) -> list[dict[str, object]]:
+    """把 HeAgent 工具转换成 Anthropic 的工具 schema 格式。
+
+    ``caching`` 时只在**最后一个**工具上打断点：Anthropic 的缓存前缀按「tools → system →
+    messages」累计，断点落在 tools 末尾就能把整段工具 schema（通常比 system 还大）一起纳入
+    缓存；断点必须是块边界，多打几个既无收益也会被 API 拒。
+    """
+    payload: list[dict[str, object]] = [
+        {"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools
+    ]
+    if caching and payload:
+        payload[-1] = {**payload[-1], "cache_control": {"type": "ephemeral"}}
+    return payload
 
 
 def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
@@ -195,7 +205,7 @@ class AnthropicProvider:
         if system_param is not None:
             kwargs["system"] = system_param
         if tools:
-            kwargs["tools"] = _to_anthropic_tools(tools)
+            kwargs["tools"] = _to_anthropic_tools(tools, caching=self._prompt_caching)
         return kwargs
 
     async def send(

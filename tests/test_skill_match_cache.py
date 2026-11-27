@@ -95,6 +95,18 @@ class TestMatchResultCache:
         assert store.parse_calls == cold_parses
         assert len(store.match_cache.results) == 2
 
+    def test_case_variants_share_one_cache_slot(self, store: CountingStore) -> None:
+        """匹配大小写无关 ⇒ 缓存键也 casefold：``DEPLOY`` 与 ``deploy`` 共用一个槽。"""
+        store.match_skill_details("deploy keyword 0", THRESHOLD)
+        cold_parses = store.parse_calls
+        slots = len(store.match_cache.results)
+
+        upper = store.match_skill_details("DEPLOY KEYWORD 0", THRESHOLD)
+
+        assert len(store.match_cache.results) == slots
+        assert store.parse_calls == cold_parses
+        assert upper == store.match_skill_details("deploy keyword 0", THRESHOLD)
+
     def test_cached_list_is_isolated_from_caller_mutation(self, store: CountingStore) -> None:
         store.match_skill_details("deploy keyword 0", THRESHOLD)
         leaked = store.match_skill_details("deploy keyword 0", THRESHOLD)

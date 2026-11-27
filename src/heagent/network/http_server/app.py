@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -87,6 +88,29 @@ def _attach_metrics(source: Any | None) -> RequestMetrics:
     return metrics
 
 
+def _asset_response(responses: Any, name: str, request: Any) -> Any:
+    """读包内静态资源并回响应；资源缺失（如 wheel 漏打）时回稳定 500，不吐 traceback。
+
+    ``ETag`` 取内容摘要，``If-None-Match`` 命中回 304：``cache-control: no-cache`` 的口径不变
+    （每次都要回源校验），但校验通过时不再重传整份页面 / JS / CSS。
+    """
+    try:
+        payload = read_web_asset(name)
+    except (KeyError, OSError, ModuleNotFoundError):
+        safe_log(logger, logging.ERROR, "http event=asset_unavailable asset=%s", name)
+        return _json_error(
+            responses,
+            HttpErrorCode.SERVER_ERROR,
+            "built-in page resource is unavailable",
+            status_code=500,
+        )
+    etag = f'"{hashlib.sha256(payload).hexdigest()[:16]}"'
+    headers = {"cache-control": "no-cache", "etag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return responses.Response(status_code=304, headers=headers)
+    return responses.Response(payload, media_type=_WEB_ASSETS[name], headers=headers)
+
+
 def build_http_app(
     config: HttpServerConfig,
     *,
@@ -121,32 +145,18 @@ def build_http_app(
             HealthResponse(version=version).model_dump(mode="json"),
         )
 
-    def asset_response(name: str) -> Any:
-        """读包内资源并回响应；资源缺失（如 wheel 漏打）时回稳定 500，不吐 traceback。"""
-        try:
-            payload = read_web_asset(name)
-        except (KeyError, OSError, ModuleNotFoundError):
-            safe_log(logger, logging.ERROR, "http event=asset_unavailable asset=%s", name)
-            return _json_error(
-                responses,
-                HttpErrorCode.SERVER_ERROR,
-                "built-in page resource is unavailable",
-                status_code=500,
-            )
-        return responses.Response(
-            payload,
-            media_type=_WEB_ASSETS[name],
-            headers={"cache-control": "no-cache"},
-        )
+    def asset_response(name: str, request: Any) -> Any:
+        """读包内资源并回响应（实现见模块级 :func:`_asset_response`）。"""
+        return _asset_response(responses, name, request)
 
     async def index(request: Any) -> Any:  # noqa: ARG001 - 端点的固定签名
-        return asset_response(_INDEX_ASSET)
+        return asset_response(_INDEX_ASSET, request)
 
     async def asset(request: Any) -> Any:
         name = str(request.path_params.get("asset", ""))
         if name not in _WEB_ASSETS:
             return _json_error(responses, HttpErrorCode.NOT_FOUND, "no such resource", status_code=404)
-        return asset_response(name)
+        return asset_response(name, request)
 
     async def http_exception(request: Any, exc: Any) -> Any:  # noqa: ARG001
         status = getattr(exc, "status_code", 500)

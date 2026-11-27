@@ -72,11 +72,16 @@ def log_metadata_cache_stats(provider: object, *, debug_mode: bool) -> None:
     hits = sum(cache.hits for cache in caches)
     misses = sum(cache.misses for cache in caches)
     queries = hits + misses
+    if not queries:
+        # 一次查询都没有（这次 run 既没渲染状态行、也没列 provider）：打 ``hit_rate=0.00``
+        # 会把「真命中率为 0」与「压根没用过」看成同一条，故整条静默。
+        return
     logger.info(
-        "provider metadata cache: hits=%d misses=%d hit_rate=%.2f size=%d/%d",
+        "provider metadata cache: hits=%d misses=%d hit_rate=%.2f size=%d/%d evictions=%d",
         hits,
         misses,
-        hits / queries if queries else 0.0,
+        hits / queries,
         sum(len(cache) for cache in caches),
         sum(cache.max_size for cache in caches),
+        sum(cache.evictions for cache in caches),
     )

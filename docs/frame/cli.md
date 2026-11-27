@@ -23,7 +23,7 @@
 | `http_config.py` | HTTP/WS listener 配置装配：`Settings` + CLI 覆盖 → `HttpServerConfig` / `WsServerConfig`（纯派生，Story 62.8 自 `http.py` 拆出） | `cli_http.py` 拆出 |
 | `http_console.py` | 网页控制台的**项目/会话/配置面**（Epic 50；`HttpProjectConsole` / `HttpAgentHandler`） | `cli_http.py` 拆出 |
 | `http_status.py` | `GET /api/status` 的来源适配：把运行服务 / 三条 WS 流 / 后台任务注册表聚合成 `StatusResponse`（WS 计数晚绑定，Story 71.1） | 新增 |
-| `ws_submission_cache.py` | WS 提交幂等窗口（Epic 77）：`(project_id, request_id)` → 在途 `Future` / 成功结果，60s TTL + 256 条上限；在途合流、成功重放、失败移出，**纯内存**（进程重启即失效，刻意不落盘）。两条边界是刻意的：TTL **从提交开始计时**且**只清已完成项**（在途项一条都不踢，否则同键会二次真提交）；容量满时先淘汰已完成的旧项，全是在途才退化为按插入序淘汰最旧一条（内存有界优先于合流）。可观测面（E78）：容量淘汰打 `ws event=idempotency_evicted reason=capacity`、键移出打 `ws event=idempotency_dropped reason=failed|cancelled`，两条都只带 `project_id`（`request_id` 不进日志，与 ack 不回显同一立场）；TTL 过期清理刻意静默 | 新增 |
+| `ws_submission_cache.py` | WS 提交幂等窗口（Epic 77）：`(project_id, request_id)` → 在途 `Future` / 成功结果，60s TTL + 256 条上限；在途合流、成功重放、失败移出，**纯内存**（进程重启即失效，刻意不落盘）。两条边界是刻意的：TTL **从提交开始计时**且**只清已完成项**（在途项一条都不踢，否则同键会二次真提交）；容量满时先淘汰已完成的旧项，全是在途才退化为按插入序淘汰最旧一条（内存有界优先于合流）。过期清理带两层早停：最旧一条都未过期时一次 O(1) 探测即跳过整趟扫描，真要扫也按插入序从最旧往后走、遇未过期即停（2026-11-26 优化）。可观测面（E78）：容量淘汰打 `ws event=idempotency_evicted reason=capacity`、键移出打 `ws event=idempotency_dropped reason=failed|cancelled`，两条都只带 `project_id`（`request_id` 不进日志，与 ack 不回显同一立场）；TTL 过期清理刻意静默 | 新增 |
 | `ws_project_adapter.py` | WS 项目通道适配器：`ProjectChannelService` 的入口层实现——项目列表 → `WsProjectsFrame`（每条恰三字段）、提交收窄成 `SubmittedRun`、控制台/注册表错误码逐字转成 `HttpRunConflictError`（Epic 75；只翻译，不含判据，不碰盘与注册表） | 新增 |
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |

@@ -63,21 +63,30 @@ class SubmissionCache:
     def reserve(self, key: SubmissionKey) -> tuple[asyncio.Future[SubmittedRun], bool]:
         """查表或登记：返回 ``(future, is_owner)``，只有 owner 负责真正提交并落结果。
 
-        过期只清**已完成**项（在途项一条都不踢，见模块 docstring 的第二条）；容量满时同样先淘汰
-        已完成的旧项，全是在途才退化为按插入序淘汰最旧一条。
+        过期只清**已完成**项（在途项一条都不踢，见模块 docstring 的第二条）。清理带两层早停：
+
+        - 窗口里最旧的一条都还没过期时，一次 O(1) 探测就跳过整趟扫描（高频稳态）；
+        - 真要扫时按插入序（即时间序）从最旧往后走，遇到未过期即停——后面的只会更新。
+
+        容量满时同样先淘汰已完成的旧项，全是在途才退化为按插入序淘汰最旧一条。
         """
         now = self._clock()
-        for stale_key in [
-            entry_key for entry_key, (at, future) in self._entries.items() if future.done() and now - at >= self._ttl
-        ]:
-            self._entries.pop(stale_key, None)
+        if self._entries:
+            oldest = next(iter(self._entries))
+            if now - self._entries[oldest][0] >= self._ttl:
+                for stale_key, (at, entry_future) in list(self._entries.items()):
+                    if now - at < self._ttl:
+                        break
+                    if entry_future.done():
+                        self._entries.pop(stale_key, None)
         existing = self._entries.get(key)
         if existing is not None:
             return existing[1], False
         if len(self._entries) >= self._max_entries:
-            completed = [k for k, (_, future) in self._entries.items() if future.done()]
-            # dict 保插入序 ⇒ `completed` 的首项就是「已完成里最旧的一条」。
-            victim = completed[0] if completed else next(iter(self._entries))
+            # 只找**第一条**已完成项就够，不必先把已完成的全集建出来。
+            victim = next((k for k, (_, future) in self._entries.items() if future.done()), None)
+            if victim is None:
+                victim = next(iter(self._entries))
             self._entries.pop(victim, None)
             # 只记 project_id 与 reason：``request_id`` 是客户端的不透明键，不进日志（同 ack 不回显）。
             logger.debug("%s project_id=%s reason=capacity entries=%d", _EVENT_EVICTED, victim[0], len(self._entries))
