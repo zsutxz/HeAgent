@@ -494,6 +494,8 @@ class SessionStore:
         # FIFO 淘汰最旧一条（列表页有条数硬上限，1024 足够覆盖；进程内多线程仅 get/set，
         # GIL 原子性足够）。
         self._meta_cache: dict[tuple[str, int, int], SessionMetadata] = {}
+        # 备忘录是否已经饱和过（饱和说明会话总数 > 上限）：只告警一次，避免列表轮询刷屏。
+        self._meta_cache_saturated = False
 
     async def prune(self, retention_days: int, *, min_interval_seconds: int = 0) -> int:
         """按 mtime 回收过期会话文件，返回删除数（``retention_days <= 0`` 禁用）。
@@ -706,6 +708,15 @@ class SessionStore:
             while len(self._meta_cache) > _META_CACHE_MAX_ENTRIES:
                 # FIFO 淘汰最旧一条，而不是整表 clear()：清空会让下一轮列表把上千份会话
                 # （含大会话只读头部的那些）重新解析一遍，形成一次冷启动尖峰。
+                if not self._meta_cache_saturated:
+                    # 饱和 = 会话总数超过了上限，被挤掉的尾部每轮都会重新解析：这是一次**可观测**
+                    # 的性能拐点，只告警一次（列表页轮询会把逐轮告警刷成噪声）。
+                    self._meta_cache_saturated = True
+                    logger.warning(
+                        "session event=metadata_memo_saturated entries=%d dir=%s",
+                        _META_CACHE_MAX_ENTRIES,
+                        self._base,
+                    )
                 self._meta_cache.pop(next(iter(self._meta_cache)))
         entries.sort(key=lambda item: (item.timestamp, item.session_id), reverse=True)
         return entries[:limit]

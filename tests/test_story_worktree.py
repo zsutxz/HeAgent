@@ -146,6 +146,7 @@ async def test_conflicting_story_commit_aborts_and_fails_loudly(repo: Path) -> N
     refs = _git(repo, "for-each-ref", "--format=%(refname)", "refs/heagent/")
     assert story_ref("goal-1-s1") in refs, "失败必须保留临时引用（story 提交的 gc 锚点）"
     assert str(story_ref("goal-1-s1")) in str(excinfo.value), "报错必须写明引用保留，指明回收路径"
+    assert "drop_story_ref" in str(excinfo.value), "报错还要给出「放弃该 story」的显式回收口"
 
 
 async def test_retry_after_conflict_reuses_the_retained_ref_and_recovers_the_commit(repo: Path) -> None:

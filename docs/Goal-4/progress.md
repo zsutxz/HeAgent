@@ -114,6 +114,17 @@
   台账：A77 / A78 迁 `retrospective-all-cycles.md` §三「本轮闭合（2026-11-27 …）」，活动项 5 → 3，
   三处计数同步；`tests/test_deferred_id_registry.py` 8 passed。
 
+- 2026-11-27 **审查剩余 Low 收口**（用户指令「2」= 处理未落地的 Low）：**Low 8** 静态资源 ETag 命中
+  判定抽成 `_etag_matches`，按 RFC 9110 §13.1.2 认多值列表 / `W/` 弱校验符 / `*`（原先整串比较 ⇒
+  CDN / 代理改写 ETag 会静默失去 304）；**Low 2** 会话备忘录首次**饱和**打一条
+  `session event=metadata_memo_saturated entries=1024 dir=…`（WARNING，只打一次）——饱和 = 会话数已超
+  上限、被挤掉的尾部每轮重解析，是性能拐点而不是错误，此前完全不可见；**Low 7** `promote_story_commit`
+  的冲突报错补「放弃 story 时用 `drop_story_ref` 回收」的显式出口。**Low 1 不改代码**：探测失效需要
+  `submit_timeout ≥ ttl`（现默认 30s < 60s），且退化后代价是 ≤256 条 dict 扫描（微秒级），docstring 已把
+  耦合写死。判据：`tests/network/test_http_server.py`（新增 2 例：命中三形态 / 不命中四形态）、
+  `tests/test_session.py::test_memo_saturation_warns_exactly_once`、
+  `tests/test_story_worktree.py`（冲突报错断言补 `drop_story_ref`）；前两条各做变异自证（注入后转红、复原转绿）。
+
 ## 交接块（下一轮入口）
 
 - 下一条：**无** —— E77 三条 entry 全部 `done`、epic 容器 `status: done`，Goal-4 合计 4 epic / 20 entry 全 done。

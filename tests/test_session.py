@@ -418,6 +418,25 @@ class TestListMetadataMemo:
         assert calls["n"] == 3
         assert len(store._meta_cache) == 2  # 淘汰到上限，而不是 clear() 归零
 
+    def test_memo_saturation_warns_exactly_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """饱和（会话数 > 上限）= 可观测的性能拐点：只告警一条，列表轮询不得刷屏。"""
+        import heagent.context.session as session_mod
+
+        monkeypatch.setattr(session_mod, "_META_CACHE_MAX_ENTRIES", 2)
+        store = _store(tmp_path)
+        for name in ("aaa", "bbb", "ccc"):
+            store.save(name, _msgs("hi"))
+
+        with caplog.at_level("WARNING", logger="heagent.context.session"):
+            assert len(store.list_metadata()) == 3
+            store.list_metadata()  # 第二轮仍饱和，但不再告警
+
+        saturated = [rec.getMessage() for rec in caplog.records if "metadata_memo_saturated" in rec.getMessage()]
+        assert len(saturated) == 1, saturated
+        assert "entries=2" in saturated[0]
+
     def test_rename_and_delete_refresh(self, tmp_path: Path) -> None:
         store = _store(tmp_path)
         store.save("aaa", _msgs("hi"))

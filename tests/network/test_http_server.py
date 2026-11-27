@@ -128,6 +128,32 @@ class TestStaticPage:
         assert second.headers["etag"] == etag
         assert second.headers["cache-control"] == "no-cache"
 
+    async def test_if_none_match_accepts_multi_value_weak_and_wildcard(self, client: httpx.AsyncClient) -> None:
+        """RFC 9110 §13.1.2：多值列表 / `W/` 弱校验符 / `*` 都算命中。
+
+        弱形态必须认：GET 用弱比较合法，而 CDN / 反向代理 / 压缩层可能把强 ETag 改写成 `W/"…"`，
+        死认整串等于让这些部署静默失去 304（2026-11-27 审查 Low 8）。
+        """
+        first = await client.get("/app.js")
+        etag = first.headers["etag"]
+
+        for header in (f'"stale", {etag}', f"W/{etag}", "*"):
+            response = await client.get("/app.js", headers={"if-none-match": header})
+
+            assert response.status_code == 304, header
+            assert response.content == b""
+
+    async def test_if_none_match_misses_on_unrelated_or_blank_headers(self, client: httpx.AsyncClient) -> None:
+        """不命中时仍回 200 全量正文（宽松解析不得变成恒 304）。"""
+        first = await client.get("/app.js")
+        etag = first.headers["etag"]
+
+        for header in ('"nope"', '"nope", "also-nope"', " ", 'W/"nope"'):
+            response = await client.get("/app.js", headers={"if-none-match": header})
+
+            assert response.status_code == 200, header
+            assert response.headers["etag"] == etag
+
     async def test_page_renders_text_without_html_injection(self, client: httpx.AsyncClient) -> None:
         """页面脚本必须用 textContent/createTextNode 渲染不可信内容，绝不写 innerHTML。"""
         script = (await client.get("/app.js")).text

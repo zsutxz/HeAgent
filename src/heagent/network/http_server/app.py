@@ -88,15 +88,33 @@ def _attach_metrics(source: Any | None) -> RequestMetrics:
     return metrics
 
 
+def _etag_matches(header: str | None, etag: str) -> bool:
+    """``If-None-Match`` 是否命中本资源：按 RFC 9110 §13.1.2 解析，不做整串比较。
+
+    支持三种合法形态：``*``（任何实体都算命中）、逗号分隔的多值列表、``W/"…"`` 弱校验符。
+    弱校验符必须认：``GET`` 用弱比较是合法的（不要求字节级同一），而中间层（CDN / 反向代理 /
+    压缩层）完全可能把强 ETag 改写成弱形态 —— 死认整串等于让这些部署静默失去 304。
+    """
+    if not header:
+        return False
+    for candidate in header.split(","):
+        value = candidate.strip()
+        if value == "*":
+            return True
+        if value.startswith("W/"):
+            value = value[2:].strip()
+        if value == etag:
+            return True
+    return False
+
+
 def _asset_response(responses: Any, name: str, request: Any) -> Any:
     """读包内静态资源并回响应；资源缺失（如 wheel 漏打）时回稳定 500，不吐 traceback。
 
     ``ETag`` 取内容摘要，``If-None-Match`` 命中回 304：``cache-control: no-cache`` 的口径不变
-    （每次都要回源校验），但校验通过时不再重传整份页面 / JS / CSS。
-
-    比对是**整串精确相等**（RFC 9110 允许的「多值列表」「``W/`` 弱校验符」都不命中，退化成 200）：
-    浏览器拿到强 ETag 会原样回送，这条够用；代价是资源每次都要读一次并算一次摘要（省的是带宽，
-    不是服务端 I/O）。哪天前面挂了会改写 ETag 的代理，304 会静默失效——那不是回归，是本函数的边界。
+    （每次都要回源校验），但校验通过时不再重传整份页面 / JS / CSS。命中判定见 :func:`_etag_matches`
+    （多值 / 弱校验符 / ``*`` 都认）；代价是资源每次都要读一次并算一次摘要——省的是带宽，不是
+    服务端 I/O。
     """
     try:
         payload = read_web_asset(name)
@@ -110,7 +128,7 @@ def _asset_response(responses: Any, name: str, request: Any) -> Any:
         )
     etag = f'"{hashlib.sha256(payload).hexdigest()[:16]}"'
     headers = {"cache-control": "no-cache", "etag": etag}
-    if request.headers.get("if-none-match") == etag:
+    if _etag_matches(request.headers.get("if-none-match"), etag):
         return responses.Response(status_code=304, headers=headers)
     return responses.Response(payload, media_type=_WEB_ASSETS[name], headers=headers)
 

@@ -127,8 +127,9 @@ async def promote_story_commit(repo_root: str | Path, story_id: str, *, commit: 
             with contextlib.suppress(WorktreeError):
                 await _git(repo_root, "cherry-pick", "--abort")
             raise WorktreeError(
-                f"{exc}; story commit stays pinned at {ref} - resolve the conflict and rerun "
-                "the story (update-ref recreates it idempotently)"
+                f"{exc}; story commit stays pinned at {ref} - resolve the conflict and rerun the "
+                f"story (update-ref recreates it idempotently), or abandon the story and release the "
+                f"anchor with goal/worktree.drop_story_ref(repo_root, {story_id!r})"
             ) from exc
         with contextlib.suppress(WorktreeError):
             await _git(repo_root, "update-ref", "-d", ref)
