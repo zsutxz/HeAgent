@@ -21,8 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / ".heagent" / "skills"
 THRESHOLD = 0.3
 
-#: 仓库内必须能被自然语言命中的技能 → 一条代表性提示词（triggers 命中即 1.0）。
-AUTO_MATCH_CASES = {
+#: 已废弃能力 → 一条「本该命中」的代表性提示词。`/goal` 工作流已废弃，其技能必须**不**进自动匹配索引
+#: （`meta.yaml` 的 `model_invocable: false`，`skill_catalog.py` 据此跳过），否则每轮提示词都可能
+#: 白注入 5 KB 量级的废弃工作流契约。
+DEPRECATED_SKILLS = {
     "he-goal": "我要做一个完整的项目，从需求到交付",
 }
 
@@ -31,13 +33,20 @@ def _matches(prompt: str) -> set[str]:
     return {m.name for m in SkillStore(str(SKILLS_DIR)).match_skill_details(prompt, THRESHOLD)}
 
 
-@pytest.mark.parametrize(("skill_id", "prompt"), sorted(AUTO_MATCH_CASES.items()))
-def test_tracked_skill_is_matched_by_its_natural_language_prompt(skill_id: str, prompt: str) -> None:
-    """缺 `triggers` 的技能在自然语言下**必然** miss（分母是 `pattern + tags` 的词元袋）。"""
-    if not (SKILLS_DIR / skill_id / "SKILL.md").is_file():
+@pytest.mark.parametrize(("skill_id", "prompt"), sorted(DEPRECATED_SKILLS.items()))
+def test_deprecated_skill_stays_out_of_the_auto_match_index(skill_id: str, prompt: str) -> None:
+    """废弃技能必须声明 `model_invocable: false`，自然语言提示词零注入。"""
+    skill_dir = SKILLS_DIR / skill_id
+    if not (skill_dir / "SKILL.md").is_file():
         pytest.skip(f"{skill_id} 不在本工作区（未跟踪的本地技能不进 CI）")
+    meta = skill_dir / "meta.yaml"
+    if not meta.is_file():
+        pytest.skip(f"{skill_id} 没有 meta.yaml（默认 model_invocable=true）")
 
-    assert skill_id in _matches(prompt), f"{skill_id} 未被自然语言命中（triggers 缺失或写错？）"
+    assert "model_invocable: false" in meta.read_text(encoding="utf-8"), (
+        f"{skill_id} 已废弃，必须在 meta.yaml 声明 model_invocable: false，否则会被自然语言自动注入"
+    )
+    assert skill_id not in _matches(prompt), f"{skill_id} 不该被自动匹配注入"
 
 
 @pytest.mark.parametrize(
