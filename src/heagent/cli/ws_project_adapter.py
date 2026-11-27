@@ -23,7 +23,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Final, Literal
+import contextlib
+from typing import TYPE_CHECKING, Final, Literal, TypeVar
 
 from heagent.cli.ws_submission_cache import SubmissionCache, SubmissionKey
 from heagent.network.http_console_protocol import ConsoleOperationError, ProjectRunRequest
@@ -32,7 +33,7 @@ from heagent.network.ws_protocol import ProjectChannelEntry, SubmittedRun, WsPro
 from heagent.pub.projects import ProjectRegistryError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from heagent.network.http_console_protocol import ConsoleHandler
 
@@ -41,6 +42,8 @@ RegistryState = Literal["ok", "unreadable"]
 
 # 「超时是实现方义务」的本实现方默认上界（秒）；提交链含配置求解，给足余量；测试注入小值。
 DEFAULT_SUBMIT_TIMEOUT_SECONDS: Final[float] = 30.0
+
+_ResultT = TypeVar("_ResultT")
 
 
 def _conflict(error: ConsoleOperationError | ProjectRegistryError) -> HttpRunConflictError:
@@ -120,17 +123,43 @@ class ProjectChannelAdapter:
             future.set_result(result)
         return result
 
+    async def _bounded(self, call: Awaitable[_ResultT], *, what: str, outcome_unknown: bool = False) -> _ResultT:
+        """把一次控制台调用包在构造期上界里；**超时只由本方法判定**（A77）。
+
+        用 ``asyncio.wait`` 而不是 ``wait_for``：``wait_for`` 自己的超时与内层代码自抛的超时都是
+        内置 ``TimeoutError``，两者不可区分 ⇒ 「控制台里的 HTTP 客户端超时」会被重写成这里
+        30s 的话术，排障时会去查一个根本没生效的上界。``wait`` 只回答「任务在期限内结束了吗」：
+        pending 才是本方法的时间到；done 就用 ``task.result()`` 把内层异常**原样**抛出去（含
+        ``TimeoutError``，由连接骨架收敛成 ``server_error``——与本模块「不认识的异常不漏译」
+        同一立场，不替控制台编造一个码）。
+        """
+        task: asyncio.Task[_ResultT] = asyncio.ensure_future(call)
+        try:
+            _, pending = await asyncio.wait({task}, timeout=self._submit_timeout)
+        except asyncio.CancelledError:
+            # 外层（连接 / 合流者）被取消：连内层一起取消，不留孤儿提交任务。
+            task.cancel()
+            raise
+        if not pending:
+            return task.result()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        detail = "; outcome unknown" if outcome_unknown else ""
+        raise HttpRunConflictError(
+            f"{what} did not complete within {self._submit_timeout:g}s{detail}",
+            code=HttpErrorCode.TIMEOUT,
+        )
+
     async def _submit(self, project_id: str, prompt: str) -> SubmittedRun:
         """一次**真实**提交（幂等窗口之外的那一半）：健康守卫 + 上界兜底的控制台调用 + 收窄。"""
         await self._guard_registry(project_id)
         try:
-            response = await asyncio.wait_for(
+            response = await self._bounded(
                 self._console.start_project_run(project_id, ProjectRunRequest(prompt=prompt)),
-                timeout=self._submit_timeout,
+                what="the project run submission",
+                outcome_unknown=True,
             )
-        except TimeoutError as exc:
-            msg = f"the project run submission did not complete within {self._submit_timeout:g}s; outcome unknown"
-            raise HttpRunConflictError(msg, code=HttpErrorCode.TIMEOUT) from exc
         except (ConsoleOperationError, ProjectRegistryError) as exc:
             raise _conflict(exc) from exc
         return SubmittedRun(run_id=response.run_id, status=response.status)
@@ -141,10 +170,7 @@ class ProjectChannelAdapter:
         """
         await self._guard_registry(project_id)
         try:
-            await asyncio.wait_for(self._console.check_project(project_id), timeout=self._submit_timeout)
-        except TimeoutError as exc:
-            msg = f"the project availability probe did not complete within {self._submit_timeout:g}s"
-            raise HttpRunConflictError(msg, code=HttpErrorCode.TIMEOUT) from exc
+            await self._bounded(self._console.check_project(project_id), what="the project availability probe")
         except (ConsoleOperationError, ProjectRegistryError) as exc:
             raise _conflict(exc) from exc
         return project_id

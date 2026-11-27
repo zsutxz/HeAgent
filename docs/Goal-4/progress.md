@@ -105,6 +105,15 @@
   门禁：`ruff` / `ruff format --check` / `mypy` 净、9 个测试面 `292 passed`、契约快照五份 `[OK]`、
   `mkdocs --strict` 0 WARNING、台账守卫 8 passed；**未 push**。
 
+- 2026-11-27 **A77 / A78 当轮闭合**（用户指令「2 3」= 直接动手这两条）：**A77** 上界仲裁从
+  `asyncio.wait_for` 改为 `_bounded` 的 `asyncio.wait`（pending 才判 `timeout` 码，内层 `TimeoutError`
+  原样透传 ⇒ 骨架 `server_error`），行数预算 150 → 180 并写明理由；**A78** `cpolar_publish.py` 新增
+  TCP 活性闸门 `verified_address`（管理面与 `--address` 免探，其余回退来源连不上即拒写、退出码 1；
+  `watch` 不过闸门不前进游标）。判据：`tests/test_ws_project_adapter.py` 41 passed（新增 1 例内层超时
+  不代译）、`tests/test_cpolar_publish.py` 12 passed（新文件）；两条各做变异自证（注入后转红、复原转绿）。
+  台账：A77 / A78 迁 `retrospective-all-cycles.md` §三「本轮闭合（2026-11-27 …）」，活动项 5 → 3，
+  三处计数同步；`tests/test_deferred_id_registry.py` 8 passed。
+
 ## 交接块（下一轮入口）
 
 - 下一条：**无** —— E77 三条 entry 全部 `done`、epic 容器 `status: done`，Goal-4 合计 4 epic / 20 entry 全 done。

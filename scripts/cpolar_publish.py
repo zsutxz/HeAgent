@@ -12,6 +12,9 @@
    ``.heagent/tmp/cpolar-remote-addr.txt`` → ④ ``%LOCALAPPDATA%\\cpolar\\tunnel*.log`` 的 ``Forwarding`` 行。
    3.3.12 的日志只吐控制通道 debug 行（``Pong from Switch Server`` 只能证明 authtoken 有效、控制通道在线），
    **隧道地址常常不在日志里** ⇒ 只认日志会把已建好的隧道判成「没起来」（当日三次假阴性）。
+   非管理面来源（②③④）在**回填前**还要过一道活性闸门：探一次 TCP，连不上就当死地址拒绝写入
+   （退出码 1；`--address` 显式给可跳过）。隧道改协议 / 地址轮换后旧文件仍留着死地址，
+   没有这道闸门就会把 App 指向一个连不上的端点（A78，2026-11-27）。
 
 用法（在仓库根、Windows 宿主）：
   .venv\\Scripts\\python.exe scripts\\cpolar_publish.py                    # 打印当前公网地址
@@ -32,6 +35,7 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -53,6 +57,9 @@ ADMIN_API_PORTS = (9200, 4040)
 ADDRESS_SHAPE = re.compile(r"^\S+:\d{1,5}$")
 FORWARDING = re.compile(r"Forwarding\s+\S+://(\S+:\d{1,5})")
 ANY_TUNNEL = re.compile(r"tcp://([^\s\"]+:\d{1,5})")
+
+#: 权威地址来源的标签：与 `cpolar_tunnel.ps1` / `cpolar_selftest.ps1` 的回读次序一致（管理面优先）。
+_SOURCE_ADMIN = "本地管理面 /api/tunnels"
 
 CONTAINER = "aihome-android-verify"
 ADB_SERIAL = "host.docker.internal:7555"
@@ -172,7 +179,7 @@ def address_from_log() -> str | None:
 def public_address() -> tuple[str, str] | None:
     """按「管理面 → 地址文件 → 预留地址 → 隧道日志」回读，返回 (host:port, 来源)。"""
     sources = (
-        ("本地管理面 /api/tunnels", address_from_admin_api),
+        (_SOURCE_ADMIN, address_from_admin_api),
         ("cpolar-address.txt", lambda: address_from_file(ADDRESS_FILE)),
         ("预留地址", lambda: address_from_file(RESERVED_FILE)),
         ("隧道日志", address_from_log),
@@ -182,6 +189,32 @@ def public_address() -> tuple[str, str] | None:
         if value:
             return value, label
     return None
+
+
+def probe_reachable(address: str, timeout: float = 3.0) -> bool:
+    """对 ``host:port`` 做一次 TCP 连接探测；连不上（含超时 / 解析失败）一律 ``False``。"""
+    host, _, port = address.partition(":")
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def verified_address(address: str, source: str, *, explicit: bool = False) -> bool:
+    """回填前的活性闸门（A78）：只有被证明「活着」或由用户显式指定的地址才许写进 App。
+
+    管理面 ``/api/tunnels`` 是权威来源（隧道活着才列出 public_url）⇒ 免探。其余三个回退来源
+    都可能拿到上一次运行留下的死地址（隧道改协议、地址轮换、管理面没起来），而付费档的预留
+    地址又常常长期不变 ⇒ 探一次 TCP 再把关，比事后排查「App 连不上」便宜得多。
+    """
+    if explicit or source == _SOURCE_ADMIN:
+        return True
+    if probe_reachable(address):
+        log(f"[ok] {source} 的地址 TCP 可达")
+        return True
+    log(f"[warn] {source} 的地址 TCP 不可达：可能是上一次运行留下的死地址，拒绝回填（确认无误时用 --address 显式给）")
+    return False
 
 
 # ── 隧道生命周期（起隧道统一委托给 cpolar_tunnel.ps1）──
@@ -329,13 +362,22 @@ def report_san(address: str) -> None:
 
 
 # ── 入口 ──
-def publish(address: str, source: str, apply: bool, check_san: bool) -> int:
+def publish(address: str, source: str, apply: bool, check_san: bool, *, explicit: bool = False) -> int:
+    """打印 / 回填一个公网地址；``apply`` 时先过活性闸门，死地址一律不写（退出码 1）。
+
+    只打印（不带 ``--apply``）时死地址只给 WARNING、仍回 0——此时没有任何副作用，拦下来反而
+    妨碍「先把地址看一眼」的用法。
+    """
     url = f"wss://{address}"
     log(f"[ok] 公网地址 {url}（来源：{source}）")
     if check_san:
         report_san(address)
     if not apply:
+        # 只打印时死地址只给 WARNING（没有任何副作用），不改变退出码。
+        verified_address(address, source, explicit=explicit)
         return 0
+    if not verified_address(address, source, explicit=explicit):
+        return 1
     try:
         apply_to_app(url)
     except (RuntimeError, subprocess.SubprocessError) as error:
@@ -358,7 +400,7 @@ def watch(apply: bool, check_san: bool, interval: int) -> None:
             if address != last_seen:
                 log(f"[watch] 公网地址 {address}（来源：{source}）")
                 last_seen = address
-            if apply and address != last_applied:
+            if apply and address != last_applied and verified_address(address, source):
                 try:
                     apply_to_app(f"wss://{address}")  # 返回 False = 本来就是它，同样算同步完成
                     last_applied = address
@@ -392,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
         if address is None:
             log(f"[fail] --address 形状不对（要 host:port）：{args.address}")
             return 2
-        return publish(address, "--address 显式指定", args.apply, args.check_san)
+        return publish(address, "--address 显式指定", args.apply, args.check_san, explicit=True)
 
     log(f"[info] 隧道目标 {tunnel_target()}")
     found = ensure_tunnel(restart=args.restart, timeout_seconds=args.timeout)

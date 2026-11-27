@@ -940,7 +940,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | Z-D24 / A2 | Epic S1-S4 沙箱裁定 | 已闭合（裁定不实施） | [`epic-S1-S4.../deferred-work.md`](epics/epic-S1-S4-沙箱硬化周期/deferred-work.md) |
 | A25 / A26 / A27 / A28 / A33 / A37 / A38 / A39 | Epic 51 Goal/workflow 收口优化 | 已闭合 | [`epic-51.../deferred-work.md`](epics/epic-51-goal-workflow优化周期/deferred-work.md) |
 
-### 本轮闭合（2026-10-26 S-6 归一 + 2026-11-02 小步清债 + 2026-11-05 审计语义收窄；证据齐备，**不是**退役）
+### 本轮闭合（2026-10-26 S-6 归一 + 2026-11-02 小步清债 + 2026-11-05 审计语义收窄 + 2026-11-27 代码审查自审两项；证据齐备，**不是**退役）
 
 > 这些条目原先散在 `deferred-work.md` 的「仍需维护的观察」与 Epic 52 review 段里。S-6 归一时逐条核对代码，
 > 确认已被既有实现或本轮 E1 闭合。与「退役」的区别：这里有可复跑的判据，不是「不做」。
@@ -987,6 +987,11 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
   **附带发现（不另行立项）**：围栏（policy 用 RunContext 根）与工具（handler 用运行时绑定根）在二者不一致时可出现
   「围栏判 A 根、工具写 B 根」的错位窗口——当前主链路两者恒同源（loop 每 run 绑定 `run_context.workspace_root`），
   错位不可达；登记供未来改 run 上下文装配时复核。
+
+| A77 | `ws_project_adapter` 的 `except TimeoutError` 捕获面偏宽（origin=新增，2026-11-27 代码审查） | 上界仲裁由 `asyncio.wait_for` 改为 `ProjectChannelAdapter._bounded` 里的 `asyncio.wait`：**pending 才是本方法的时间到**（抛 `HttpRunConflictError(code=timeout)`），done 则 `task.result()` 把内层异常**原样**抛出（含控制台自抛的 `TimeoutError`，由连接骨架收敛成 `server_error`），外层取消时连内层一起 cancel、不留孤儿提交任务。判据 `tests/test_ws_project_adapter.py::test_console_own_timeout_is_not_relabelled_as_the_adapter_bound`（注入内层超时 → 仍须是 `TimeoutError`、文案不得含 `did not complete within`）；变异自证：把内层超时也改写成上界文案后该例转红、复原转绿。同文件行数预算 150 → 180 并在测试 docstring 写明理由（仲裁落在适配器内，不新增 cli 子模块） |
+| A78 | cpolar 公网地址的回退分支无活性校验（origin=新增，2026-11-27 代码审查） | `scripts/cpolar_publish.py` 新增 `probe_reachable`（TCP 探测）与 `verified_address` 闸门：管理面 `/api/tunnels` 来源免探（隧道活着才列 `public_url`）、`--address` 显式给免探，其余三个回退来源回填前探一次 TCP，连不上即拒绝写入并回 `1`；`watch` 同样过闸门且不前进游标（下一轮重试）；只打印（不带 `--apply`）时死地址仅 WARNING、仍回 0。判据 `tests/test_cpolar_publish.py`（12 例：探测成功 / 失败 / 畸形地址、闸门四分支、`--apply` 拒写死地址、显式地址免探、只打印仍回 0、回填失败仍回 1）；变异自证：摘掉闸门后「拒写死地址」转红、复原转绿 |
+
+**2026-11-27 追加 2 条（A77 / A78）**：两条都出自当日代码审查（落改提交 `73f9518d` 当轮修掉 7 项，剩这两条升台账），当日修完并各自补了可复跑的判据与变异自证 ⇒ 记**闭合**而不是退役（证据在测试里，不是「不做」）。A77 的判据要点是「两个 `TimeoutError` 是同一个内置类，只能靠谁发的区分」，A78 的判据要点是「死地址一次都不许进 App 的 `websocket_endpoint`」。
 
 ### 本轮非目标（heagent-improvement-plan，2026-11-11）
 

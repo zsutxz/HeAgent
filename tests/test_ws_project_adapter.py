@@ -253,9 +253,16 @@ def test_adapter_source_has_no_filesystem_or_registry_logic() -> None:
 
 
 def test_adapter_stays_inside_its_line_budget() -> None:
+    """适配器保持「薄」：它只翻译 + 判自己那一件事，不许长成第二个控制台。
+
+    2026-11-27 A77 把上界判定的归属做对（`asyncio.wait` 区分「本方法超时」与「内层自抛超时」），
+    这段仲裁从 `wait_for` 的一行变成 ~26 行 ⇒ 预算 150 → 180。刻意就地加而不是抽公共模块：
+    它知道的是**本适配器**的 `submit_timeout` 与 `timeout` 码，抽出去要为一个函数新建 cli 子模块
+    并同步三处布局契约，收益不抵。
+    """
     source = Path(ws_project_adapter.__file__).read_text(encoding="utf-8")
 
-    assert len(source.splitlines()) <= 150
+    assert len(source.splitlines()) <= 180
 
 
 # ── 注册表健康守卫（R5 提交径） ──
@@ -595,3 +602,37 @@ async def test_submit_timeout_shares_failure_with_joiners_and_frees_the_window()
     retry = await adapter.start_project_run(_PROJECT_ID, "hi", "req-1")
     assert retry.run_id == "run-0001"
     assert _start_calls(console) == 2, "失败已移出窗口，同键重试是真提交"
+
+
+# ── A77：内层自抛的超时不得被改写成本实现方的上界文案 ──
+
+
+class _InnerTimeoutConsole(_FakeConsole):
+    """控制台**自己**抛超时（不是适配器的上界）：两种调用各一处，用来钉 A77。"""
+
+    async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:
+        self.calls.append(("start_project_run", (project_id, request)))
+        raise TimeoutError("console http client timed out")
+
+    async def check_project(self, project_id: str) -> None:
+        self.calls.append(("check_project", project_id))
+        raise TimeoutError("console probe timed out")
+
+
+async def test_console_own_timeout_is_not_relabelled_as_the_adapter_bound() -> None:
+    """A77：内层 ``TimeoutError`` 原样透传（骨架收敛成 ``server_error``），不得变成 ``timeout`` 码。
+
+    两个 ``TimeoutError`` 是同一个内置类（``asyncio.TimeoutError`` 就是它），所以判据只能靠
+    「谁发的」：``wait_for`` 分不出来、``asyncio.wait`` 分得出来（pending = 本方法的时间到）。
+    """
+    adapter = _adapter(_InnerTimeoutConsole(), submit_timeout=5.0)  # 上界远大于内层超时
+
+    with pytest.raises(TimeoutError) as submit_exc:
+        await adapter.start_project_run(_PROJECT_ID, "hi")
+    assert not isinstance(submit_exc.value, HttpRunConflictError), "内层超时不得被包装成冲突/超时帧码"
+    assert "did not complete within" not in str(submit_exc.value), "不得复用上界文案（会指向没生效的 30s）"
+
+    with pytest.raises(TimeoutError) as probe_exc:
+        await adapter.ensure_available(_PROJECT_ID)
+    assert not isinstance(probe_exc.value, HttpRunConflictError)
+    assert "did not complete within" not in str(probe_exc.value)
