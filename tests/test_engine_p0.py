@@ -116,6 +116,31 @@ class TestPolicyEngine:
         assert verdict.allowed is False
         assert "allowlist" in verdict.reason
 
+    def test_policy_allowlist_hints_closest_name(self, workspace_dir: Path) -> None:
+        """白名单阻断回执附近似名建议：模型幻觉简写名（read）时能凭回执自纠到正名（file_read）。"""
+        policy = PolicyEngine(
+            workspace_root=str(workspace_dir),
+            allowed_tools=["file_read", "file_search", "content_search"],
+        )
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="1", name="read", arguments={"path": "a.md"}),
+            context=RunContext(workspace_root=str(workspace_dir)),
+        )
+        assert verdict.allowed is False
+        assert "not in the policy allowlist" in verdict.reason
+        assert "file_read" in verdict.reason
+
+    def test_policy_allowlist_no_hint_without_close_match(self, workspace_dir: Path) -> None:
+        """无近似名（完全无关的名字）时不给建议，避免误导模型。"""
+        policy = PolicyEngine(workspace_root=str(workspace_dir), allowed_tools=["shell"])
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="1", name="zzzqqq", arguments={}),
+            context=RunContext(workspace_root=str(workspace_dir)),
+        )
+        assert verdict.allowed is False
+        assert "allowlist" in verdict.reason
+        assert "Closest" not in verdict.reason
+
     def test_policy_block_logs_warning(self, workspace_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
         """BLOCKED 裁决落 warning（拦截轨迹可观测，事后可审计）。"""
         policy = PolicyEngine(workspace_root=str(workspace_dir), blocked_tools=["shell"])

@@ -34,6 +34,7 @@ policy **不是安全边界**（围栏可被绕过），须 OS 级沙箱兜底�
 
 from __future__ import annotations
 
+import difflib
 import logging
 from enum import StrEnum
 from pathlib import Path
@@ -191,9 +192,12 @@ class PolicyEngine:
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
             return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="sandbox_mode")
 
-        # 1) 白名单：设了白名单且工具不在其中 → 阻断。
+        # 1) 白名单：设了白名单且工具不在其中 → 阻断。回执附近似名建议（difflib，stdlib）：
+        #    模型偶发幻觉/简写工具名时能凭回执自纠到正名；无近似名时不建议，避免误导。
         if self.allowed_tools is not None and call.name not in self.allowed_tools:
             reason = f"Tool '{call.name}' is not in the policy allowlist."
+            if closest := difflib.get_close_matches(call.name, sorted(self.allowed_tools), n=1):
+                reason += f" Closest allowlisted name: '{closest[0]}'."
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
             return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="allowed_tools")
 
